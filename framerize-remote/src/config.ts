@@ -19,8 +19,8 @@ function isListenHost(host: string): boolean {
 
 export interface RemoteConfig {
   readonly remote: string;
-  readonly serverToken: CredentialReference;
-  readonly localToken: CredentialReference;
+  readonly serverToken?: CredentialReference;
+  readonly localToken?: CredentialReference;
   readonly host: string;
   readonly port: number;
   readonly inferenceTimeoutMs: number;
@@ -30,8 +30,8 @@ export interface RemoteConfig {
 
 export interface PersistedConfig {
   readonly remote: string;
-  readonly serverToken: CredentialReference;
-  readonly localToken: CredentialReference;
+  readonly serverToken?: CredentialReference;
+  readonly localToken?: CredentialReference;
   readonly host?: string;
   readonly port?: number;
   readonly inferenceTimeoutMs?: number;
@@ -47,6 +47,8 @@ function isReference(value: unknown): value is CredentialReference {
   const ref = value as Record<string, unknown>;
   if (ref.kind === 'env') return typeof ref.name === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(ref.name);
   if (ref.kind === 'file') return typeof ref.path === 'string' && ref.path.length > 0 && !/[\x00-\x1f\x7f]/.test(ref.path);
+  if (ref.kind === 'value') return typeof ref.value === 'string' && ref.value.length <= 8192
+    && /^[A-Za-z0-9._~+/-]+=*$/.test(ref.value);
   return false;
 }
 
@@ -72,7 +74,7 @@ export function parsePersisted(value: unknown): PersistedConfig {
     throw new ConfigValidationError('listen_invalid', 'configuration port must be between 0 and 65535');
   }
   if (typeof raw.remote !== 'string') throw new Error('configuration remote must be a string');
-  if (!isReference(raw.serverToken)) throw new ConfigValidationError('server_reference', 'configuration serverToken reference is invalid');
-  if (!isReference(raw.localToken)) throw new ConfigValidationError('local_reference', 'configuration localToken reference is invalid');
+  if (raw.serverToken !== undefined && !isReference(raw.serverToken)) throw new ConfigValidationError('server_reference', 'configuration serverToken reference is invalid');
+  if (raw.localToken !== undefined && !isReference(raw.localToken)) throw new ConfigValidationError('local_reference', 'configuration localToken reference is invalid');
   return raw as unknown as PersistedConfig;
 }

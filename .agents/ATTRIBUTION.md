@@ -29,6 +29,9 @@ under the same MIT License:
   `file:` dependencies instead of pnpm, and reports `source`, `packages` and
   `server` gates. Rust, mobile, web, release-smoke, test-package lists and
   T3's extra-owner tables are omitted.
+  `BUILD_ONLY_DEPS` has a different role here: T3 excludes those dependency
+  edges from its affected-package walk. Framerize adds Core as a Server
+  dependency because Server bundles Core, so Core changes also select Server.
 - `.github/actions/ci-changes/action.yml` adapts the matching composite action.
   Pushes and manual runs pass `--full` without fetching a base commit.
 - `.github/workflows/ci.yml` adapts the `changes` job and the required `Check`

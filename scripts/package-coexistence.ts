@@ -100,27 +100,34 @@ export function checkPackageCoexistence(tarballs: readonly string[]) {
       writeFileSync(snapshot, bytes);
       const archive = readPackageArchive(snapshot);
       const manifest = manifestOf(archive.get('package/package.json')!);
-      return { file, snapshot, manifest, archive, sha256: hash(snapshot), launcher: '', files: [] as string[] };
+      const command = manifest.name === 'framerize-remote' ? 'frm' : manifest.name;
+      return { file, snapshot, manifest, archive, command, sha256: hash(snapshot), launcher: '',
+        executables: {} as Record<string, string>, files: [] as string[] };
     });
     assert.deepEqual(packages.map(({ manifest }) => manifest.name).sort(), names,
       'expected one Remote and one server package');
     for (const entry of packages) {
-      const { manifest, archive } = entry;
-      assert.deepEqual(Object.keys(manifest.bin || {}), [manifest.name], 'unexpected executable name');
-      const executable = manifest.bin[manifest.name];
-      assert.equal(typeof executable, 'string', 'Invalid executable path');
-      const launcher = (executable as string).replace(/^\.\//, '');
-      assert.equal(launcher, `bin/${manifest.name}.js`, 'unexpected executable path');
-      entry.launcher = launcher;
+      const { manifest, archive, command } = entry;
+      const commands = Object.keys(manifest.bin);
+      assert.ok(commands.includes(command) && commands.every(name => name === command || name === manifest.name),
+        'unexpected executable name');
       entry.files = [...archive.keys()];
-      assert.ok(entry.files.includes(`package/${launcher}`), 'launcher missing from tarball');
+      for (const name of commands) {
+        const executable = manifest.bin[name];
+        assert.equal(typeof executable, 'string', 'Invalid executable path');
+        const launcher = (executable as string).replace(/^\.\//, '');
+        assert.match(launcher, /^bin\/[\w-][\w.-]*\.js$/, 'unexpected executable path');
+        assert.ok(entry.files.includes(`package/${launcher}`), 'launcher missing from tarball');
+        entry.executables[name] = launcher;
+      }
+      entry.launcher = entry.executables[command]!;
     }
     writeFileSync(path.join(directory, 'package.json'), '{"private":true}');
     runNpm(['install', '--offline', '--ignore-scripts', '--no-audit', '--no-fund',
       ...packages.map(({ snapshot }) => snapshot)]);
     const results = [];
     const launchers = [];
-    for (const { file, archive, manifest, sha256, launcher, files } of packages) {
+    for (const { file, archive, manifest, command, sha256, launcher, executables, files } of packages) {
       const installed = path.join(directory, 'node_modules', manifest.name);
       const executable = path.join(installed, launcher);
       launchers.push(realpathSync(executable));
@@ -134,18 +141,30 @@ export function checkPackageCoexistence(tarballs: readonly string[]) {
         const relative = member.slice('package/'.length);
         const expected = archive.get(member)!;
         const actual = readFileSync(path.join(installed, relative));
-        assert.deepEqual(actual, installedBytes(expected, relative === launcher),
+        assert.deepEqual(actual, installedBytes(expected, Object.values(executables).includes(relative)),
           `${manifest.name}/${relative} differs from the tarball`);
       }
       const link = path.join(directory, 'node_modules/.bin',
-        `${manifest.name}${process.platform === 'win32' ? '.cmd' : ''}`);
+        `${command}${process.platform === 'win32' ? '.cmd' : ''}`);
       assert.ok(existsSync(link), 'installed executable missing');
       if (process.platform !== 'win32') assert.equal(realpathSync(link), realpathSync(executable));
-      const title = manifest.name === 'framerize-remote' ? /framerize-remote/ : /^Server\b/m;
+      const title = manifest.name === 'framerize-remote' ? /^frm\b/m : /^Server\b/m;
       assert.match(runNode([executable, '--help']), title);
-      assert.match(runNpm(['exec', '--offline', '--no', '--', manifest.name, '--help']), title);
+      assert.match(runNpm(['exec', '--offline', '--no', '--', command, '--help']), title);
       assert.match(runNode([path.join(path.dirname(npmCli), 'npx-cli.js'), '--offline', '--no-install',
-        manifest.name, '--help']), title);
+        command, '--help']), title);
+      for (const [alias, relative] of Object.entries(executables)) {
+        if (alias === command) continue;
+        const aliasLink = path.join(directory, 'node_modules/.bin',
+          `${alias}${process.platform === 'win32' ? '.cmd' : ''}`);
+        const aliasExecutable = path.join(installed, relative);
+        assert.ok(existsSync(aliasLink), 'installed alias missing');
+        if (process.platform !== 'win32') assert.equal(realpathSync(aliasLink), realpathSync(aliasExecutable));
+        assert.equal(runNode([aliasExecutable, 'version']).trim(), manifest.version);
+        assert.equal(runNpm(['exec', '--offline', '--no', '--', alias, 'version']).trim(), manifest.version);
+        assert.equal(runNode([path.join(path.dirname(npmCli), 'npx-cli.js'), '--offline', '--no-install',
+          alias, 'version']).trim(), manifest.version);
+      }
       if (manifest.name === 'framerize-remote') {
         assert.equal(runNode([executable, 'version']).trim(), manifest.version);
         assert.match(runNode([executable, 'setup', '--help']), /--server-token-env/);

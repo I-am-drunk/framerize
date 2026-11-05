@@ -1,3 +1,5 @@
+import { isPrivateNetworkHost } from './hostClassification.js';
+
 const RAW_ORIGIN = /^https?:\/\/[^/\\@?#\s\u0000-\u001f\u007f]+\/?$/i;
 
 export interface RemoteEndpoint {
@@ -24,8 +26,8 @@ export function parseRemoteEndpoint(value: string, allowInsecure: boolean): Remo
     throw new Error('remote endpoint must not carry a path, query, or credentials');
   }
   const loopback = isNumericLoopback(url.hostname);
-  if (url.protocol === 'http:' && !loopback && !allowInsecure) {
-    throw new Error('plain HTTP remote requires numeric loopback or explicit insecure consent');
+  if (url.protocol === 'http:' && !isPrivateNetworkHost(url.hostname) && !allowInsecure) {
+    throw new Error('plain HTTP remote requires a private address or explicit insecure consent');
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new Error('remote endpoint must use HTTP or HTTPS');

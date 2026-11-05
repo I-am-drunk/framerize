@@ -1,0 +1,116 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { execFile, spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { createServer, get } from 'node:http';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { createInterface } from 'node:readline';
+import { fileURLToPath } from 'node:url';
+
+const packageRoot = resolve(process.env.FRAMERIZE_REMOTE_PACKAGE_ROOT
+  ?? fileURLToPath(new URL('../', import.meta.url)));
+const manifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
+assert.equal(typeof manifest.bin?.frm, 'string');
+const launcher = resolve(packageRoot, manifest.bin.frm);
+
+async function state(context) {
+  const root = await mkdtemp(join(tmpdir(), 'frm-port-precedence-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const env = { HOME: root, USERPROFILE: root, TMPDIR: root, TMP: root, TEMP: root,
+    PATH: '', FRM_HOME: join(root, 'profile'), FRM_PORT: 'invalid-port',
+    FRM_REMOTE: 'http://127.0.0.1:43123', NODE_DISABLE_COMPILE_CACHE: '1' };
+  return { root, env };
+}
+
+function completed(root, env, args) {
+  return new Promise(resolve => execFile(process.execPath, [launcher, ...args],
+    { cwd: root, env, timeout: 5000, killSignal: 'SIGKILL', maxBuffer: 65536 },
+    (error, stdout, stderr) => resolve({ code: error?.code ?? 0, stdout, stderr })));
+}
+
+test('setup --port replaces an invalid FRM_PORT before validation', { timeout: 8000 }, async context => {
+  const { root, env } = await state(context);
+  const result = await completed(root, env, ['setup', '--port', '0', '--json']);
+  assert.equal(result.code, 0, result.stderr);
+  const profile = JSON.parse(await readFile(join(env.FRM_HOME, 'framerize-remote.json'), 'utf8'));
+  assert.equal(profile.port, 0);
+  assert.equal(profile.remote, env.FRM_REMOTE);
+});
+
+test('an invalid FRM_PORT still fails without an override and writes no profile',
+  { timeout: 8000 }, async context => {
+    const { root, env } = await state(context);
+    const result = await completed(root, env, ['setup', '--json']);
+    assert.equal(result.code, 1);
+    assert.match(result.stderr + result.stdout, /listen_invalid/);
+    assert.deepEqual(await readdir(root), []);
+  });
+
+function health(port) {
+  return new Promise((resolve, reject) => {
+    const request = get({ host: '127.0.0.1', port, path: '/health', agent: false,
+      signal: AbortSignal.timeout(2000) }, response => {
+      response.once('error', reject);
+      response.once('end', () => resolve(response.statusCode));
+      response.resume();
+    });
+    request.once('error', reject);
+  });
+}
+
+async function bounded(promise) {
+  let timer;
+  try { return await Promise.race([promise, new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('launcher did not settle')), 5000);
+  })]); } finally { clearTimeout(timer); }
+}
+
+test('serve --port replaces an invalid FRM_PORT and closes its real listener',
+  { timeout: 15000 }, async context => {
+    const { root, env } = await state(context);
+    const calls = [];
+    const remote = createServer((request, response) => {
+      calls.push(request.url);
+      request.resume();
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ apiVersion: 1, status: 'ready', capabilities:
+        { responses: true, chatCompletions: true, streaming: true } }));
+    });
+    context.after(async () => {
+      remote.closeAllConnections();
+      if (remote.listening) await new Promise(resolve => remote.close(resolve));
+    });
+    const listening = once(remote, 'listening');
+    remote.listen(0, '127.0.0.1');
+    await bounded(listening);
+    env.FRM_REMOTE = `http://127.0.0.1:${remote.address().port}`;
+    const child = spawn(process.execPath, [launcher, 'serve', '--port', '0', '--json'],
+      { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const closed = once(child, 'close');
+    closed.catch(() => {});
+    let errors = '';
+    child.stderr.setEncoding('utf8').on('data', text => { errors += text; });
+    context.after(async () => {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      await bounded(closed);
+    });
+    const lines = createInterface({ input: child.stdout });
+    context.after(() => lines.close());
+    const ready = (async () => {
+      for await (const line of lines) {
+        const event = JSON.parse(line);
+        if (event.listening) return event.listening.port;
+      }
+      throw new Error(`frm exited before listening: ${errors}`);
+    })();
+    const port = await bounded(ready);
+    assert.equal(await health(port), 200);
+    assert.deepEqual(calls, ['/ready']);
+    child.kill('SIGTERM');
+    assert.deepEqual(await bounded(closed), process.platform === 'win32' ? [null, 'SIGTERM'] : [0, null]);
+    await assert.rejects(health(port), { code: 'ECONNREFUSED' });
+    const entries = await readdir(root, { recursive: true, withFileTypes: true });
+    assert.ok(entries.every(entry => entry.isDirectory()));
+  });

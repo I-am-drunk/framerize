@@ -2,15 +2,15 @@ import { mkdir, mkdtemp, open, readFile, rename, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { RemoteDiagnosticError } from './diagnostics.js';
 import type { CredentialReference } from './credentials.js';
-import { isLoopbackHost, normalizeHostname } from './hostPolicy.js';
+import { normalizeHostname } from './hostPolicy.js';
 import { parseRemoteEndpoint, type RemoteEndpoint } from './remoteUrl.js';
+import { frmSettings } from './frmEnv.js';
 import {
   CONFIG_DEFAULTS, ConfigValidationError, parsePersisted, type RemoteConfig, type PersistedConfig,
 } from './config.js';
 
 function absoluteReference(reference: CredentialReference, base: string): CredentialReference {
-  return reference.kind === 'file' ? { kind: 'file', path: resolve(base, reference.path) }
-    : { kind: 'env', name: reference.name };
+  return reference.kind === 'file' ? { kind: 'file', path: resolve(base, reference.path) } : { ...reference };
 }
 
 export async function loadConfigFile(path: string): Promise<RemoteConfig> {
@@ -26,11 +26,11 @@ export async function loadConfigFile(path: string): Promise<RemoteConfig> {
   return normalizeConfig(parsePersisted(json), dirname(resolve(path)));
 }
 
-function normalizeConfig(persisted: PersistedConfig, base: string): RemoteConfig {
+export function normalizeConfig(persisted: PersistedConfig, base: string): RemoteConfig {
   return {
     remote: persisted.remote,
-    serverToken: absoluteReference(persisted.serverToken, base),
-    localToken: absoluteReference(persisted.localToken, base),
+    ...(persisted.serverToken ? { serverToken: absoluteReference(persisted.serverToken, base) } : {}),
+    ...(persisted.localToken ? { localToken: absoluteReference(persisted.localToken, base) } : {}),
     host: normalizeHostname(persisted.host ?? CONFIG_DEFAULTS.host),
     port: persisted.port ?? CONFIG_DEFAULTS.port,
     inferenceTimeoutMs: persisted.inferenceTimeoutMs ?? CONFIG_DEFAULTS.inferenceTimeoutMs,
@@ -62,11 +62,25 @@ export async function saveConfigFile(path: string, config: PersistedConfig): Pro
 
 export function resolveConfig(config: RemoteConfig): RemoteEndpoint {
   parsePersisted(config);
-  if (!isLoopbackHost(config.host) && !config.allowNonLoopback) {
-    throw new RemoteDiagnosticError('exposure_consent', 'non-loopback listen host requires explicit exposure consent');
-  }
   if (!Number.isInteger(config.port) || config.port < 0 || config.port > 65535) {
     throw new Error('listen port must be between 0 and 65535');
   }
   return parseRemoteEndpoint(config.remote, config.allowInsecureRemote);
+}
+
+/** Saved profile, then FRM_* variables. FRM_REMOTE alone runs without saving a profile. */
+export async function loadRunConfig(path: string, env: NodeJS.ProcessEnv): Promise<RemoteConfig> {
+  const settings = frmSettings(env);
+  let saved: RemoteConfig | undefined;
+  try { saved = await loadConfigFile(path); }
+  catch (error) {
+    if (!(error instanceof RemoteDiagnosticError && error.code === 'profile_missing' && settings.remote)) throw error;
+  }
+  const merged = { ...saved, ...settings };
+  if (merged.remote === undefined) throw new RemoteDiagnosticError('profile_missing');
+  try { return normalizeConfig(parsePersisted(merged), process.cwd()); }
+  catch (error) {
+    if (error instanceof ConfigValidationError) throw new RemoteDiagnosticError(error.code, error.message);
+    throw error;
+  }
 }

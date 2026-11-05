@@ -1,16 +1,15 @@
-# Framerize Remote
+# Remote
 
-A local Framerize instance. It exposes the Framerize client API on loopback and
-forwards every inference request to one configured remote Framerize server. It
-runs no inference itself and holds no accounts, Castle, or browser state.
+Remote is the `framerize-remote` package and its `frm` command. It serves the
+Framerize client API on loopback and forwards every inference request to one
+Server. It runs no inference and holds no accounts, Castle or browser state.
 
-Remote runs the shared `@framerize/core` listener. The remote server owns
-accounts, credentials, provider integration, and Castle.
+Remote runs the shared Core listener. Server owns the accounts, provider
+integration and Castle. The older `framerize-remote` command remains available.
 
-## Build this restart
+## Build from source
 
-This TypeScript restart is not published or qualified for live inference yet.
-From the repository root:
+Remote is not published to npm. From the repository root:
 
 ```sh
 npm ci --ignore-scripts
@@ -19,51 +18,172 @@ npm pack --workspace=framerize-remote --ignore-scripts
 npm install -g ./framerize-remote-0.2.0.tgz --ignore-scripts
 ```
 
-The generated package bundles the core listener. It has no runtime
-dependencies and needs no compiler or development checkout.
+The package bundles the Core listener. It has no runtime dependencies and
+needs no compiler or development checkout.
 TypeScript consumers need Node type declarations in their own development tools.
 
 ## First run
 
+Copy the link that `framerize-server up` or `framerize-server pair` printed:
+
 ```sh
-framerize-remote setup \
-  --remote https://your-server.example \
-  --server-token-file /private/framerize/server-token \
-  --local-token-file /private/framerize/local-token \
-  --start
+frm 'http://192.168.1.20:8789/pair#token=...'
 ```
 
-Use paths to credentials you already provisioned. After readiness succeeds:
+`frm LINK` is the same as `frm up LINK`. It saves the Server origin and any
+token from the link in `FRM_HOME/framerize-remote.json`, mode 0600. It checks
+Server readiness, then installs and starts the background service. Clients use
+`http://127.0.0.1:8788/v1`. A link without `#token=` is for a Server with no
+API token. `frm up ORIGIN` saves a plain origin and keeps any saved token.
 
-```text
-Profile saved.
-Remote readiness passed.
-Local API: http://127.0.0.1:8788/v1
-Stop: Ctrl+C
-```
+Running `frm` with no command and no saved profile does the same in a terminal:
+it asks for a link or address. In a terminal, `up` then offers to set up
+Claude Code or Codex. `frm up --json` prints the result and asks nothing.
 
-Ctrl+C closes the instance and prints `Stopped.`. Start the saved profile from
-any directory with `framerize-remote serve`. No service manager is required.
-If readiness fails, Remote exits without opening a listener and keeps the profile.
-Use `framerize-remote check` after fixing the server or credential references.
+`up` checks that the managed service has started its local API before reporting
+success. Before startup completes, Ctrl+C cancels the pending check or service
+command. A pending hostname lookup does not delay rollback.
+If setup fails or is cancelled, `up` attempts to restore the previous
+profile and service state. A previously stopped service stays stopped. If
+restoration fails, the error includes the original failure and reports that
+restoration is incomplete. If the profile cannot be restored, `up` does not restart
+the service with changed settings.
+Rerunning `up` with unchanged settings checks the running service without restarting
+it. Where no service manager is available, `up` saves the profile and asks you to
+keep `frm serve` running.
 
-A client then sends OpenAI-style requests to `http://127.0.0.1:8788/v1` with the
-local token; Remote replaces it with the server token and forwards to the remote.
+`FRM_REMOTE`, `FRM_HOST` and `FRM_PORT` apply to `up`. A saved port `0` becomes
+8788, because the service needs a fixed port. `FRM_SERVER_TOKEN` and
+`FRM_LOCAL_TOKEN` also apply: `up` saves their values in the profile before it
+checks readiness, so the service can use them. A token in the link takes
+precedence over `FRM_SERVER_TOKEN`.
+
+## Run in the foreground
+
+`frm serve` runs the saved profile until Ctrl+C. Without a profile, set
+variables for one run; nothing is saved:
+
+- `FRM_REMOTE`: Server origin, such as `http://100.64.0.1:8789`.
+- `FRM_SERVER_TOKEN`: token sent to Server, if Server requires one.
+- `FRM_LOCAL_TOKEN`: token local clients must send. Without it, local
+  clients connect with no `Authorization` header.
+- `FRM_HOST`, `FRM_PORT`: listen address, default `127.0.0.1:8788`.
+- `FRM_HOME`: profile directory, default `~/.framerize-remote`.
+
+If readiness fails, `serve` exits without opening a listener. Use `frm check`
+after fixing the address or token.
+
+Remote removes the local client's `Authorization` header before forwarding.
+It sends the server token instead, when one is configured.
+
+## Background service
+
+`frm up` installs and starts the service. `frm service install` does the same
+for an existing profile. The service runs `frm serve` with the profile in
+`FRM_HOME`. It is a systemd user unit `frm.service` on Linux, or the launch
+agent `dev.framerize.frm.service` on macOS.
+Other platforms report the service as unavailable; use `frm serve` there.
+
+- Install fails without a saved profile.
+- The service never reads shell variables. A profile that names a token
+  variable fails install. `frm up` saves token values instead, from a pairing
+  link or from `FRM_SERVER_TOKEN` and `FRM_LOCAL_TOKEN`.
+- One service per user. Install refuses a unit that serves another `FRM_HOME`,
+  and `start`, `stop`, `restart` and `uninstall` leave that unit unchanged.
+- systemd restarts it 5 seconds after an exit; launchd keeps it alive with a
+  5-second throttle. Output goes to `FRM_HOME/frm-service.log`.
+- On Linux, install first checks that the systemd user manager answers and
+  that lingering is on, so the service survives logout and starts at boot.
+  If lingering is off, it runs `loginctl enable-linger --no-ask-password` for
+  your user and checks again. If that fails, install stops before writing a
+  unit and prints the next step, usually `sudo loginctl enable-linger
+  "$(id -un)"` followed by `frm up`. Do not run `frm` itself with sudo.
+- `frm up` runs the same check when the service is already current and
+  running, so it repairs lingering without restarting unchanged settings.
+
+`frm service status` reports whether the unit is installed, running and matches
+the current profile. It does not report lingering. Run `frm up` or
+`frm service install` again to repair it.
+Remote never configures Tailscale Serve or Funnel. Server's `up --tailscale`
+publishes the route, and its pairing link then carries the HTTPS origin.
+
+## Coding clients
+
+`frm client claude` or `frm client codex` starts that client against the
+running Remote. Arguments after `--` pass through unchanged, such as
+`frm client codex -- --model NAME`.
+
+- Claude Code gets `ANTHROPIC_BASE_URL=<Remote>/anthropic` and the local token
+  as `ANTHROPIC_AUTH_TOKEN` for that process only. The child does not inherit
+  `ANTHROPIC_API_KEY` or the `CLAUDE_CODE_USE_BEDROCK`, `_VERTEX`, `_FOUNDRY`
+  and `_ANTHROPIC_AWS` flags; your shell keeps them. Before launch it reads the user,
+  project, local and managed Claude settings. A different base URL in a user
+  or project file is overridden with `--settings`. The launch stops and names
+  the file if a settings file sets a different auth token, an API key, a cloud
+  provider flag or `apiKeyHelper`, or if managed settings set a base URL or
+  force a login method.
+- Codex gets `-c` overrides for a `framerize` provider at
+  `<Remote>/openai/v1`. The local token stays in `FRM_LOCAL_TOKEN`.
+- `--persist` writes the Claude values to Claude's user settings.
+  `--undo` removes them only if they are unchanged since then.
+  If `settings.json` is a symlink, both edit its target and keep the link.
+  A link with no target fails before anything is written. If the settings
+  file is gone, `--undo` reports that Framerize has not written Claude
+  settings and forgets its record.
+- `--check` prints the OS, client path, version and Remote address.
+- `--config FILE` uses that profile for a launch, `--check`, `--persist` and
+  `--undo`. `--persist` keeps its undo record beside FILE, so pass the same
+  `--config` to `--undo`. If you accept the client offer after setup with a
+  non-default `--config`, it ends by printing that profile path for later
+  `frm client` commands.
+
+### Install and update
+
+If the client is not on `PATH`, a launch shows the official installer
+command: `curl ... | sh` on Linux and macOS, PowerShell on Windows. It runs
+only after you type `install`, or with `--install` or `FRM_CLIENT_INSTALL=1`.
+Without consent, or with `--no-input` or `FRM_NO_INPUT=1`, it exits with code 3.
+Other platforms get the client's download page instead.
+
+`--update` finds the updater that owns the installed client from its path.
+The options are the client's own `update` for native installs, `npm install -g`
+with the same prefix, or `bun`. It reads the installed version from
+`--version` and asks for the latest one: the Claude release channel for a
+native Claude install, otherwise `npm view`. If the client is current,
+nothing runs. Otherwise it prints the update command. In a terminal it runs
+only after you type `update`, even with `--update`, unless `--no-input` or
+`FRM_NO_INPUT=1` is set. Any other answer exits with code 3 and changes
+nothing. Without a terminal, `--update` is the consent.
+Homebrew, mise, winget, Chocolatey and unknown installs get the manual
+command or the client's docs instead, with no version check under `--update`.
+A failed lookup reports the latest version as unknown, never as current.
+
+The prompt after an interactive `frm up` checks both clients. It offers an
+install for a missing client, and an update only when a newer release is
+known. For Homebrew and Chocolatey installs it checks `brew info` or
+`choco search` and prints the manual command when a newer release exists.
+Each step needs its typed word, and it never starts a client.
+Cancelling a question after `frm up` succeeds skips the optional offer and
+keeps the successful setup result. The saved connection and service stay in place.
+`setup --start` runs the same offer after Remote starts. Ctrl+C, `SIGINT` or
+`SIGTERM` cancels a pending question and closes the foreground listener. The
+offer asks no new questions and starts no further installs or updates.
 
 ## Configuration
 
-`setup` writes `~/.framerize-remote/framerize-remote.json`. Set
-`FRAMERIZE_REMOTE_HOME` to an absolute directory to choose another location.
-An explicit `--config FILE` overrides both. Old working-directory profiles
+`up` and `setup` write `~/.framerize-remote/framerize-remote.json`. Set
+`FRM_HOME` to an absolute directory to choose another location. The older
+`FRAMERIZE_REMOTE_HOME` still works when `FRM_HOME` is unset; `FRM_HOME` wins
+when both are set. An explicit `--config FILE` overrides both. Old working-directory profiles
 remain usable with `--config /absolute/path/to/profile.json`. Existing profiles
-are not moved automatically. The profile stores
-only non-secret references: the remote URL, credential references, listen host
-and port, and the two explicit exposure flags. Tokens are never written to it.
+are not moved automatically. The profile stores the remote URL, listen host
+and port, the two explicit exposure flags and the token settings. A token from
+a pairing link is saved as its value; `setup` saves only file or variable names.
 
-An invalid `FRAMERIZE_REMOTE_HOME` reports `profile_home_invalid`. Set it to
-an absolute directory without control characters, unset it to use the default,
-or pass `--config FILE`. Use `framerize-remote help` or
-`framerize-remote --version` even when the directory setting is invalid.
+An invalid `FRM_HOME` or `FRAMERIZE_REMOTE_HOME` reports `profile_home_invalid`.
+Set it to an absolute directory without control characters, unset it to use
+the default, or pass `--config FILE`. `frm help` and `frm --version` work even
+when the directory setting is invalid.
 
 Saves are atomic and owner-only on POSIX. New file references become absolute
 paths; relative references in existing profiles resolve beside the profile.
@@ -75,30 +195,36 @@ Each includes a repair step. With `--json`, failures include an error code.
 Invalid setup values leave an existing profile unchanged. Error messages
 do not include the supplied address, file paths or credential values.
 
-`check` reports `exposure_consent` if a saved non-loopback host lacks consent.
-Use `setup --help` to update the saved host or exposure consent.
-For a non-loopback `serve --host` override, add `--allow-non-loopback` to that
-serve command. The override requires consent even when the saved profile has it.
+A saved profile or a `serve --host` override can use a non-loopback listen
+host without a consent flag. `setup` and `serve` still accept
+`--allow-non-loopback` for older commands. Use `setup --help` to change the
+saved host.
 
-- `--server-token-env NAME` / `--server-token-file FILE`: the remote server
-  token. Choose one.
+- `--server-token-env NAME` / `--server-token-file FILE`: optional server
+  token. Choose at most one.
 - `--local-token-env NAME` / `--local-token-file FILE`: the local client token
-  that callers present to this instance. Choose one. It is never forwarded.
+  that callers present to this instance. Optional; choose at most one.
+  It is never forwarded.
 - `--host` / `--port`: listen address, default `127.0.0.1:8788`.
   Port `0` lets the operating system select a port, printed when serving starts.
-- `--allow-non-loopback`: required to bind a non-loopback host.
-- `--allow-insecure-remote`: required for a plain-HTTP remote that is not
-  numeric loopback. TLS validation is never disabled.
+- `--allow-non-loopback`: accepted for older profiles; no longer required.
+- `--allow-insecure-remote`: required for a plain-HTTP remote on a public
+  address. Loopback, private LAN, Tailscale `100.64.0.0/10`, `.ts.net`,
+  `.local`, `.lan` and single-label hosts need no consent.
+  TLS validation is never disabled.
 
 Remote does not auto-load `.env` files and never prints a token. Diagnostics use
 fixed messages and never echo raw arguments, remote URLs, bodies, or credentials.
 
 ## Commands
 
-- `help`, `version`: no listener, no credential read.
-- `check [--json] [--tailscale]`: reports authenticated readiness; exit 0 ready, 1 otherwise.
+- `up [LINK|ORIGIN] [--json]`, or `LINK` alone: save, check and start the service.
 - `serve [--json] [--host ADDRESS] [--port NUMBER] [--allow-non-loopback]`: checks readiness before listening.
-- `setup --start [--json]`: saves the profile and uses the same startup path.
+- `check [--json] [--tailscale]`: reports authenticated readiness; exit 0 ready, 1 otherwise.
+- `setup [--start] [--json]`: saves a profile from options; `--start` then serves it.
+- `client`: sets up or launches Claude Code or Codex against this Remote.
+- `service install|status|start|stop|restart|uninstall`.
+- `help`, `version`: no listener, no credential read.
 
 Unknown or repeated options, missing option values and unexpected positional
 arguments in `check` or `serve` exit with code 1 and point to command help.
@@ -107,7 +233,7 @@ reported before loading the saved profile and do not echo argument values.
 
 ## Temporary listen settings
 
-Use `framerize-remote serve --port 8789` to change the local port for one run.
+Use `frm serve --port 8789` to change the local port for one run.
 Serve options never rewrite the profile. `SIGINT` and `SIGTERM` shut it down.
 Repeated stop signals wait for the same cleanup. Remote prints `Stopped.` only
 after cleanup succeeds. A cleanup failure exits with code 1 and explains how
@@ -115,13 +241,12 @@ to restart with the same profile. JSON output identifies it as `cleanup_failed`.
 To accept connections outside loopback for one run:
 
 ```sh
-framerize-remote serve --host 0.0.0.0 --allow-non-loopback
+frm serve --host 0.0.0.0
 ```
 
-A non-loopback `--host` requires consent on that same command, even if the
-saved profile permits a different exposed host. Without `--host`, the saved
-host and consent apply. Use `--host 127.0.0.1` to restrict an exposed profile
-temporarily. Local bearer authentication always remains required.
+A non-loopback `--host` needs no consent flag. Without `--host`, the saved
+host applies. Use `--host 127.0.0.1` to restrict an exposed profile
+temporarily.
 
 The listener uses HTTP. Protect non-loopback traffic with a private network
 or a TLS proxy. Remote does not configure routing, firewall rules or public TLS.
@@ -177,7 +302,7 @@ profiles, the credential role, DNS/TCP/TLS failures, deadlines, HTTP refusals,
 or invalid readiness data. Each diagnostic includes one suggested action.
 JSON keeps `ready` and `reason`, with an added `diagnostic` on remote failures.
 
-`framerize-remote check --tailscale` also runs local `tailscale status --json`.
+`frm check --tailscale` also runs local `tailscale status --json`.
 It reports a fixed status label without machine names, IP addresses or login
 links. It never logs in or changes Tailscale Serve, Funnel or other settings.
 The subprocess has a 1.5-second deadline and a combined 256 KiB output limit.

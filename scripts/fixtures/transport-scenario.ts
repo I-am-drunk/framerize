@@ -36,13 +36,14 @@ const delayedRequest = (path: string) => ({ fixture: 'delayed-json', stream: fal
 export interface Reply { status: number; body: Buffer; }
 export interface Observation { path: string; body: Buffer; authorization: string | undefined; }
 
-export function exchange(base: string, path: string, token: string, options: {
+export function exchange(base: string, path: string, token: string | null, options: {
   body?: object; onChunk?: () => void; abort?: boolean; timeoutMs?: number; signal?: AbortSignal;
 } = {}): Promise<Reply> {
   return new Promise((resolve, reject) => {
     const client = request(new URL(path, base), { agent: false, signal: options.signal,
       method: options.body ? 'POST' : 'GET',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      headers: { ...(token === null ? {} : { authorization: `Bearer ${token}` }),
+        'content-type': 'application/json' },
     }, (response: IncomingMessage) => {
       const chunks: Buffer[] = [];
       response.on('data', (chunk: Buffer) => {
@@ -60,7 +61,7 @@ export function exchange(base: string, path: string, token: string, options: {
   });
 }
 
-export async function createScenario() {
+export async function createScenario(token: string | null = upstreamToken) {
   const state = { ready: true, cancelled: 0, release: () => {},
     requests: [] as Observation[], failures: [] as unknown[] };
   const upstream = createServer(async (incoming, response) => {
@@ -70,13 +71,20 @@ export async function createScenario() {
       const body = Buffer.concat(chunks);
       assert.ok(body.length < 8192);
       state.requests.push({ path: incoming.url!, body, authorization: incoming.headers.authorization });
-      assert.equal(incoming.headers.authorization, `Bearer ${upstreamToken}`);
+      assert.equal(incoming.headers.authorization, token === null ? undefined : `Bearer ${token}`);
       if (incoming.url === '/v1/models') {
         response.writeHead(state.ready ? 200 : 503, { 'content-type': 'application/json' });
         response.end('{"data":[]}');
         return;
       }
       const payload: unknown = JSON.parse(body.toString());
+      if (payload && typeof payload === 'object' && 'fixture' in payload && payload.fixture === 'completed-json') {
+        assert.ok(delayedPaths.some(path => path === incoming.url));
+        assert.deepEqual(payload, { fixture: 'completed-json', stream: false, route: incoming.url });
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end('{"done":true}');
+        return;
+      }
       if (payload && typeof payload === 'object' && 'fixture' in payload && payload.fixture === 'delayed-json') {
         assert.ok(delayedPaths.some(path => path === incoming.url));
         assert.deepEqual(payload, delayedRequest(incoming.url!));
@@ -135,12 +143,12 @@ export async function exerciseDelayedJson(targets: readonly { url: string; token
   return completed.length;
 }
 
-export async function exerciseFlow(base: string, token: string,
+export async function exerciseFlow(base: string, token: string | null,
   scenario: Awaited<ReturnType<typeof createScenario>>) {
   const { state, upstream } = scenario;
   const inferenceCount = () => state.requests.filter((entry) => entry.path !== '/v1/models').length;
   const beforeWrongToken = state.requests.length;
-  assert.equal((await exchange(base, '/v1/chat/completions', 'wrong-fixture-token',
+  if (token !== null) assert.equal((await exchange(base, '/v1/chat/completions', 'wrong-fixture-token',
     { body: toolRequest })).status, 401);
   assert.equal(state.requests.length, beforeWrongToken);
   const ready = await exchange(base, '/ready', token);

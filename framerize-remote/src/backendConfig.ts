@@ -2,7 +2,7 @@ import type { RemoteEndpoint } from './remoteUrl.js';
 
 export interface RemoteBackendConfig {
   readonly endpoint: RemoteEndpoint;
-  readonly serverToken: string;
+  readonly serverToken: string | null;
   readonly headersTimeoutMs: number;
   readonly inferenceTimeoutMs?: number;
   readonly idleTimeoutMs: number;
