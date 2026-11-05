@@ -192,13 +192,11 @@ test('CI invokes offline tests, never the live validation command', () => {
   const validate = (workflow: string) => {
     assert.match(workflow, /run: npm run test:inference\s*\r?\n/);
     assert.doesNotMatch(workflow, /check:inference|check-inference\.js|--send-one-request/);
-    for (const path of ['scripts/check-inference.ts', 'scripts/validation/**', 'test/inference-check.test.ts']) {
-      assert.equal(workflow.split(`'${path}'`).length - 1, 2);
-    }
+    assert.match(workflow, /\n  workflow_call:/);
   };
   validate(source);
   assert.throws(() => validate(source.replace('test:inference', 'check:inference')));
-  assert.throws(() => validate(source.replace('scripts/validation/**', 'missing')));
+  assert.throws(() => validate(source.replace('workflow_call:', 'missing:')));
   const manifest = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
   assert.equal(manifest.scripts['test:inference'], 'node --test .tools/test/inference-check.test.js');
 });
