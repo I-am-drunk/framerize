@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { run } from '../dist/cli.js';
-import { AccountFileError, AccountSelectionError, ServerTokenFileError } from '../dist/errors.js';
+import { AccountFileError, AccountSelectionError, ServerListenError, ServerTokenFileError } from '../dist/errors.js';
 
 run().then((code) => { process.exitCode = code; }).catch(error => {
   const detail = error instanceof ServerTokenFileError ? {
@@ -12,6 +12,9 @@ run().then((code) => { process.exitCode = code; }).catch(error => {
   } : error instanceof AccountSelectionError ? {
     message: 'Select one configured Framer account.',
     next: 'Check --account-id or FRAMERIZE_SERVER_ACCOUNT and --accounts-file or FRAMERIZE_SERVER_ACCOUNTS. Select one enabled account with projectId and a session reference.',
+  } : error instanceof ServerListenError ? {
+    message: 'Server could not listen on the configured host and port.',
+    next: 'Check --host or FRAMERIZE_SERVER_HOST and --port or FRAMERIZE_SERVER_PORT. Use an available local address and port.',
   } : { message: 'Server failed to start or stop' };
   process.stderr.write(`${JSON.stringify({ event: 'server.failed', ...detail })}\n`);
   process.exitCode = 1;
