@@ -42,7 +42,8 @@ npm install --global --ignore-scripts ./framerize-remote-0.2.0.tgz
 ```
 
 Either package installs both `frm` and `framerize`. Choose one package per
-global npm prefix. Uninstall it before switching roles; do not use `--force`.
+global npm prefix. Before switching roles, run `frm service uninstall` if you
+installed its service, then uninstall the npm package. Do not use `--force`.
 npm creates the command links in its global prefix. On Linux and macOS, that prefix's
 `bin` directory must be on `PATH`; on Windows, the prefix itself must be on
 `PATH`. Run `npm prefix -g` to find it. Both commands work outside the checkout.

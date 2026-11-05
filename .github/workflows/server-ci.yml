@@ -133,6 +133,7 @@ jobs:
           overwrite: true
           path: |
             framerize-server/dist/framerize-server*
+            framerize-server/dist/framerize-*.tgz
             framerize-server/dist/LICENSE
             framerize-server/dist/NODE-LICENSE
             framerize-server/dist/SHA256SUMS

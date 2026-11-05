@@ -6,7 +6,8 @@ and the Castle runtime. The `framerize-server` command remains an alias.
 Requires Node.js 22.12 or newer. This development revision is not published yet.
 
 Install either `framerize` or `framerize-remote` in a global npm prefix.
-Both own `frm` and `framerize`, so uninstall the other package before switching.
+Both own `frm` and `framerize`. Before switching, run `frm service uninstall`
+if you installed its service, then uninstall the other npm package.
 Both Node libraries can share an application with `npm install --bin-links=false`.
 
 The HTTP listener is the shared TypeScript Core, bundled as `dist/core.js`.
