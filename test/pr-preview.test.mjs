@@ -88,6 +88,8 @@ test('preview export preserves package bytes and records both commits', t => {
   const message = commentBody(manifest, urls, checked.prefix);
   assert.match(message, /Tested merge commit: `bbbb/);
   assert.match(message, /PR head: `aaaa/);
+  assert.match(message, /unreviewed PR code/);
+  assert.doesNotMatch(message, /Package CI passed/);
   assert.match(message, /--prefix "\$preview\/server"/);
   assert.match(message, /--prefix "\$preview\/remote"/);
   assert.doesNotMatch(message, /service uninstall|npm publish/);

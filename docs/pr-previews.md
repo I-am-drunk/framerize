@@ -6,9 +6,12 @@ Use Node 22.12 or newer. Run the two printed `--version` commands before testing
 The `framerize` package is Server; `framerize-remote` is Remote. Both provide
 `frm` and `framerize`, so each role needs its own prefix and explicit executable.
 
-Every PR requests the package workflow, including documentation changes. It
-packs both packages once and tests those same bytes on Linux, macOS and Windows.
-Failed or cancelled CI does not publish a download comment. Until the publisher
+Every PR requests the package workflow, including documentation changes. The
+standard workflow packs both packages once and tests those same bytes on Linux,
+macOS and Windows. Failed or cancelled CI does not publish a download comment.
+Runs whose `.github` tree differs from the trusted publisher checkout also stay
+as Actions artifacts. These packages contain unreviewed PR code; inspect the
+changes before running them. Until the publisher
 workflow has landed on the default branch, use the CI run's `pr-preview-RUN_ID`
 artifact. Actions artifacts expire after seven days.
 
@@ -138,6 +141,10 @@ The package producer has no release-write permission. A separate workflow runs
 default-branch publication code after successful `Check`. It accepts four bounded
 regular files from the artifact: two tarballs and two manifests. It verifies the
 current PR, merge commit, source tree, run and file hashes before publication.
+Before downloading candidate bytes, it requires the tested merge's complete
+`.github` tree to match its own default-branch checkout. A PR cannot replace the
+CI definitions and use that run to publish a preview. Application code and
+package scripts remain unreviewed; this check does not establish their safety.
 Fork runs resolve their PR before entering the same per-PR publication queue as
 close events. Downloaded code and tools are never executed by that workflow.
 

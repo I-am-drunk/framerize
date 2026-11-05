@@ -89,6 +89,14 @@ async function runPreview(github, repo, runId, core) {
   if (pr.state !== 'open' || pr.head.sha !== run.head_sha || !pr.merge_commit_sha) {
     return core.info('The PR moved or closed; this preview is obsolete.');
   }
+  const commit = (await github.rest.repos.getCommit({ ...repo, ref: pr.merge_commit_sha })).data;
+  const tree = (await github.rest.git.getTree({ ...repo, tree_sha: commit.commit.tree.sha })).data;
+  const trusted = execFileSync('git', ['rev-parse', 'HEAD:.github'],
+    { cwd: path.join(__dirname, '../..'), encoding: 'utf8' }).trim();
+  const definitions = tree.tree.filter(entry => entry.path === '.github' && entry.type === 'tree');
+  if (tree.truncated || definitions.length !== 1 || definitions[0].sha !== trusted) {
+    return core.info('CI definitions differ from the trusted publisher checkout; preview not published.');
+  }
   const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts,
     { ...repo, run_id: runId });
   const matches = artifacts.filter(entry => entry.name === `pr-preview-${runId}` && !entry.expired);
@@ -108,7 +116,6 @@ async function runPreview(github, repo, runId, core) {
       { timeout: 30_000, stdio: 'pipe' });
     const claim = JSON.parse(fs.readFileSync(path.join(staged, 'preview.json'), 'utf8'));
     if (claim.buildSha !== pr.merge_commit_sha) return core.info('The tested merge is obsolete.');
-    const commit = (await github.rest.repos.getCommit({ ...repo, ref: pr.merge_commit_sha })).data;
     const candidate = validatePreview(staged, run, pr, commit);
     const current = (await github.rest.actions.getWorkflowRun({ ...repo, run_id: runId })).data;
     if (current.run_attempt !== run.run_attempt || current.conclusion !== 'success'

@@ -12,6 +12,8 @@ const { runPreview, upload, updateComment } = require('../.github/scripts/publis
 const { hash, marker } = require('../.github/scripts/pr-preview-manifest.cjs');
 const { exportPreview, context, versionFor } = require('../.github/scripts/preview-version.cjs');
 const repo = { owner: 'owner', repo: 'project' };
+const trustedGithubTree = execFileSync('git', ['rev-parse', 'HEAD:.github'],
+  { cwd: new URL('../', import.meta.url), encoding: 'utf8' }).trim();
 const env = { GITHUB_EVENT_NAME: 'pull_request', GITHUB_REPOSITORY: 'owner/project',
   FRAMERIZE_PR_NUMBER: '23', FRAMERIZE_PR_HEAD_SHA: 'a'.repeat(40),
   GITHUB_SHA: 'b'.repeat(40), GITHUB_RUN_ID: '12345', GITHUB_RUN_ATTEMPT: '1' };
@@ -47,9 +49,12 @@ function mock(archive, packages) {
   const run = { id: 12345, event: 'pull_request', status: 'completed', conclusion: 'success',
     path: '.github/workflows/ci.yml', head_sha: pr.head.sha, run_attempt: 2,
     repository: { id: 1, full_name: 'owner/project' }, pull_requests: [pr] };
-  const state = { pr, run, packages, assets: [], comments: [], writes: [], logs: [],
+  const state = { tree: { truncated: false, tree: [
+    { path: '.github', type: 'tree', sha: trustedGithubTree },
+  ] }, pr, run, packages, assets: [], comments: [], writes: [], logs: [],
     jobs: [{ name: 'Check', conclusion: 'success' }], onUpload() {}, onDownload() {} };
-  const github = { paginate: (method, args) => method(args), rest: { actions: {
+  const github = { paginate: (method, args) => method(args), rest: {
+    git: { getTree: async () => ({ data: structuredClone(state.tree) }) }, actions: {
     getWorkflowRun: async () => ({ data: structuredClone(state.run) }),
     listJobsForWorkflowRun: async () => state.jobs,
     listWorkflowRunArtifacts: async () => [{ name: 'pr-preview-12345', id: 5, size_in_bytes: archive.length }],
@@ -152,4 +157,20 @@ test('a malformed ZIP fails without publication and removes its staging director
   await assert.rejects(runPreview(f.github, repo, 12345, f.core));
   assert.deepEqual(f.state.writes, []);
   assert.deepEqual(readdirSync(tmpdir()).filter(name => name.startsWith('framerize-publish-')), before);
+});
+
+for (const [label, change] of [
+  ['changed workflow tree', tree => { tree.tree[0].sha = 'e'.repeat(40); }],
+  ['missing workflow tree', tree => { tree.tree = []; }],
+  ['workflow path replaced by a file', tree => { tree.tree[0].type = 'blob'; }],
+  ['truncated root tree', tree => { tree.truncated = true; }],
+]) test(`CI definitions: ${label} cannot publish despite successful Check`, async t => {
+  const f = fixture(t);
+  change(f.state.tree);
+  let downloads = 0;
+  f.state.onDownload = () => { downloads++; };
+  await runPreview(f.github, repo, 12345, f.core);
+  assert.equal(downloads, 0, 'Reject changed CI definitions before downloading candidate bytes');
+  assert.deepEqual(f.state.writes, []);
+  assert.match(f.state.logs.at(-1), /CI definitions/);
 });
