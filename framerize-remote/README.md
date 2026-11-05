@@ -133,11 +133,16 @@ running Remote. Arguments after `--` pass through unchanged, such as
   the file if a settings file sets a different auth token, an API key, a cloud
   provider flag or `apiKeyHelper`, or if managed settings set a base URL or
   force a login method.
-  On Linux and macOS, the local file comes from the Git root when that root,
-  its `.git` entry and any `.claude` entry belong to your user. A repository
-  rooted at your home directory uses the working directory instead.
-  Windows and directories without a detectable Git root also use the working
-  directory. Shared `settings.json` still comes from the working directory.
+  The working directory's `.claude/settings.local.json` is always checked.
+  On Linux and macOS, Remote also checks that file at the main checkout's
+  root, including when launched inside a linked Git worktree. That root,
+  its `.git` entry and any `.claude` entry must belong to your user, and the
+  root must not be your home directory. Both files are checked independently;
+  a conflicting value in either can block launch even if the other overrides it.
+  Windows, an unavailable or failed Git worktree lookup, bare repositories,
+  and custom Git layouts without a detectable main checkout use only the
+  working-directory local file. Shared `settings.json` still comes from the
+  working directory.
 - Codex gets `-c` overrides for a `framerize` provider at
   `<Remote>/openai/v1`. The local token stays in `FRM_LOCAL_TOKEN`.
 - `--persist` writes the Claude values to Claude's user settings.

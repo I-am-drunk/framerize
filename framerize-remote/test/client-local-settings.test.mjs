@@ -12,9 +12,9 @@ const uid = process.getuid?.();
 const posix = { skip: uid === undefined && 'Repository ownership requires POSIX user IDs' };
 
 function fixture({ files = {}, platform = 'linux', home = '/synthetic/home', gitRoot = root,
-  foreign, absent = [], canonical = path => path } = {}) {
+  foreign, absent = [], canonical = path => path, worktrees, directory = cwd } = {}) {
   const runs = [], errors = [], reads = [], probes = [];
-  const deps = { platform, home, cwd, env: { PATH: '/synthetic/bin' }, stateDir: '/synthetic/state',
+  const deps = { platform, home, cwd: directory, env: { PATH: '/synthetic/bin' }, stateDir: '/synthetic/state',
     target: { origin: 'http://127.0.0.1:8788', localToken: 'synthetic-local' },
     io: { stdout() {}, stderr(text) { errors.push(text.replaceAll('\\', '/')); } },
     probe: path => /(?:^|[/\\])claude(?:\.(?:exe|cmd))?$/.test(path), realPath: canonical,
@@ -24,8 +24,8 @@ function fixture({ files = {}, platform = 'linux', home = '/synthetic/home', git
       async capture(command) {
         probes.push(command);
         assert.equal(command.command, 'git');
-        assert.deepEqual(command.args, ['-C', cwd, 'rev-parse', '--show-toplevel']);
-        return gitRoot === null ? null : `${gitRoot}\n`;
+        assert.deepEqual(command.args, ['-C', directory, 'worktree', 'list', '--porcelain', '-z']);
+        return worktrees ?? (gitRoot === null ? null : `worktree ${gitRoot}\0HEAD synthetic\0\0`);
       } },
   };
   return { deps, runs, errors, reads, probes };
@@ -47,12 +47,14 @@ test('a repository-root local URL gets the existing token-free override', posix,
   assert.ok(!h.runs[0].args.join(' ').includes('synthetic-local'));
 });
 
-test('a nested local file is ignored when Claude uses the root local file', posix, async () => {
-  const h = fixture({ files: { [nested]: '{"apiKeyHelper":"private-canary"}' } });
-  assert.equal(await runClient(['claude'], h.deps), 0);
-  assert.equal(h.runs.length, 1);
+test('a nested local credential still blocks when the root sets a different key', posix, async () => {
+  const h = fixture({ files: { [nested]: '{"apiKeyHelper":"private-canary"}', [local]: '{"model":"opus"}' } });
+  assert.equal(await runClient(['claude'], h.deps), 1);
+  assert.equal(h.runs.length, 0);
   assert.ok(h.reads.includes(local));
-  assert.ok(!h.reads.includes(nested));
+  assert.ok(h.reads.includes(nested));
+  assert.ok(h.errors.join('').includes(`${nested}: apiKeyHelper`));
+  assert.ok(!h.errors.join('').includes('private-canary'));
 });
 
 for (const [name, options] of [
@@ -84,10 +86,44 @@ test('shared settings still come from the working directory', posix, async () =>
 
 test('an absent root settings directory still selects the root local path', posix, async () => {
   const h = fixture({ absent: [`${root}/.claude`], files: { [nested]: '{"apiKeyHelper":"private-canary"}' } });
-  assert.equal(await runClient(['claude'], h.deps), 0);
+  assert.equal(await runClient(['claude'], h.deps), 1);
+  assert.equal(h.runs.length, 0);
   assert.ok(h.reads.includes(local));
-  assert.ok(!h.reads.includes(nested));
+  assert.ok(h.reads.includes(nested));
 });
+
+test('a linked worktree checks the main checkout and preserves path whitespace', posix, async () => {
+  const main = '/synthetic/main\ncheckout ', linked = '/synthetic/linked';
+  const path = `${main}/.claude/settings.local.json`;
+  const h = fixture({ directory: `${linked}/app`, files: { [path]: '{"apiKeyHelper":"private-canary"}' },
+    worktrees: `worktree ${main}\0HEAD main\0\0worktree ${linked}\0HEAD linked\0\0` });
+  assert.equal(await runClient(['claude'], h.deps), 1);
+  assert.equal(h.runs.length, 0);
+  assert.ok(h.reads.includes(path));
+  assert.ok(h.reads.includes(`${linked}/app/.claude/settings.local.json`));
+  assert.ok(!h.reads.includes(`${linked}/.claude/settings.local.json`));
+  assert.ok(!h.errors.join('').includes('private-canary'));
+});
+
+test('launching at the main root checks its local file once', posix, async () => {
+  const h = fixture({ directory: root });
+  assert.equal(await runClient(['claude'], h.deps), 0);
+  assert.equal(h.reads.filter(path => path === local).length, 1);
+});
+
+for (const [name, options] of [
+  ['bare repository', { worktrees: `worktree ${root}\0bare\0\0` }],
+  ['custom Git directory without a checkout entry', { absent: [`${root}/.git`] }],
+  ['incomplete worktree output', { worktrees: `worktree ${root}\0HEAD truncated` }],
+]) {
+  test(`${name} keeps checking the working-directory file`, posix, async () => {
+    const h = fixture({ ...options, files: { [nested]: '{"apiKeyHelper":"private-canary"}' } });
+    assert.equal(await runClient(['claude'], h.deps), 1);
+    assert.equal(h.runs.length, 0);
+    assert.ok(h.reads.includes(nested));
+    assert.ok(!h.reads.includes(local));
+  });
+}
 
 for (const event of ['SIGINT', 'SIGTERM']) {
   test(`${event} cancels the Git lookup before any client launch`, posix, async () => {
@@ -97,7 +133,7 @@ for (const event of ['SIGINT', 'SIGTERM']) {
       assert.ok(signal instanceof AbortSignal);
       process.emit(event);
       assert.equal(signal.aborted, true);
-      return `${root}\n`;
+      return `worktree ${root}\0HEAD synthetic\0\0`;
     };
     await assert.rejects(runClient(['claude'], h.deps), { name: 'AbortError' });
     assert.deepEqual(h.runs, []);

@@ -54,8 +54,9 @@ export async function inspectClaudeSettings(read: ReadText, input: { readonly pl
   readonly localPath?: string;
   readonly expected: Readonly<Record<string, string>> }): Promise<LaunchSettings> {
   const managedPath = claudeManagedSettingsPath(input.platform, input.env);
-  const files = [input.userPath, join(input.cwd, '.claude', 'settings.json'),
-    input.localPath ?? join(input.cwd, '.claude', 'settings.local.json'), managedPath];
+  const localPath = join(input.cwd, '.claude', 'settings.local.json');
+  const files = new Set([input.userPath, join(input.cwd, '.claude', 'settings.json'),
+    localPath, input.localPath ?? localPath, managedPath]);
   let overrideBaseUrl = false;
   const blocking: SettingsConflict[] = [];
   for (const path of files) {
