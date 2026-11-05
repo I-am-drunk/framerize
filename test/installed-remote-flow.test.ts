@@ -485,8 +485,12 @@ console.log(JSON.stringify({ node: process.version, completed: true, readiness: 
 }
 
 function verifyStandaloneTypes(repository: string, consumer: string, env: NodeJS.ProcessEnv) {
+  const packageRoot = join(consumer, 'node_modules/framerize-remote');
+  const manifest = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
+  assert.equal(manifest.name, 'framerize-remote');
+  assert.equal(typeof manifest.bin?.frm, 'string');
   const cli = (args: string[]) => execFileSync(process.execPath,
-    [npmCli(), 'exec', '--offline', '--no', '--', 'frm', ...args],
+    [join(packageRoot, manifest.bin.frm), ...args],
     { cwd: consumer, env, encoding: 'utf8', timeout: 10000 });
   assert.equal(cli(['version']).trim(), '0.2.0');
   assert.match(cli(['setup', '--help']), /--server-token-env/);
@@ -529,10 +533,6 @@ try {
 }
 
 `], { cwd: consumer, env, stdio: 'pipe', timeout: 5000 });
-  const packageRoot = join(consumer, 'node_modules/framerize-remote');
-  const manifest = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
-  assert.equal(manifest.name, 'framerize-remote');
-  assert.equal(typeof manifest.bin?.frm, 'string');
   assert.ok(existsSync(join(packageRoot, manifest.bin.frm)));
   assert.match(cli(['--help']), /^frm 0\.2\.0\n/);
   for (const key of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
