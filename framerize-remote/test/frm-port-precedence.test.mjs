@@ -54,9 +54,9 @@ for (const setting of ['port', 'host']) {
   }
 }
 
-function health(port) {
+function health(port, host = '127.0.0.1') {
   return new Promise((resolve, reject) => {
-    const request = get({ host: '127.0.0.1', port, path: '/health', agent: false,
+    const request = get({ host, port, path: '/health', agent: false,
       signal: AbortSignal.timeout(2000) }, response => {
       response.once('error', reject);
       response.once('end', () => resolve(response.statusCode));
@@ -73,8 +73,9 @@ async function bounded(promise) {
   })]); } finally { clearTimeout(timer); }
 }
 
-for (const setting of ['port', 'host']) {
-  test(`serve --${setting} replaces an invalid FRM_${setting.toUpperCase()} and closes its real listener`,
+for (const command of ['serve', 'setup']) {
+ for (const setting of ['port', 'host']) {
+  test(`${command} --${setting} replaces an invalid FRM_${setting.toUpperCase()} and closes its real listener`,
   { timeout: 15000 }, async context => {
     const { root, env } = await state(context, setting);
     const calls = [];
@@ -89,12 +90,14 @@ for (const setting of ['port', 'host']) {
       remote.closeAllConnections();
       if (remote.listening) await new Promise(resolve => remote.close(resolve));
     });
-    const listening = once(remote, 'listening');
+    const remoteListening = once(remote, 'listening');
     remote.listen(0, '127.0.0.1');
-    await bounded(listening);
+    await bounded(remoteListening);
     env.FRM_REMOTE = `http://127.0.0.1:${remote.address().port}`;
-    const child = spawn(process.execPath, [launcher, 'serve', '--port', '0', '--json',
-      ...(setting === 'host' ? ['--host', '127.0.0.1'] : [])],
+    const host = setting === 'host' ? 'localhost' : '127.0.0.1';
+    const child = spawn(process.execPath, [launcher, command, '--port', '0', '--json',
+      ...(command === 'setup' ? ['--start'] : []),
+      ...(setting === 'host' ? ['--host', host] : [])],
       { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
     const closed = once(child, 'close');
     closed.catch(() => {});
@@ -109,17 +112,27 @@ for (const setting of ['port', 'host']) {
     const ready = (async () => {
       for await (const line of lines) {
         const event = JSON.parse(line);
-        if (event.listening) return event.listening.port;
+        if (event.listening) return event.listening;
       }
       throw new Error(`frm exited before listening: ${errors}`);
     })();
-    const port = await bounded(ready);
-    assert.equal(await health(port), 200);
+    const listening = await bounded(ready);
+    assert.equal(listening.host, host);
+    const { port } = listening;
+    assert.equal(await health(port, host), 200);
     assert.deepEqual(calls, ['/ready']);
     child.kill('SIGTERM');
     assert.deepEqual(await bounded(closed), process.platform === 'win32' ? [null, 'SIGTERM'] : [0, null]);
-    await assert.rejects(health(port), { code: 'ECONNREFUSED' });
+    await assert.rejects(health(port, host), { code: 'ECONNREFUSED' });
     const entries = await readdir(root, { recursive: true, withFileTypes: true });
-    assert.ok(entries.every(entry => entry.isDirectory()));
+    assert.deepEqual(entries.filter(entry => !entry.isDirectory()).map(entry => entry.name),
+      command === 'setup' ? ['framerize-remote.json'] : []);
+    if (command === 'setup') {
+      const saved = JSON.parse(await readFile(join(env.FRM_HOME, 'framerize-remote.json'), 'utf8'));
+      assert.equal(saved.host ?? '127.0.0.1', host);
+      assert.equal(saved.port, 0);
+      assert.equal(saved.remote, env.FRM_REMOTE);
+    }
   });
+ }
 }
