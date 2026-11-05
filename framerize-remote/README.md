@@ -160,6 +160,9 @@ A failed lookup reports the latest version as unknown, never as current.
 During `--check` or `--update`, `SIGINT` or `SIGTERM` cancels pending version
 lookups and exits with code 1: `The command was cancelled.` Cancelling a
 lookup does not start an update.
+These signals also stop an installer or updater that is already running.
+A cancelled standalone install or update exits with the same cancellation
+diagnostic. Files already changed by the installer or updater remain changed.
 
 The prompt after an interactive `frm up` checks both clients. It offers an
 install for a missing client, and an update only when a newer release is
@@ -180,6 +183,8 @@ further installs or updates.
 During these optional version checks, `SIGINT` or `SIGTERM` also cancels a
 pending release request or stops the captured version command. The offer
 then skips its remaining output and client operations.
+Running installers and updaters also receive cancellation before the offer
+returns to its caller.
 
 ## Configuration
 

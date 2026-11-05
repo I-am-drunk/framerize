@@ -1,4 +1,4 @@
-import { CLIENTS, type ClientName } from './clients.js';
+import { CLIENTS, type ClientCommand, type ClientName } from './clients.js';
 import { codexBaseUrl, claudeBaseUrl, launchCommand } from './configure.js';
 import { confirm, defaultRealPath, EXIT, lookupDeps, type ClientSetupDeps } from './deps.js';
 import { checkVersion } from './latest.js';
@@ -30,6 +30,22 @@ export function locate(client: ClientName, deps: ClientSetupDeps): string | null
   return resolveCommandPath(CLIENTS[client].command, deps.platform, deps.env, deps.probe ?? probeExecutable);
 }
 
+export async function runMaintenance(command: ClientCommand, deps: ClientSetupDeps): Promise<number> {
+  if (deps.signal) return deps.runner.run(command, deps.env, deps.signal);
+  const controller = new AbortController();
+  const stop = (): void => controller.abort();
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
+  try {
+    const code = await deps.runner.run(command, deps.env, controller.signal);
+    controller.signal.throwIfAborted();
+    return code;
+  } finally {
+    process.off('SIGINT', stop);
+    process.off('SIGTERM', stop);
+  }
+}
+
 /** Without a terminal the explicit flag is the consent. A terminal confirms update by typing the word. */
 async function consented(options: ClientOptions, deps: ClientSetupDeps, flag: boolean,
   question: string, word: 'install' | 'update'): Promise<boolean> {
@@ -55,7 +71,7 @@ async function ensureInstalled(options: ClientOptions, deps: ClientSetupDeps): P
     deps.io.stderr(`${label} was not installed. Rerun with --install or FRM_CLIENT_INSTALL=1 to consent.\n`);
     return EXIT.needsConsent;
   }
-  const code = await deps.runner.run(install, deps.env, deps.signal);
+  const code = await runMaintenance(install, deps);
   deps.signal?.throwIfAborted();
   if (code !== 0) { deps.io.stderr(`${label} installer exited with code ${code}.\n`); return EXIT.failed; }
   const installed = locate(options.client, deps);
@@ -81,7 +97,7 @@ async function updateInstalled(options: ClientOptions, deps: ClientSetupDeps, ex
     deps.io.stderr(`${label} was not updated. Run this command again and type update to confirm.\n`);
     return EXIT.needsConsent;
   }
-  const code = await deps.runner.run(plan.command, deps.env, deps.signal);
+  const code = await runMaintenance(plan.command, deps);
   deps.signal?.throwIfAborted();
   if (code !== 0) deps.io.stderr(`${label} update exited with code ${code}.\n`);
   return code === 0 ? EXIT.ok : EXIT.failed;

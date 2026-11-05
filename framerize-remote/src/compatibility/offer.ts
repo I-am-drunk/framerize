@@ -1,5 +1,5 @@
 import { CLIENTS, type ClientName } from './clients.js';
-import { locate } from './command.js';
+import { locate, runMaintenance } from './command.js';
 import { confirm, defaultRealPath, lookupDeps, type ClientSetupDeps } from './deps.js';
 import { checkVersion } from './latest.js';
 import { versionLine, type VersionStatus } from './versions.js';
@@ -16,7 +16,7 @@ async function offerInstall(client: ClientName, deps: ClientSetupDeps): Promise<
   deps.io.stdout(`${label}: not found on PATH.\nOfficial installer: ${install.display}\n`);
   if (!await confirm(deps.prompt, `Install ${label}?`, 'install', deps.signal)
     || deps.signal?.aborted) return 'declined';
-  const code = await deps.runner.run(install, deps.env, deps.signal);
+  const code = await runMaintenance(install, deps);
   if (deps.signal?.aborted) return 'declined';
   if (code !== 0) { deps.io.stderr(`${label} installer exited with code ${code}.\n`); return 'failed'; }
   if (locate(client, deps)) return 'installed';
@@ -37,7 +37,7 @@ async function offerUpdate(client: ClientName, deps: ClientSetupDeps, executable
   if (plan.kind === 'manual') { deps.io.stdout(`To update ${label}: ${plan.reason}\n`); return present; }
   if (!await confirm(deps.prompt, `Update ${label} with ${plan.command.display}?`, 'update', deps.signal)
     || deps.signal?.aborted) return present;
-  const code = await deps.runner.run(plan.command, deps.env, deps.signal);
+  const code = await runMaintenance(plan.command, deps);
   if (deps.signal?.aborted) return present;
   if (code !== 0) deps.io.stderr(`${label} update exited with code ${code}.\n`);
   return { client, state: code === 0 ? 'updated' : 'failed', version: version.status };

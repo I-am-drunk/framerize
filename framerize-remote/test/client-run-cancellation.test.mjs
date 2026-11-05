@@ -14,7 +14,7 @@ const compiled = await build({
   entryPoints: [fileURLToPath(new URL('../src/compatibility/index.ts', import.meta.url))],
   bundle: true, platform: 'node', format: 'esm', write: false,
 });
-const { nodeRunner, offerClients } = await import(
+const { nodeRunner, offerClients, runClient } = await import(
   `data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
 const childEnv = { NODE_DISABLE_COMPILE_CACHE: '1',
   ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) };
@@ -134,6 +134,30 @@ test('an already cancelled client command never spawns', async () => {
   controller.abort();
   const runner = nodeRunner(process.platform, () => assert.fail('Unexpected spawn'));
   assert.equal(await runner.run(command(''), {}, controller.signal), 1);
+});
+
+test('standalone installation owns cancellation and removes its handlers', async () => {
+  const signals = ['SIGINT', 'SIGTERM'];
+  const before = signals.map(signal => process.listeners(signal));
+  const errors = [];
+  await assert.rejects(runClient(['claude', '--install', '--no-input'], {
+    platform: 'linux', env: { PATH: '/synthetic/bin' }, home: '/synthetic/home',
+    stateDir: '/synthetic/state', target: { origin: 'http://127.0.0.1:8788' },
+    probe: () => false, io: { stdout() {}, stderr: text => errors.push(text) },
+    runner: {
+      async run(_command, _env, signal) {
+        assert.ok(signal instanceof AbortSignal);
+        const handlers = process.listeners('SIGINT').filter(handler => !before[0].includes(handler));
+        assert.equal(handlers.length, 1);
+        handlers[0]();
+        assert.equal(signal.aborted, true);
+        return 1;
+      },
+      async capture() { assert.fail('Cancelled installation must not probe or launch a client'); },
+    },
+  }), { name: 'AbortError' });
+  assert.deepEqual(signals.map(signal => process.listeners(signal)), before);
+  assert.deepEqual(errors, []);
 });
 
 test('a completed command keeps its exit code and releases its abort listener', async () => {
