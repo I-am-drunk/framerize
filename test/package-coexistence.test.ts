@@ -105,6 +105,22 @@ test('installs frm with a legacy alias and a canonical launcher filename', conte
   assert.equal(checkPackageCoexistence([remote, server]).packages.length, 2);
 });
 
+test('installs canonical framerize alongside its Server alias and frm', context => {
+  const remote = fixture(context, 'framerize-remote');
+  const server = fixture(context, 'framerize-server', {
+    bin: { framerize: './bin/framerize-server.js', 'framerize-server': './bin/framerize-server.js' },
+  });
+  assert.equal(checkPackageCoexistence([remote, server]).packages.length, 2);
+});
+
+test('requires canonical framerize even when the Server alias exists', context => {
+  const remote = fixture(context, 'framerize-remote');
+  const server = fixture(context, 'framerize-server', {
+    bin: { 'framerize-server': './bin/framerize-server.js' },
+  });
+  assert.throws(() => checkPackageCoexistence([remote, server]), /unexpected executable name/);
+});
+
 test('requires the canonical frm command even when the legacy alias exists', context => {
   const remote = fixture(context, 'framerize-remote', {
     bin: { 'framerize-remote': './bin/framerize-remote.js' },
