@@ -120,6 +120,11 @@ running Remote. Arguments after `--` pass through unchanged, such as
 - `--persist` writes the Claude values to Claude's user settings.
   `--undo` removes them only if they are unchanged since then.
 - `--check` prints the OS, client path, version and Remote address.
+- `--config FILE` uses that profile for a launch, `--check`, `--persist` and
+  `--undo`. `--persist` keeps its undo record beside FILE, so pass the same
+  `--config` to `--undo`. If you accept the client offer after setup with a
+  non-default `--config`, it ends by printing that profile path for later
+  `frm client` commands.
 
 ### Install and update
 
@@ -135,7 +140,9 @@ with the same prefix, or `bun`. It reads the installed version from
 `--version` and asks for the latest one: the Claude release channel for a
 native Claude install, otherwise `npm view`. If the client is current,
 nothing runs. Otherwise it prints the update command. In a terminal it runs
-only after you type `update`. Without a terminal, `--update` is the consent.
+only after you type `update`, even with `--update`, unless `--no-input` or
+`FRM_NO_INPUT=1` is set. Any other answer exits with code 3 and changes
+nothing. Without a terminal, `--update` is the consent.
 Homebrew, mise, winget, Chocolatey and unknown installs get the manual
 command or the client's docs instead, with no version check under `--update`.
 A failed lookup reports the latest version as unknown, never as current.
@@ -145,6 +152,9 @@ install for a missing client, and an update only when a newer release is
 known. For Homebrew and Chocolatey installs it checks `brew info` or
 `choco search` and prints the manual command when a newer release exists.
 Each step needs its typed word, and it never starts a client.
+`setup --start` runs the same offer after Remote starts. If `SIGINT` or
+`SIGTERM` stops Remote during the offer, the offer asks no new questions and
+starts no further installs or updates.
 
 ## Configuration
 
@@ -172,10 +182,10 @@ Each includes a repair step. With `--json`, failures include an error code.
 Invalid setup values leave an existing profile unchanged. Error messages
 do not include the supplied address, file paths or credential values.
 
-`check` reports `exposure_consent` if a saved non-loopback host lacks consent.
-Use `setup --help` to update the saved host or exposure consent.
-For a non-loopback `serve --host` override, add `--allow-non-loopback` to that
-serve command. The override requires consent even when the saved profile has it.
+A saved profile or a `serve --host` override can use a non-loopback listen
+host without a consent flag. `setup` and `serve` still accept
+`--allow-non-loopback` for older commands. Use `setup --help` to change the
+saved host.
 
 - `--server-token-env NAME` / `--server-token-file FILE`: optional server
   token. Choose at most one.
@@ -184,7 +194,7 @@ serve command. The override requires consent even when the saved profile has it.
   It is never forwarded.
 - `--host` / `--port`: listen address, default `127.0.0.1:8788`.
   Port `0` lets the operating system select a port, printed when serving starts.
-- `--allow-non-loopback`: required to bind a non-loopback host.
+- `--allow-non-loopback`: accepted for older profiles; no longer required.
 - `--allow-insecure-remote`: required for a plain-HTTP remote on a public
   address. Loopback, private LAN, Tailscale `100.64.0.0/10`, `.ts.net`,
   `.local`, `.lan` and single-label hosts need no consent.
@@ -218,13 +228,12 @@ to restart with the same profile. JSON output identifies it as `cleanup_failed`.
 To accept connections outside loopback for one run:
 
 ```sh
-frm serve --host 0.0.0.0 --allow-non-loopback
+frm serve --host 0.0.0.0
 ```
 
-A non-loopback `--host` requires consent on that same command, even if the
-saved profile permits a different exposed host. Without `--host`, the saved
-host and consent apply. Use `--host 127.0.0.1` to restrict an exposed profile
-temporarily. Local bearer authentication always remains required.
+A non-loopback `--host` needs no consent flag. Without `--host`, the saved
+host applies. Use `--host 127.0.0.1` to restrict an exposed profile
+temporarily.
 
 The listener uses HTTP. Protect non-loopback traffic with a private network
 or a TLS proxy. Remote does not configure routing, firewall rules or public TLS.
