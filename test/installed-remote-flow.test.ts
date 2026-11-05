@@ -98,6 +98,7 @@ test('installed Remote forwards through the installed server with isolated crede
       npm(['install', '--offline', '--ignore-scripts', '--omit=dev', '--package-lock=false',
         '--no-audit', '--no-fund', ...archives], consumer);
       verifyStandaloneTypes(repository, consumer, env);
+      context.diagnostic(verifyRemoteNodeApi(consumer, env).trim());
       scenario = await createScenario();
       server = await startInstalledServer(consumer, env, scenario.url);
       proxy.listen(0, '127.0.0.1');
@@ -251,6 +252,114 @@ syncBuiltinESMExports();`);
   assert.equal(report.tailscale.scope, 'local_only');
   assert.equal(readFileSync(marker, 'utf8'), 'called');
   assert.doesNotMatch(checked.stdout + checked.stderr, /synthetic-|100\.64\.0\.1/);
+}
+
+function verifyRemoteNodeApi(consumer: string, env: NodeJS.ProcessEnv): string {
+  return execFileSync(process.execPath, ['--input-type=module', '-e', String.raw`
+import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
+import { setImmediate } from 'node:timers/promises';
+const signalCounts = ['SIGINT', 'SIGTERM'].map(name => process.listenerCount(name));
+const { createRemoteBackend, parseRemoteEndpoint } = await import('framerize-remote');
+const initialResources = process.getActiveResourcesInfo().filter(name => /TCP|Timeout/.test(name)).sort();
+const requests = [], failures = [];
+const completed = Buffer.from('{"output":[{"content":[{"text":"synthetic"}]}]}');
+const streamChunk = Buffer.from('data: {"delta":"synthetic"}\n\n');
+let ready = true, streamClosed;
+const server = createServer((request, response) => {
+  void (async () => {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    requests.push({ path: request.url, headers: request.headers, body: Buffer.concat(chunks) });
+    if (request.url === '/ready') {
+      response.setHeader('content-type', 'application/json');
+      response.end(JSON.stringify({ apiVersion: 1, status: ready ? 'ready' : 'unavailable',
+        ...(!ready ? { reason: 'upstream_unavailable' } : {}),
+        capabilities: { responses: true, chatCompletions: true, streaming: true } }));
+    } else if (request.url === '/openai/v1/responses') {
+      response.setHeader('content-type', 'application/json'); response.end(completed);
+    } else {
+      streamClosed = once(response, 'close');
+      response.setHeader('content-type', 'text/event-stream'); response.write(streamChunk);
+    }
+  })().catch(error => { failures.push(error); response.destroy(); });
+});
+server.listen(0, '127.0.0.1'); await once(server, 'listening');
+// Keep the idle deadline above the 2.5-second cleanup bound.
+const backend = createRemoteBackend({
+  endpoint: parseRemoteEndpoint('http://127.0.0.1:' + server.address().port, false),
+  serverToken: 'synthetic-node-server', headersTimeoutMs: 2000, idleTimeoutMs: 10_000,
+  readinessBodyMaxBytes: 65536, readinessWholeMs: 3000, inferenceTimeoutMs: 5000,
+});
+const requestBody = Buffer.from('{"model":"synthetic","temperature":0.25}');
+const forward = (path, signal = AbortSignal.timeout(5000)) => backend.forward({
+  path, signal, headers: { 'content-type': 'application/json', accept: '*/*',
+    authorization: 'Bearer synthetic-node-client', 'x-client-private': 'do-not-forward' },
+  body: (async function* () { yield requestBody.subarray(0, 8); yield requestBody.subarray(8); })(),
+});
+const collect = async body => {
+  const chunks = []; for await (const chunk of body) chunks.push(chunk);
+  return Buffer.concat(chunks);
+};
+const bounded = async promise => {
+  let timer;
+  try {
+    return await Promise.race([promise, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Node API cleanup did not settle')), 2500);
+    })]);
+  } finally { clearTimeout(timer); }
+};
+try {
+  assert.deepEqual(await backend.diagnose({ signal: AbortSignal.timeout(3000) }), { readiness: true });
+  ready = false;
+  assert.equal((await backend.diagnose({ signal: AbortSignal.timeout(3000) })).code, 'upstream_unavailable');
+  const unavailable = await forward('/v1/responses');
+  assert.equal(unavailable.status, 503);
+  assert.equal(JSON.parse((await collect(unavailable.body)).toString()).error.code, 'upstream_unavailable');
+  assert.ok(requests.every(request => request.path === '/ready'), 'unready backend must not forward');
+  ready = true;
+  const response = await forward('/openai/v1/responses');
+  assert.equal(response.status, 200);
+  assert.deepEqual(await collect(response.body), completed);
+  for (const action of ['return', 'abort', 'close']) {
+    const controller = new AbortController();
+    streamClosed = undefined;
+    const streaming = await forward('/v1/responses', controller.signal);
+    assert.equal(streaming.status, 200);
+    assert.ok(streamClosed, 'fixture must have observed this stream');
+    const closed = streamClosed;
+    const iterator = streaming.body[Symbol.asyncIterator]();
+    const first = await bounded(iterator.next());
+    assert.equal(first.done, false); assert.deepEqual(first.value, streamChunk);
+    if (action === 'return') assert.equal((await bounded(iterator.return())).done, true);
+    else {
+      if (action === 'abort') controller.abort(); else backend.close();
+      await bounded(assert.rejects(iterator.next()));
+    }
+    await bounded(closed);
+  }
+  assert.equal((await backend.diagnose({ signal: AbortSignal.timeout(3000) })).code, 'configuration_unavailable');
+  assert.deepEqual(requests.filter(request => request.path !== '/ready').map(request => request.path),
+    ['/openai/v1/responses', '/v1/responses', '/v1/responses', '/v1/responses']);
+  for (const request of requests) {
+    assert.equal(request.headers.authorization, 'Bearer synthetic-node-server');
+    assert.equal(request.headers['x-client-private'], undefined);
+    if (request.path !== '/ready') assert.deepEqual(request.body, requestBody);
+  }
+} finally {
+  backend.close(); backend.close();
+  server.closeAllConnections();
+  await new Promise(resolve => server.close(resolve));
+}
+await setImmediate(); await setImmediate();
+assert.equal(server.listening, false);
+assert.deepEqual(failures, []);
+assert.deepEqual(['SIGINT', 'SIGTERM'].map(name => process.listenerCount(name)), signalCounts);
+assert.deepEqual(process.getActiveResourcesInfo().filter(name => /TCP|Timeout/.test(name)).sort(), initialResources);
+console.log(JSON.stringify({ node: process.version, completed: true, readiness: true,
+  streamCleanup: ['return', 'abort', 'close'], retainedResources: [] }));
+`], { cwd: consumer, env, encoding: 'utf8', stdio: 'pipe', timeout: 15_000 });
 }
 
 function verifyStandaloneTypes(repository: string, consumer: string, env: NodeJS.ProcessEnv) {
