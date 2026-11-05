@@ -57,7 +57,7 @@ test('accepts exactly the expected package inventory', () => {
 
 test('CI covers both pinned runtimes on all platforms without native builds', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/core-ci.yml', import.meta.url), 'utf8');
-  assert.match(workflow, /os: \[ubuntu-22\.04, macos-14, windows-2022\]/);
+  assert.match(workflow, /os: \[ubuntu-22\.04, macos-15, windows-2022\]/);
   assert.match(workflow, /node: \['22\.23\.4', '24\.13\.0'\]/);
   assert.match(workflow, /persist-credentials: false/);
   assert.match(workflow, /npm ci --ignore-scripts --no-audit --no-fund/);
