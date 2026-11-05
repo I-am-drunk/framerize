@@ -16,7 +16,7 @@ function compareIdentifier(left: string, right: string): number {
   if (NUMBER.test(left) && NUMBER.test(right)) return Number(left) - Number(right);
   if (NUMBER.test(left)) return -1;
   if (NUMBER.test(right)) return 1;
-  return left.localeCompare(right);
+  return left === right ? 0 : left < right ? -1 : 1;
 }
 
 export function compareSemverVersions(left: string, right: string): number {

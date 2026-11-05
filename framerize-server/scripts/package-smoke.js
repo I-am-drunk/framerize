@@ -23,10 +23,10 @@ try {
   const tarball = (await readdir(directory)).find((name) => name.endsWith('.tgz'));
   if (!tarball) throw new Error('Package tarball missing');
   run(['install', '--ignore-scripts', '--no-audit', '--no-fund', '--offline', path.join(directory, tarball)]);
-  const installed = path.join(directory, 'node_modules/framerize-server');
+  const installed = path.join(directory, 'node_modules/framerize');
   const manifest = JSON.parse(await readFile(path.join(installed, 'package.json')));
-  if (manifest.name !== 'framerize-server' || manifest.version !== source.version ||
-      manifest.private !== true || ['dependencies', 'optionalDependencies', 'peerDependencies']
+  if (manifest.name !== 'framerize' || manifest.version !== source.version ||
+      manifest.private === true || ['dependencies', 'optionalDependencies', 'peerDependencies']
         .some((field) => Object.keys(manifest[field] ?? {}).length)) {
     throw new Error('Unexpected package dependencies');
   }
@@ -71,14 +71,14 @@ try {
     assert.deepEqual(await readFile(path.join(installed, name)),
       expected, `Installed source differs: ${name}`);
   }
-  execFileSync(process.execPath, [path.join(directory, 'node_modules/framerize-server/bin/framerize-server.js'), '--help'], {
+  execFileSync(process.execPath, [path.join(directory, 'node_modules/framerize/bin/framerize-server.js'), '--help'], {
     cwd: directory, stdio: 'pipe',
   });
   execFileSync(process.execPath, ['--input-type=module', '-e', `
     import assert from 'node:assert/strict';
-    import { createServer } from 'framerize-server';
-    import { loadConfig } from 'framerize-server/config';
-    import { loadAccounts } from 'framerize-server/accounts';
+    import { createServer } from 'framerize';
+    import { loadConfig } from 'framerize/config';
+    import { loadAccounts } from 'framerize/accounts';
     const accounts = await loadAccounts();
     assert.deepEqual(accounts, []);
     assert.equal(Object.isFrozen(accounts), true);

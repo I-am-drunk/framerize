@@ -8,6 +8,7 @@
   },
   "bin": {
     "frm": "./bin/frm.js",
+    "framerize": "./bin/frm.js",
     "framerize-remote": "./bin/framerize-remote.js"
   },
   "exports": {

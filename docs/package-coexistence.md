@@ -5,7 +5,7 @@ new tarballs, publish packages, start services, or contact inference endpoints.
 
 ```sh
 node node_modules/typescript/bin/tsc -p tsconfig.tools.json
-node .tools/scripts/package-coexistence.js /path/to/framerize-remote-0.2.0.tgz /path/to/framerize-server-0.1.0.tgz
+node .tools/scripts/package-coexistence.js /path/to/framerize-remote-0.2.0.tgz /path/to/framerize-0.1.0.tgz
 ```
 
 Both arguments are required. Relative paths resolve from the caller's current
@@ -16,14 +16,15 @@ USTAR archives directly. It rejects links, special files and unsafe paths before
 
 ## What it checks
 
-1. Snapshot and hash the exact inputs, and require one package of each name with
-   distinct executable names and no runtime, optional, or peer dependencies.
-2. Install both snapshots together into a fresh temporary directory using npm's
-   offline mode, disabled lifecycle scripts, and an empty cache and configuration.
+1. Snapshot and hash `framerize` and `framerize-remote`. Require both `frm` and
+   `framerize` aliases and no runtime, optional, or peer dependencies.
+2. Install the libraries together with command links disabled. Install each CLI
+   in its own global prefix, offline, with lifecycle scripts disabled and empty
+   caches and configuration.
 3. Compare every installed file to its tarball bytes. The only allowed change is
    npm's removal of one CR before the first newline of a launcher CRLF shebang.
    All other source bytes, including body line endings, must remain unchanged.
-4. Verify distinct executable targets, direct help, offline `npm exec` and `npx`,
+4. Verify each prefix's command targets, direct help, offline `npm exec` and `npx`,
    the Remote version and setup help, and current module exports. Remote readiness
    and serving run in the separate bounded loopback fixture, not this no-network check.
 5. Report package name, version, input filename and SHA-256, file count, Node/npm

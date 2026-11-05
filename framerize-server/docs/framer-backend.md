@@ -5,9 +5,9 @@ Framer's Responses and Chat Completions routes. Use it as an embedding API or
 select it in the CLI with `--backend framer`.
 
 ```ts
-import { createServer } from 'framerize-server';
-import { createFramerAuth } from 'framerize-server/framer-auth';
-import { createFramerBackend } from 'framerize-server/framer-backend';
+import { createServer } from 'framerize';
+import { createFramerAuth } from 'framerize/framer-auth';
+import { createFramerBackend } from 'framerize/framer-backend';
 
 const auth = createFramerAuth({ sessionCookie });
 const provider = createFramerBackend({ projectId, auth, castle: minter });
@@ -19,7 +19,7 @@ The application's shutdown handler must await `server.close()`.
 
 ## Select a JSON account
 
-`createAccountBackend` from `framerize-server/account-backend` loads an account
+`createAccountBackend` from `framerize/account-backend` loads an account
 and its session before creating the backend. Write the session cookie inline:
 
 ```json
@@ -44,7 +44,7 @@ Server does not check the accounts file's permissions. On a shared machine,
 restrict it to your user, for example with `chmod 600`.
 
 ```ts
-import { createAccountBackend } from 'framerize-server/account-backend';
+import { createAccountBackend } from 'framerize/account-backend';
 
 const provider = await createAccountBackend({
   accountsFile: '/srv/framerize/accounts.json',

@@ -43,12 +43,12 @@ function evidenceFixture(platform = 'linux', arch = 'x64') {
   const report = path.join(directory, 'report');
   const files = new Map();
   const put = (file, bytes) => files.set(path.resolve(file), Buffer.from(bytes));
-  const packages = ['framerize-remote', 'framerize-server'].map((name) => {
+  const packages = ['framerize-remote', 'framerize'].map((name) => {
     const version = name === 'framerize-remote' ? '0.1.9' : '0.1.0';
     const tarball = name + '-' + version + '.tgz';
     const bytes = Buffer.from('fixture bytes for ' + name);
     put(path.join(input, tarball), bytes);
-    put(name + '/package.json', JSON.stringify({ name, version }));
+    put((name === 'framerize' ? 'framerize-server' : name) + '/package.json', JSON.stringify({ name, version }));
     return { name, version, tarball, sha256: digest(bytes), bytes: bytes.length };
   });
   const source = { repository: 'fixture/framerize', sha: 'a'.repeat(40), tree: 'c'.repeat(40), event: 'pull_request',

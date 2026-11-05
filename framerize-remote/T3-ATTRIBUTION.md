@@ -46,6 +46,9 @@ under the same MIT License.
   failed repair, an unreachable user manager and macOS without `loginctl` are
   Framerize tests of the adapted logic.
 - `src/cmdUp.ts` adapts `setUp`, `formatSetup` and `formatNextSteps` from
+  `apps/server/src/cli/up.ts`. `src/frmCli.ts` also adapts its `connectCommand`
+  alias by calling the existing setup flow instead of maintaining a second one.
+  The setup behavior comes from
   `apps/server/src/cli/up.ts` (blob `5a0e8209`): save the connection, check
   readiness, reconcile the service, restart it only when its settings changed,
   and restore the previous profile on failure. LAN, Tailscale Serve and

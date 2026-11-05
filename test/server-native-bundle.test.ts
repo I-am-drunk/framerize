@@ -6,7 +6,7 @@ import { gzipSync } from 'node:zlib';
 import { bundleServerArchive, verifyServerSource } from '../scripts/server-native-bundle.js';
 import { readPackageArchive } from '../scripts/package-archive.js';
 
-const identity = { name: 'framerize-server', version: '0.1.0' };
+const identity = { name: 'framerize', version: '0.1.0' };
 test('source binding rejects substituted bytes and checks inventory before reading', () => {
   const bytes = fixture();
   const archive = readPackageArchive(bytes);
@@ -35,7 +35,7 @@ for (const statement of ["import 'esbuild';", "import '../missing.js';",
     await assert.rejects(bundleServerArchive(fixture({}, statement), identity));
   });
 }
-for (const changed of [{ name: 'wrong-package' }, { version: '9.0.0' }, { private: false },
+for (const changed of [{ name: 'wrong-package' }, { version: '9.0.0' }, { private: true },
   { bin: { other: './bin/other.js' } }, { dependencies: { esbuild: '*' } }]) {
   test(`rejects changed package policy ${JSON.stringify(changed)}`, async () => {
     await assert.rejects(bundleServerArchive(fixture(changed), identity));
@@ -47,8 +47,8 @@ test('keeps Node builtin imports external', async () => {
 });
 
 function fixture(overrides = {}, body = "console.log('verified archive');"): Buffer {
-  const manifest = { ...identity, private: true, type: 'module',
-    bin: { framerize: './bin/framerize-server.js', 'framerize-server': './bin/framerize-server.js' }, ...overrides };
+  const manifest = { ...identity, type: 'module',
+    bin: { frm: './bin/framerize-server.js', framerize: './bin/framerize-server.js', 'framerize-server': './bin/framerize-server.js' }, ...overrides };
   const files = { 'package/package.json': JSON.stringify(manifest),
     'package/bin/framerize-server.js': "import '../dist/cli.js';", 'package/dist/cli.js': body };
   const chunks: Buffer[] = [];

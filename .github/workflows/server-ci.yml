@@ -70,7 +70,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: framerize-server-npm
-          path: framerize-server/framerize-server-*.tgz
+          path: framerize-server/framerize-*.tgz
           if-no-files-found: error
           overwrite: true
 
@@ -133,6 +133,7 @@ jobs:
           overwrite: true
           path: |
             framerize-server/dist/framerize-server*
+            framerize-server/dist/framerize-*.tgz
             framerize-server/dist/LICENSE
             framerize-server/dist/NODE-LICENSE
             framerize-server/dist/SHA256SUMS

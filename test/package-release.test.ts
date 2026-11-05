@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { assemblePackageRelease } from '../scripts/package-release.js';
 import { readPackageArchive } from '../scripts/package-archive.js';
 const hash = (data: Buffer) => createHash('sha256').update(data).digest('hex');
@@ -38,9 +39,22 @@ test('promotes original bytes only after all nine offline reports, without claim
   assert.equal(release.pendingGate, 'live_browserless_qualification');
   assert.equal(release.evidence.length, 29);
   assert.deepEqual(readFileSync(join(state.output, 'framerize-remote-0.2.0.tgz')), original);
-  assert.equal(existsSync(join(state.output, 'framerize-server-0.1.0.tgz')), false);
+  assert.equal(existsSync(join(state.output, 'framerize-0.1.0.tgz')), false);
 });
-function fixture(context: TestContext) {
+test('release CLI reads the renamed Server package from its source directory', context => {
+  const cwd = fileURLToPath(new URL('../../', import.meta.url));
+  const git = (ref: string) => execFileSync('git', ['rev-parse', ref], { cwd, encoding: 'utf8' }).trim();
+  const state = fixture(context, { sha: git('HEAD'), tree: git('HEAD^{tree}') });
+  const { expected } = state;
+  const output = execFileSync(process.execPath, [fileURLToPath(new URL('../scripts/package-release.js', import.meta.url)),
+    state.input, state.reports, state.output], { cwd, encoding: 'utf8', env: { ...process.env,
+      GITHUB_SHA: expected.sha, GITHUB_REPOSITORY: expected.repository, GITHUB_RUN_ID: expected.runId,
+      GITHUB_RUN_ATTEMPT: expected.runAttempt, GITHUB_REF: `refs/tags/${expected.tag}`, GITHUB_EVENT_NAME: expected.event } });
+  assert.equal(JSON.parse(output).publishable, false);
+  assert.deepEqual(readFileSync(join(state.output, 'framerize-remote-0.2.0.tgz')),
+    readFileSync(join(state.input, 'framerize-remote-0.2.0.tgz')));
+});
+function fixture(context: TestContext, identity: Partial<{ sha: string; tree: string }> = {}) {
   const root = mkdtempSync(join(tmpdir(), 'package release '));
   context.after(() => rmSync(root, { recursive: true, force: true }));
   const input = join(root, 'input'); const reports = join(root, 'reports');
@@ -48,7 +62,7 @@ function fixture(context: TestContext) {
   mkdirSync(input); mkdirSync(reports); mkdirSync(join(input, 'tooling'));
   const expected = { repository: 'fixture/repository', sha: 'a'.repeat(40), tree: 'b'.repeat(40),
     event: 'push', runId: '1234', runAttempt: '2', tag: 'framerize-remote-v0.2.0',
-    versions: { 'framerize-remote': '0.2.0', 'framerize-server': '0.1.0' } };
+    versions: { 'framerize-remote': '0.2.0', framerize: '0.1.0' }, ...identity };
   const packages = Object.entries(expected.versions).map(([name, version]) => {
     const directory = join(root, name); mkdirSync(join(directory, 'package'), { recursive: true });
     writeFileSync(join(directory, 'package/package.json'), JSON.stringify({ name, version }));

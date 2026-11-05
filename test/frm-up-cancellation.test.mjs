@@ -39,9 +39,9 @@ function connect(port) {
   });
 }
 
-for (const signal of ['SIGINT', 'SIGTERM']) {
+for (const command of ['up', 'connect']) for (const signal of ['SIGINT', 'SIGTERM']) {
   for (const existing of [false, true]) {
-    test(`frm up ${signal} restores ${existing ? 'an existing' : 'a new'} profile during readiness`,
+    test(`frm ${command} ${signal} restores ${existing ? 'an existing' : 'a new'} profile during readiness`,
       { timeout: 20000, skip: process.platform === 'win32'
         ? 'Windows child.kill terminates processes without delivering catchable POSIX signals' : false },
       async context => {
@@ -97,7 +97,7 @@ require('node:module').syncBuiltinESMExports();
         const original = Buffer.from(`{\r\n  "remote": "${origin}/",\r\n`
           + '  "host": "127.0.0.1", "port": 0\r\n}\r\n \t');
         if (existing) await writeFile(profile, original, { mode: 0o600 });
-        child = spawn(process.execPath, ['--require', guard, launcher, 'up', origin, '--json'], {
+        child = spawn(process.execPath, ['--require', guard, launcher, command, origin, '--json'], {
           cwd: root, stdio: ['ignore', 'pipe', 'pipe'],
           env: { HOME: root, USERPROFILE: root, FRM_HOME: home, PATH: '',
             XDG_CONFIG_HOME: join(root, 'config'), XDG_DATA_HOME: join(root, 'data'),
