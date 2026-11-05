@@ -114,18 +114,21 @@ feature categories. An inference refusal never marks the session signed out.
 
 The default body limit is 16 MiB. `headersTimeoutMs` gives request-body
 collection, authentication and Castle minting a shared 15-second preparation
-deadline. Once the request is prepared, a separate `inferenceTimeoutMs`
-deadline allows up to 300000 ms for connection, upload and response headers.
+deadline in the Framer backend. The backend starts its `inferenceTimeoutMs`
+deadline after preparation. Core starts its own inference deadline when it calls
+the backend. Both default to 300000 ms, so core's budget includes preparation
+as well as connection, upload and response headers.
 Connection setup also retains its own 15-second limit. These defaults can be
 changed with `--headers-timeout-ms` and `--inference-timeout-ms` in the CLI,
 or the corresponding options in either backend factory.
 
-For the existing streaming routes, the inference deadline stops after response
-headers. Custom completed-response routes keep a deadline through reply
-collection, validation and delivery, including when the client requests a
-streaming reply. Streaming also uses `idleTimeoutMs`, a 60-second body-inactivity
-limit. The existing streaming routes have no total lifetime limit after
-headers. The CLI option is `--idle-timeout-ms`. A deadline failure does not retry
+For `/v1/responses` and `/v1/chat/completions`, the inference deadline stops after
+response headers. These routes have no total lifetime limit after headers.
+The completed-response routes `/openai/v1/responses` and `/anthropic/v1/messages`
+keep a deadline through reply collection, validation and delivery, including
+when the client requests a streaming reply. Response bodies also use
+`idleTimeoutMs`, a 60-second body-inactivity limit. The CLI option is
+`--idle-timeout-ms`. A deadline failure does not retry
 the request. Configure Remote's independent forwarding limits separately;
 see [Remote timeouts](../../framerize-remote/README.md#endpoints).
 
