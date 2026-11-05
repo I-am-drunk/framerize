@@ -2,16 +2,32 @@ import { readFile } from 'node:fs/promises';
 import type { ReadText } from './conflicts.js';
 import { claudeManagedSettingsPath, parseSettingsObject } from './conflicts.js';
 
-/** Fetches a small text body, or null on any failure. Tests inject it; no test reaches a network. */
+/** Retains at most 4096 response bytes, or returns null on any failure. */
 export type FetchText = (url: string, timeoutMs: number) => Promise<string | null>;
 
 export const fetchText: FetchText = async (url, timeoutMs) => {
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   try {
     const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), redirect: 'follow' });
-    if (!response.ok) return null;
-    const text = await response.text();
-    return text.length <= 4096 ? text : null;
-  } catch { return null; }
+    if (!response.ok) {
+      await response.body?.cancel();
+      return null;
+    }
+    if (!response.body) return '';
+    reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) return new TextDecoder().decode(Buffer.concat(chunks, size));
+      size += value.byteLength;
+      if (size > 4096) return null;
+      chunks.push(value);
+    }
+  } catch { return null; } finally {
+    await reader?.cancel().catch(() => {});
+    reader?.releaseLock();
+  }
 };
 
 export const readText: ReadText = async path => {
