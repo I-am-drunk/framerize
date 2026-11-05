@@ -6,6 +6,7 @@ import type { FramerizeInstance } from '../dist/core.js';
 import { configuredSettings, defaultSettingsPath } from './settings.js';
 import { ServerSetupError } from './service-control.js';
 import type { SetupDependencies } from './setup.js';
+import packageJson from '../package.json' with { type: 'json' };
 
 export interface ParsedArgs {
   readonly command: 'serve' | 'check';
@@ -37,7 +38,7 @@ export interface CliDependencies {
 }
 
 const HELP = `Server
-Usage: framerize [serve|check|up|pair|status|service|accounts|configure] [options]
+Usage: framerize [serve|check|up|pair|status|service|accounts|configure|version] [options]
   up                            Save settings, start the service, and print a pairing link
   pair                          Print a link for frm to use on another machine
   status --json                 Show service state for agents
@@ -50,6 +51,7 @@ Usage: framerize [serve|check|up|pair|status|service|accounts|configure] [option
   configure [--backend framer|http] [--account-id ID] [--upstream URL] [--json]
                                  Save backend, account or upstream settings in server.json
   config [--json]                Print effective settings and their sources, without secrets
+  version, --version, -v         Print the installed package version
   --lan | --no-lan               Choose LAN or local access during up
   --tailscale | --no-tailscale   Configure or remove Tailscale Serve during up
   --tailscale-serve-port NUMBER   Tailscale HTTPS port, default 443
@@ -143,6 +145,10 @@ export async function run(argv: readonly string[] = process.argv.slice(2),
   dependencies: CliDependencies = {}): Promise<number> {
   const events = dependencies.process ?? process;
   if (argv.includes('--help') || argv.includes('-h')) { events.stdout.write(HELP); return 0; }
+  if (['version', '--version', '-v'].includes(argv[0] ?? '')) {
+    events.stdout.write(`${packageJson.version}\n`);
+    return 0;
+  }
   if (['up', 'pair', 'status', 'service', 'accounts', 'configure', 'config'].includes(argv[0] ?? '')) {
     const controller = new AbortController();
     const stop = () => {

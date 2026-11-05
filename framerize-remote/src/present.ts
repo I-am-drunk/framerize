@@ -1,6 +1,7 @@
 import type { BackendReadiness } from '@framerize/core';
+import packageJson from '../package.json' with { type: 'json' };
 
-export const VERSION = '0.2.0';
+export const VERSION = packageJson.version;
 
 export const SERVE_HELP = `Usage: frm serve [options]
 
