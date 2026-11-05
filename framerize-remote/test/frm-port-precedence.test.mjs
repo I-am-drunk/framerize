@@ -15,11 +15,11 @@ const manifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'u
 assert.equal(typeof manifest.bin?.frm, 'string');
 const launcher = resolve(packageRoot, manifest.bin.frm);
 
-async function state(context) {
-  const root = await mkdtemp(join(tmpdir(), 'frm-port-precedence-'));
+async function state(context, setting) {
+  const root = await mkdtemp(join(tmpdir(), `frm-${setting}-precedence-`));
   context.after(() => rm(root, { recursive: true, force: true }));
   const env = { HOME: root, USERPROFILE: root, TMPDIR: root, TMP: root, TEMP: root,
-    PATH: '', FRM_HOME: join(root, 'profile'), FRM_PORT: 'invalid-port',
+    PATH: '', FRM_HOME: join(root, 'profile'), [`FRM_${setting.toUpperCase()}`]: 'invalid value',
     FRM_REMOTE: 'http://127.0.0.1:43123', NODE_DISABLE_COMPILE_CACHE: '1' };
   return { root, env };
 }
@@ -30,23 +30,29 @@ function completed(root, env, args) {
     (error, stdout, stderr) => resolve({ code: error?.code ?? 0, stdout, stderr })));
 }
 
-test('setup --port replaces an invalid FRM_PORT before validation', { timeout: 8000 }, async context => {
-  const { root, env } = await state(context);
-  const result = await completed(root, env, ['setup', '--port', '0', '--json']);
-  assert.equal(result.code, 0, result.stderr);
-  const profile = JSON.parse(await readFile(join(env.FRM_HOME, 'framerize-remote.json'), 'utf8'));
-  assert.equal(profile.port, 0);
-  assert.equal(profile.remote, env.FRM_REMOTE);
-});
+for (const setting of ['port', 'host']) {
+  test(`setup --${setting} replaces an invalid FRM_${setting.toUpperCase()} before validation`,
+    { timeout: 8000 }, async context => {
+      const { root, env } = await state(context, setting);
+      const value = setting === 'port' ? '0' : '127.0.0.1';
+      const result = await completed(root, env, ['setup', `--${setting}`, value, '--json']);
+      assert.equal(result.code, 0, result.stderr);
+      const profile = JSON.parse(await readFile(join(env.FRM_HOME, 'framerize-remote.json'), 'utf8'));
+      assert.equal(profile[setting], setting === 'port' ? 0 : value);
+      assert.equal(profile.remote, env.FRM_REMOTE);
+    });
 
-test('an invalid FRM_PORT still fails without an override and writes no profile',
-  { timeout: 8000 }, async context => {
-    const { root, env } = await state(context);
-    const result = await completed(root, env, ['setup', '--json']);
-    assert.equal(result.code, 1);
-    assert.match(result.stderr + result.stdout, /listen_invalid/);
-    assert.deepEqual(await readdir(root), []);
-  });
+  for (const command of ['setup', 'serve']) {
+    test(`${command}: invalid FRM_${setting.toUpperCase()} fails without an override and writes no profile`,
+      { timeout: 8000 }, async context => {
+        const { root, env } = await state(context, setting);
+        const result = await completed(root, env, [command, '--json']);
+        assert.equal(result.code, 1);
+        assert.match(result.stderr + result.stdout, /listen_invalid/);
+        assert.deepEqual(await readdir(root), []);
+      });
+  }
+}
 
 function health(port) {
   return new Promise((resolve, reject) => {
@@ -67,9 +73,10 @@ async function bounded(promise) {
   })]); } finally { clearTimeout(timer); }
 }
 
-test('serve --port replaces an invalid FRM_PORT and closes its real listener',
+for (const setting of ['port', 'host']) {
+  test(`serve --${setting} replaces an invalid FRM_${setting.toUpperCase()} and closes its real listener`,
   { timeout: 15000 }, async context => {
-    const { root, env } = await state(context);
+    const { root, env } = await state(context, setting);
     const calls = [];
     const remote = createServer((request, response) => {
       calls.push(request.url);
@@ -86,7 +93,8 @@ test('serve --port replaces an invalid FRM_PORT and closes its real listener',
     remote.listen(0, '127.0.0.1');
     await bounded(listening);
     env.FRM_REMOTE = `http://127.0.0.1:${remote.address().port}`;
-    const child = spawn(process.execPath, [launcher, 'serve', '--port', '0', '--json'],
+    const child = spawn(process.execPath, [launcher, 'serve', '--port', '0', '--json',
+      ...(setting === 'host' ? ['--host', '127.0.0.1'] : [])],
       { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
     const closed = once(child, 'close');
     closed.catch(() => {});
@@ -114,3 +122,4 @@ test('serve --port replaces an invalid FRM_PORT and closes its real listener',
     const entries = await readdir(root, { recursive: true, withFileTypes: true });
     assert.ok(entries.every(entry => entry.isDirectory()));
   });
+}

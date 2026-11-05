@@ -20,7 +20,9 @@ export async function resolveInstance(
   let config: RemoteConfig;
   let endpoint: ReturnType<typeof resolveConfig>;
   try {
-    const selectedEnv = overrides?.port === undefined ? env : { ...env, FRM_PORT: undefined };
+    const selectedEnv = { ...env };
+    if (overrides?.host !== undefined) delete selectedEnv.FRM_HOST;
+    if (overrides?.port !== undefined) delete selectedEnv.FRM_PORT;
     config = await loadRunConfig(configPath, selectedEnv);
     if (overrides) config = applyListenOverrides(config, overrides);
     endpoint = resolveConfig(config);
