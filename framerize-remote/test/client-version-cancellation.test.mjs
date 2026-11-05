@@ -163,7 +163,8 @@ function probeFixture(t, tree) {
     return child;
   });
   const cleanup = async () => {
-    if (child && !finished) {
+    // Closed stdio does not prove that a detached descendant has exited.
+    if (child && (!finished || process.platform !== 'win32')) {
       if (process.platform === 'win32') child.kill('SIGKILL');
       else { try { process.kill(-child.pid, 'SIGKILL'); } catch {} }
     }
