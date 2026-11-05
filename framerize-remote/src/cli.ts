@@ -58,9 +58,9 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
   }
   const configPath = profilePath(explicit);
   if (command === 'setup') {
-    const message = await runSetup(passthrough, configPath, process.env, io.ask);
-    io.stdout(json ? `${JSON.stringify({ saved: true })}\n` : `${message}\n`);
-    if (passthrough.includes('--start')) return serve(configPath, io, json, {}, true);
+    const overrides = await runSetup(passthrough, configPath, process.env, io.ask);
+    io.stdout(json ? `${JSON.stringify({ saved: true })}\n` : 'Profile saved.\n');
+    if (passthrough.includes('--start')) return serve(configPath, io, json, overrides, true);
     if (!json) {
       const controller = new AbortController();
       const stop = (): void => controller.abort();

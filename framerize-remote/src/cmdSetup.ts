@@ -4,7 +4,7 @@ import { parseRemoteEndpoint } from './remoteUrl.js';
 import type { CredentialReference } from './credentials.js';
 import type { PersistedConfig } from './config.js';
 import { RemoteDiagnosticError } from './diagnostics.js';
-import { parseListenOptions } from './listenOptions.js';
+import { parseListenOptions, type ListenOverrides } from './listenOptions.js';
 import { frmSettings } from './frmEnv.js';
 
 const SETUP_SPEC = {
@@ -33,7 +33,7 @@ function optionalReference(key: 'serverToken' | 'localToken', env: unknown, file
 export type Ask = (question: string, signal?: AbortSignal) => Promise<string>;
 
 export async function runSetup(argv: readonly string[], configPath: string,
-  env: NodeJS.ProcessEnv = process.env, ask?: Ask): Promise<string> {
+  env: NodeJS.ProcessEnv = process.env, ask?: Ask): Promise<ListenOverrides> {
   let parsed: ReturnType<typeof parseArgs>;
   try { parsed = parseArgs(argv, SETUP_SPEC); }
   catch { throw new RemoteDiagnosticError('setup_arguments'); }
@@ -62,5 +62,5 @@ export async function runSetup(argv: readonly string[], configPath: string,
     allowNonLoopback: options['allow-non-loopback'] === true,
   };
   await saveConfigFile(configPath, config);
-  return 'Profile saved.';
+  return flags;
 }

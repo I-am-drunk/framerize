@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 
 const fixtures = {
-  cmdSetup: `export async function runSetup() { return 'Saved'; }`,
+  cmdSetup: `export async function runSetup() { return {}; }`,
   cmdUp: `export async function setUp() { return { service: 'unavailable' }; }
     export function formatUp() { return 'Ready'; }`,
   serviceCli: `export function serviceContext() { return {}; }
