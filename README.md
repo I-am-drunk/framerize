@@ -52,9 +52,16 @@ node framerize-server/bin/framerize-server.js up --lan
 `up` saves the settings, starts Server as a background service on Linux or
 macOS, and prints a pairing link and QR code. `--lan` accepts only private
 addresses; `--tailscale` adds a Tailscale Serve HTTPS route instead.
-To run in the foreground, replace `up --lan` in that command with
-`serve --host 192.168.1.20`, using the Server machine's private address.
-`serve` works on every platform. `--lan` and `--tailscale` belong to `up`.
+To run in the foreground on any platform, enable the same LAN filter with:
+
+```sh
+FRAMERIZE_SERVER_BACKEND=framer \
+FRAMERIZE_SERVER_ACCOUNTS=/srv/framerize/accounts.json \
+FRAMERIZE_SERVER_LAN=true \
+node framerize-server/bin/framerize-server.js serve
+```
+
+`--lan` and `--tailscale` belong to `up`; `serve` does not accept those flags.
 
 With no API token, any client that reaches the port can run inference on the
 account. Set `FRAMERIZE_SERVER_TOKEN` to require a bearer token; the pairing
@@ -64,8 +71,8 @@ lists every variable.
 
 ## 3. Pair Remote on the client machine
 
-Pass the link that `up` printed to `frm`. Run `framerize-server pair` on the
-Server machine to print it again.
+For a background Server, pass the link that `up` printed to `frm`. Run
+`framerize-server pair` on the Server machine to print it again.
 
 ```sh
 node framerize-remote/bin/frm.js 'http://192.168.1.20:8789/pair#token=...'
@@ -77,9 +84,10 @@ starts Remote as a background service. Clients use `http://127.0.0.1:8788/v1`.
 In a terminal, `frm` then offers to install or update Claude Code and Codex.
 Start one with `frm client claude` or `frm client codex`.
 
-Without a link, `frm up http://SERVER:8789` uses an origin, with
-`FRM_SERVER_TOKEN` if Server needs a token. Running `frm` with no arguments on
-a new machine asks for the link. `frm serve` runs in the foreground instead,
+For a foreground Server, which prints no pairing link, run
+`frm up http://SERVER:8789` with its private address. Set `FRM_SERVER_TOKEN`
+if Server requires a token. Running `frm` with no arguments on a new machine
+asks for the link. `frm serve` runs Remote in the foreground instead,
 for platforms without a service manager. See the
 [Remote guide](framerize-remote/README.md) for variables, clients and service limits.
 
