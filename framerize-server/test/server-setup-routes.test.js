@@ -133,3 +133,11 @@ test('route rollback failure retains the original readiness error', async t => {
     return true;
   });
 });
+
+test('pair rejects a tailnet readiness response from another process', async t => {
+  const { deps, state } = await fixture(t);
+  deps.ready = async origin => origin.startsWith('https:') ? 5678 : 1234;
+  await assert.rejects(runSetupCommand(['pair', '--json'], deps), /another Server process/);
+  assert.equal(state.output, '');
+  assert.ok(state.calls.every(args => !args.includes('--bg')));
+});

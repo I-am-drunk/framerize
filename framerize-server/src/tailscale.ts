@@ -52,7 +52,7 @@ function existingTarget(raw: string, port: number): string | undefined {
 }
 
 export async function prepareTailscale(localPort: number, servePort = 443, run: StepRunner = runStep,
-  localHost = '127.0.0.1') {
+  localHost = '127.0.0.1', previousTarget?: string) {
   if (![localPort, servePort].every(port => Number.isInteger(port) && port > 0 && port <= 65535)) {
     throw new ServerSetupError('Tailscale Serve requires fixed ports between 1 and 65535');
   }
@@ -69,20 +69,23 @@ export async function prepareTailscale(localPort: number, servePort = 443, run: 
   const configured = await run(command(), ['serve', 'status', '--json']);
   if (configured.code !== 0) throw new ServerSetupError('Could not inspect Tailscale Serve routes.');
   const existing = existingTarget(configured.stdout, servePort);
-  if (existing !== undefined && existing.replace(/\/$/, '') !== target) {
+  if (existing !== undefined && existing.replace(/\/$/, '') !== target
+    && existing.replace(/\/$/, '') !== previousTarget) {
     throw new ServerSetupError(`Tailscale HTTPS port ${servePort} already serves another application. Choose another port.`);
   }
   const origin = `https://${facts.magicDnsName}${servePort === 443 ? '' : `:${servePort}`}`;
   let attempted = false;
   let removed = false;
-  return { origin, async apply() {
+  let prior = existing;
+  return { origin, configured: existing?.replace(/\/$/, '') === target, async apply() {
     const current = await run(command(), ['serve', 'status', '--json']);
     if (current.code !== 0) throw new ServerSetupError('Could not inspect Tailscale Serve routes.');
     const destination = existingTarget(current.stdout, servePort);
     if (destination?.replace(/\/$/, '') === target) return;
-    if (destination !== undefined) {
+    if (destination !== undefined && destination.replace(/\/$/, '') !== previousTarget) {
       throw new ServerSetupError('The Tailscale route now belongs to another application.');
     }
+    prior = destination;
     attempted = true;
     const result = await run(command(), ['serve', '--bg', `--https=${servePort}`, target]);
     if (result.code !== 0) throw new ServerSetupError('Could not configure Tailscale Serve.');
@@ -92,29 +95,37 @@ export async function prepareTailscale(localPort: number, servePort = 443, run: 
     const destination = existingTarget(current.stdout, servePort);
     if (destination === undefined) return;
     if (destination.replace(/\/$/, '') !== target) throw new ServerSetupError('The Tailscale route now belongs to another application.');
+    prior = destination;
     removed = true;
     if ((await run(command(), tailscaleServeOffArgs(servePort))).code !== 0) {
       throw new ServerSetupError('Could not remove the Server Tailscale route.');
     }
   }, async rollback() {
-    if (removed && existing !== undefined) {
+    if (removed && prior !== undefined) {
       const current = await run(command(), ['serve', 'status', '--json']);
       if (current.code !== 0) throw new ServerSetupError('Could not inspect Tailscale routes during rollback.');
       const destination = existingTarget(current.stdout, servePort);
       if (destination !== undefined && destination.replace(/\/$/, '') !== target) {
         throw new ServerSetupError('Another application now owns the Tailscale route; it was not changed.');
       }
-      if ((await run(command(), ['serve', '--bg', `--https=${servePort}`, target])).code !== 0) {
+      if ((await run(command(), ['serve', '--bg', `--https=${servePort}`, prior])).code !== 0) {
         throw new ServerSetupError('Could not restore the previous Tailscale route.');
       }
       return;
     }
     if (!attempted) return;
     const current = await run(command(), ['serve', 'status', '--json']);
-    if (current.code === 0 && existingTarget(current.stdout, servePort)?.replace(/\/$/, '') === target) {
-      if ((await run(command(), tailscaleServeOffArgs(servePort))).code !== 0) {
-        throw new ServerSetupError('Could not remove the new Tailscale route during rollback.');
-      }
+    if (current.code !== 0) throw new ServerSetupError('Could not inspect Tailscale routes during rollback.');
+    const destination = existingTarget(current.stdout, servePort)?.replace(/\/$/, '');
+    if (destination === prior?.replace(/\/$/, '')) return;
+    if (destination !== undefined && destination !== target) {
+      if (prior !== undefined) throw new ServerSetupError('Another application now owns the Tailscale route; it was not changed.');
+      return;
+    }
+    const args = prior === undefined ? tailscaleServeOffArgs(servePort)
+      : ['serve', '--bg', `--https=${servePort}`, prior];
+    if ((await run(command(), args)).code !== 0) {
+      throw new ServerSetupError('Could not restore the previous Tailscale route.');
     }
   } };
 }

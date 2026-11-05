@@ -122,6 +122,12 @@ test('up saves a working service, repeats without restart, and stops its real la
         assert.equal(args.length, 2);
         return { code: 0, stdout: '' };
       }
+      if (action === 'show') {
+        assert.deepEqual(args.slice(2), ['framerize-server.service', '--property=ActiveState,SubState,MainPID']);
+        return { code: 0, stdout: running()
+          ? `ActiveState=active\nSubState=running\nMainPID=${child.pid}\n`
+          : 'ActiveState=inactive\nSubState=dead\nMainPID=0\n' };
+      }
       assert.deepEqual(args.slice(2), action === 'disable'
         ? ['--now', 'framerize-server.service'] : ['framerize-server.service']);
       if (action === 'is-enabled') return { code: enabled ? 0 : 1, stdout: enabled ? 'enabled\n' : 'disabled\n' };
@@ -192,7 +198,7 @@ test('up saves a working service, repeats without restart, and stops its real la
     assert.equal(child.pid, installedPid);
     assert.ok(running(), 'Repeated up must leave the same launcher running');
     assert.ok(calls.slice(beforeRepeat).every(call => call.command === 'loginctl'
-      || ['show-environment', 'is-enabled', 'is-active'].includes(call.args[1])),
+      || ['show-environment', 'is-enabled', 'is-active', 'show'].includes(call.args[1])),
     'Repeated up must not change the installed service');
     assert.equal(readFileSync(configPath, 'utf8'), settingsBytes);
     assert.equal(readFileSync(unitPath, 'utf8'), unitBytes);

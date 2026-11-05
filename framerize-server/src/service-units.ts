@@ -88,7 +88,7 @@ export function selectServiceManager(plan: ServicePlan): ServiceManager | undefi
       stop: [systemctl('stop', SERVICE_UNIT)], restart: [systemctl('restart', SERVICE_UNIT)],
       remove: [systemctl('disable', '--now', SERVICE_UNIT)], reload: [reload],
       enable: [systemctl('enable', SERVICE_UNIT)],
-      active: systemctl('is-active', SERVICE_UNIT),
+      active: systemctl('show', SERVICE_UNIT, '--property=ActiveState,SubState,MainPID'),
       enabled: systemctl('is-enabled', SERVICE_UNIT),
     };
   }

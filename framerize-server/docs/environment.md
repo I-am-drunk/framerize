@@ -41,6 +41,8 @@ values sit in the file as plain text. Token and session files stay as paths.
 `--config FILE` reads saved settings for `serve` or `check`. Environment
 variables and options override saved values for that run.
 Rerun `up` after changing a variable the service needs.
+With `--tailscale`, `server.json` also records the Tailscale Serve port.
+`service uninstall` removes that entry and keeps the rest of the file.
 
 ## Precedence
 

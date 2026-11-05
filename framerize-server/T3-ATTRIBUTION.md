@@ -21,9 +21,14 @@ The upstream license text is in `T3-LICENSE`.
 - `src/service-control.ts` adapts activation, rollback, status, linger repair
   and `runStep` from `cli/up.ts` and `cloud/bootService.ts`. The pinned
   runtime, update handoff, downgrade checks and memory protection are omitted.
+  Stopping the installed service before repair follows `bootService.ts`.
+  The port probe, process-ID readiness match and combined rollback errors
+  are Framerize additions.
 - `src/tailscale.ts` adapts `packages/tailscale/src/tailscale.ts` and
   `apps/server/src/cli/pair.ts`: status parsing, Serve route inspection,
-  `serve --bg`, removal and rollback.
+  `serve --bg`, removal and rollback. Unlike upstream `pair`, Framerize
+  `pair` never creates a route; only `up` does. Moving a saved route to a new
+  port and restoring a prior route are Framerize additions.
 
 ## Vendored file
 

@@ -40,6 +40,9 @@ export async function createServer(values: unknown = {},
     headersTimeoutMs, inferenceTimeoutMs, idleTimeoutMs, requestHeadersTimeoutMs, shutdownTimeoutMs,
     onRequest(event) { return logger?.info?.('request.finished', event); },
   });
+  app.server.prependListener('request', (request, response) => {
+    if (request.url === '/ready') response.setHeader('x-framerize-server-pid', String(process.pid));
+  });
   if (config.privateNetworkOnly) {
     app.server.prependListener('connection', socket => {
       if (!acceptsPrivateNetworkConnection(socket)) socket.destroy();

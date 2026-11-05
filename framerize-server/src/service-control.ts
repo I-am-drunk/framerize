@@ -7,6 +7,12 @@ import { randomUUID } from 'node:crypto';
 import { selectServiceManager, serviceHomeOf, type ServicePlan, type ServiceStep } from './service-units.js';
 
 export class ServerSetupError extends Error {}
+export function rollbackError(original: unknown, failures: readonly unknown[]): unknown {
+  if (failures.length === 0) return original;
+  const message = (error: unknown) => error instanceof Error ? error.message : String(error);
+  return new ServerSetupError(`${message(original)} Rollback also failed: ${failures.map(message).join('; ')}`,
+    { cause: new AggregateError([original, ...failures]) });
+}
 export type StepRunner = (command: string, args: readonly string[]) => Promise<{ code: number; stdout: string }>;
 export const runStep: StepRunner = (command, args) => new Promise(resolve => {
   execFile(command, [...args], { timeout: 120_000, maxBuffer: 256 * 1024, windowsHide: true },
@@ -40,7 +46,7 @@ async function readOptional(path: string): Promise<string | undefined> {
   }
 }
 
-async function writeAtomic(path: string, contents: string): Promise<void> {
+export async function writeAtomic(path: string, contents: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temporary = `${path}.${randomUUID()}.tmp`;
   try { await writeFile(temporary, contents, { mode: 0o600 }); await rename(temporary, path); }
@@ -62,9 +68,18 @@ export async function serviceStatus(plan: ServicePlan, run: StepRunner = runStep
   const installed = contents !== undefined;
   const installedHome = contents && serviceHomeOf(contents);
   const otherHome = installed && (!installedHome || resolve(installedHome) !== resolve(plan.home));
-  const running = installed && (await run(manager.active.command, manager.active.args)).code === 0;
+  const state = installed ? await run(manager.active.command, manager.active.args) : undefined;
+  const loaded = state?.code === 0;
+  const output = state?.stdout ?? '';
+  const pid = Number(plan.platform === 'linux' ? /^MainPID=(\d+)$/m.exec(output)?.[1]
+    : /^\s*pid = (\d+)\s*$/m.exec(output)?.[1]);
+  const active = plan.platform === 'linux'
+    ? /^ActiveState=active$/m.test(output) && /^SubState=running$/m.test(output)
+    : /^\s*state = running\s*$/m.test(output);
+  const running = loaded && active && Number.isSafeInteger(pid) && pid > 0;
   const enabled = !manager.enabled || (await run(manager.enabled.command, manager.enabled.args)).code === 0;
-  return { supported: true, installed, running, enabled, current: contents === manager.contents && enabled, otherHome,
+  return { supported: true, installed, running, loaded, pid: running ? pid : undefined,
+    enabled, current: contents === manager.contents && enabled, otherHome,
     unitPath: manager.path, logPath: join(plan.home, 'server.log') };
 }
 
@@ -75,27 +90,37 @@ function requiredManager(plan: ServicePlan) {
 }
 
 export async function reconcileService(plan: ServicePlan, settings: string,
-  ready: () => Promise<void>, run: StepRunner = runStep): Promise<'installed' | 'updated' | 'unchanged'> {
+  ready: () => Promise<number | void>, run: StepRunner = runStep,
+  beforeStart: () => Promise<void> = async () => {}): Promise<'installed' | 'updated' | 'unchanged'> {
   const manager = requiredManager(plan);
   const before = await serviceStatus(plan, run);
   if (before.otherHome) throw new ServerSetupError('The Server service belongs to another FRAMERIZE_SERVER_HOME.');
   const settingsPath = join(plan.home, 'server.json');
   const [oldSettings, oldUnit] = await Promise.all([readOptional(settingsPath), readOptional(manager.path)]);
   if (before.running && before.current && oldSettings === settings) {
-    await ready();
+    await verifyReady(await ready());
     return 'unchanged';
   }
   try {
-    if (before.running) await steps(run, manager.stop);
+    if (before.installed && (plan.platform === 'linux' || before.loaded)) await steps(run, manager.stop);
+    await beforeStart();
     await writeAtomic(settingsPath, settings);
     await writeAtomic(manager.path, manager.contents);
     await steps(run, manager.activate);
-    await ready();
+    await verifyReady(await ready());
   } catch (error) {
-    await restoreService();
+    try { await restoreService(); }
+    catch (failure) { throw rollbackError(error, [failure]); }
     throw error;
   }
   return before.installed ? 'updated' : 'installed';
+
+  async function verifyReady(pid: number | void): Promise<void> {
+    const after = await serviceStatus(plan, run);
+    if (!after.running || (pid !== undefined && after.pid !== pid)) {
+      throw new ServerSetupError('The Server service is not running or another process answered readiness. Check server.log.');
+    }
+  }
 
   async function restoreService(): Promise<void> {
     await steps(run, manager.remove.map(step => ({ ...step, optional: true })));
@@ -105,7 +130,8 @@ export async function reconcileService(plan: ServicePlan, settings: string,
     else await writeAtomic(manager.path, oldUnit);
     await steps(run, manager.reload);
     if (oldUnit !== undefined && before.enabled) await steps(run, manager.enable);
-    if (before.running) await steps(run, manager.activate);
+    const restore = before.running || (plan.platform === 'linux' ? before.enabled : before.loaded);
+    if (oldUnit !== undefined && restore) await steps(run, manager.activate);
   }
 }
 
@@ -116,12 +142,13 @@ export async function controlService(plan: ServicePlan, action: 'start' | 'stop'
   if (!status.installed) return 'missing';
   if (status.otherHome) throw new ServerSetupError('The Server service belongs to another FRAMERIZE_SERVER_HOME.');
   if (action === 'uninstall') {
-    await steps(run, manager.remove);
+    if (plan.platform !== 'darwin' || status.loaded) await steps(run, manager.remove);
     await rm(manager.path, { force: true });
     await steps(run, manager.reload);
-  } else if (action !== 'stop' || status.running) {
+  } else if (action !== 'stop' || status.loaded) {
+    const needsRestart = plan.platform === 'darwin' ? status.loaded : status.running && action === 'restart';
     await steps(run, action === 'stop' ? manager.stop
-      : status.running && action === 'restart' ? manager.restart : manager.activate);
+      : needsRestart ? manager.restart : manager.activate);
   }
   return 'done';
 }

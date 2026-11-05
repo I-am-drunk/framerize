@@ -158,3 +158,55 @@ test('launchd status requires a running PID', async t => {
   assert.equal(state.running, true);
   assert.equal(state.pid, 1234);
 });
+
+test('stop reaches an installed service while it has no running PID', async t => {
+  const { plan, state, run, manager } = await context(t);
+  await mkdir(dirname(manager.path), { recursive: true });
+  await writeFile(manager.path, manager.contents);
+  state.enabled = true;
+  await controlService(plan, 'stop', run);
+  assert.ok(state.calls.some(args => args.includes('stop')));
+  assert.equal(state.enabled, true);
+});
+
+test('start replaces a loaded launchd job that has no running PID', async t => {
+  const { plan } = await context(t);
+  const selected = { ...plan, platform: 'darwin' };
+  const manager = selectServiceManager(selected);
+  await mkdir(dirname(manager.path), { recursive: true });
+  await writeFile(manager.path, manager.contents);
+  const calls = [];
+  await controlService(selected, 'start', async (_command, args) => {
+    calls.push(args[0]);
+    return { code: 0, stdout: 'state = waiting\n' };
+  });
+  assert.deepEqual(calls, ['print', 'bootout', 'bootstrap']);
+});
+
+test('uninstall removes an unloaded launchd job without bootout', async t => {
+  const { plan } = await context(t);
+  const selected = { ...plan, platform: 'darwin' };
+  const manager = selectServiceManager(selected);
+  await mkdir(dirname(manager.path), { recursive: true });
+  await writeFile(manager.path, manager.contents);
+  const calls = [];
+  await controlService(selected, 'uninstall', async (_command, args) => {
+    calls.push(args[0]);
+    return { code: 1, stdout: '' };
+  });
+  assert.deepEqual(calls, ['print']);
+  await assert.rejects(readFile(manager.path), { code: 'ENOENT' });
+});
+
+test('failed setup restores a previously enabled service with no running PID', async t => {
+  const { plan, state, run, manager, settings } = await context(t);
+  await mkdir(dirname(manager.path), { recursive: true });
+  await writeFile(manager.path, manager.contents);
+  await mkdir(plan.home, { recursive: true });
+  await writeFile(settings, '{"old":true}');
+  state.enabled = true;
+  await assert.rejects(reconcileService(plan, '{"new":true}', async () => state.pid, run,
+    async () => { throw new Error('port is already in use'); }), /already in use/);
+  assert.equal(state.running, true);
+  assert.equal(await readFile(settings, 'utf8'), '{"old":true}');
+});
