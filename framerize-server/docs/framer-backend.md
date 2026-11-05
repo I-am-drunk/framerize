@@ -20,24 +20,28 @@ The application's shutdown handler must await `server.close()`.
 ## Select a JSON account
 
 `createAccountBackend` from `framerize-server/account-backend` loads an account
-and its private session reference before creating the backend. For example:
+and its session before creating the backend. Write the session cookie inline:
 
 ```json
 [
   {
     "id": "personal",
     "projectId": "your-project-id",
-    "session": { "env": "FRAMER_SESSION" }
+    "session": "session=..."
   }
 ]
 ```
 
-Use `session: { "file": "private/session" }` for a private file instead.
-Relative references resolve beside the JSON file, not the working directory.
-The JSON stores references, never cookies or bearer tokens. Session files are
-regular files limited to 16 KiB, with no group or other permissions on Unix.
+Use `session: { "env": "FRAMER_SESSION" }` to read it from an environment
+variable, or `session: { "file": "private/session" }` to read a file.
+Relative file references resolve beside the JSON file, not the working directory.
+Session values are at most 16 KiB of printable ASCII with no surrounding spaces.
+Session files are regular files, with no group or other permissions on Unix.
 Windows file ACLs remain the operator's responsibility.
 One final LF or CRLF is allowed in files. Invalid UTF-8 and BOMs are rejected.
+An accounts file with an inline session holds a live credential. Keep it out of Git.
+Server does not check the accounts file's permissions. On a shared machine,
+restrict it to your user, for example with `chmod 600`.
 
 ```ts
 import { createAccountBackend } from 'framerize-server/account-backend';
@@ -60,27 +64,26 @@ selected account's session is read, once at startup. Reload credentials by
 closing the backend and creating a new one. `model`
 and `models` remain descriptive metadata, not routing rules.
 
-The CLI creates its own minter from the packaged Castle runtime. Provision the
-server token and account session through private environment or file references:
+The CLI creates its own minter from the packaged Castle runtime:
 
 ```sh
-framerize-server serve --backend framer \
-  --accounts-file /srv/framerize/accounts.json --account-id personal \
-  --server-token-file /srv/framerize/private/server-token
+FRAMERIZE_SERVER_BACKEND=framer \
+FRAMERIZE_SERVER_ACCOUNTS=/srv/framerize/accounts.json \
+framerize-server serve
 ```
 
-`FRAMERIZE_SERVER_BACKEND`, `FRAMERIZE_SERVER_ACCOUNTS` and
-`FRAMERIZE_SERVER_ACCOUNT` provide the same selection through the environment.
+`FRAMERIZE_SERVER_ACCOUNT` or `--account-id` selects one of several enabled
+accounts. `--backend` and `--accounts-file` override the variables.
+Add `FRAMERIZE_SERVER_TOKEN` to require a bearer token from clients.
 The Framer backend rejects generic upstream URLs and authorization references.
 The native executable bundles Castle directly. It does not fetch the separate
 Castle repository or require an external encoder. See the
 [native build contract](../../docs/native-server-build.md).
 
 Embedding callers supply the session cookie, project ID, server token and a Castle
-minter. These variables are not loaded automatically. Never put credential
-values in command arguments or logs. The backend owns the supplied auth and
-minter lifetimes. Do not share them between backend instances. Their methods
-must honor cancellation and settle after cleanup; `close()` must be idempotent.
+minter. These variables are not loaded automatically. The backend owns the
+supplied auth and minter lifetimes. Do not share them between backend instances.
+Their methods must honor cancellation and settle after cleanup; `close()` must be idempotent.
 
 ## Protocol and limits
 

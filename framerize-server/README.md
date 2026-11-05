@@ -1,25 +1,37 @@
-# Framerize server
+# Server
 
-A Node.js HTTP server with no runtime dependencies for an operator-authorized inference API.
+Server is the `framerize-server` package: a Node.js HTTP inference API with no
+runtime dependencies. It holds the provider accounts and the Castle runtime.
 Requires Node.js 22.12 or newer. The npm package is private and has no publish script.
 
-The HTTP listener is the shared TypeScript core, bundled as `dist/core.js`.
-There is no private workspace dependency in the installed package. Existing
-configuration validation, server-token loading and JSON account metadata compile
-from TypeScript. The upstream HTTP provider also compiles from TypeScript and
-exports `ProviderOptions`, `ProviderRequest` and `Provider` through
-`framerize-server/provider`. Its declarations include the required core types
-inside the package. CLI orchestration, logging and server composition also
-compile from TypeScript. The npm archive contains generated runtime modules
-and declarations, not the source tree. A small Node launcher remains in `bin/`.
-The account backend uses the packaged Castle runtime and its TypeScript encoder.
-This wiring does not establish live browserless compatibility.
+The HTTP listener is the shared TypeScript Core, bundled as `dist/core.js`.
+The installed package has no private workspace dependency. The upstream HTTP
+provider exports `ProviderOptions`, `ProviderRequest` and `Provider` through
+`framerize-server/provider`, with the required Core types included. The npm
+archive contains generated runtime modules and declarations, not the source
+tree. A small Node launcher remains in `bin/`. The account backend uses the
+packaged Castle runtime and its TypeScript encoder.
+Live provider compatibility is unverified.
 
 ## Run
 
-Set `FRAMERIZE_SERVER_TOKEN` in the existing private environment. Keep the upstream
-credential in a separate environment variable or private file. Do not pass secret
-values as command-line arguments.
+From the repository root, with an accounts file as described in
+[account configuration](docs/framer-backend.md#select-a-json-account):
+
+```sh
+npm ci --ignore-scripts
+npm run build
+FRAMERIZE_SERVER_BACKEND=framer \
+FRAMERIZE_SERVER_ACCOUNTS=/srv/framerize/accounts.json \
+node framerize-server/bin/framerize-server.js serve
+```
+
+The server listens on `127.0.0.1:8789`. Without an API token, clients need no
+`Authorization` header. Set `FRAMERIZE_SERVER_TOKEN` to require one.
+Every option has a `FRAMERIZE_SERVER_*` variable, and command-line options
+override them. See the [environment guide](docs/environment.md).
+Replace `serve` with `check` to validate configuration without contacting the provider.
+Neither command loads `.env` files.
 
 If the command reports "Invalid command or option", run `framerize-server --help`.
 This covers unknown commands, unsupported options and missing option values.
@@ -28,22 +40,21 @@ The diagnostic does not print the supplied arguments.
 If startup reports "Server configuration is invalid", check option values and
 the [supported environment settings](docs/environment.md). For example, `--port`
 must be an integer from 0 to 65535. With `--backend framer`, also check the
-session environment variable or file named in your
-[account JSON](docs/framer-backend.md#select-a-json-account). The session variable
-can have a custom name outside `FRAMERIZE_SERVER_*`; its value must be set and
-valid, or the referenced session file must be readable and valid.
+session in your [account JSON](docs/framer-backend.md#select-a-json-account).
+An inline session must be valid. A session variable must be set and valid, and
+a session file must be readable and valid. The variable can have any name.
 Run `framerize-server --help` for supported options. The diagnostic links to the
-environment guide and does not print configuration values or credentials.
+environment guide. It does not print configuration values.
 
 If startup reports "Account metadata file is unavailable or invalid", check
 `--accounts-file`, read permissions, and the
 [JSON account format](docs/framer-backend.md#select-a-json-account).
-The diagnostic does not print the path, file contents, or credentials.
+The diagnostic does not print the path or file contents.
 
 If startup reports "Select one configured Framer account", check `--account-id`
 or `FRAMERIZE_SERVER_ACCOUNT`, and `--accounts-file` or
 `FRAMERIZE_SERVER_ACCOUNTS`. Use the exact `id` of one enabled account with a
-`projectId` and a session reference. Malformed IDs also use this diagnostic for
+`projectId` and a session. Malformed IDs also use this diagnostic for
 the Framer backend. Omit the selector only when exactly one account is enabled.
 
 If startup reports "Server could not listen on the configured host and port",
@@ -52,16 +63,15 @@ check `--host` or `FRAMERIZE_SERVER_HOST` and `--port` or
 This diagnostic covers listener startup failures without exposing the address
 or underlying error. It does not identify a specific operating-system error.
 
+For the generic HTTP backend, name the upstream and its credential variable:
+
 ```sh
-npm ci --ignore-scripts
-npm run build
 npm --prefix framerize-server start -- --upstream https://inference.example.test --authorization-env INFERENCE_API_KEY
 ```
 
-Run these commands from the repository root. Installed packages already
-contain the listener bundle, compiled configuration and account loader. They do not need
-TypeScript or a build step. The package includes Castle as `dist/castle.js`.
-TypeScript source stays out of the npm archive.
+Installed packages already contain the listener bundle, compiled configuration
+and account loader. They do not need TypeScript or a build step. The package
+includes Castle as `dist/castle.js`. TypeScript source stays out of the npm archive.
 The main export includes `ServerProvider` and `ServerDependencies` types for
 embedding. Providers can return synchronous or asynchronous responses; the
 server normalizes them into the shared backend contract.
@@ -86,9 +96,9 @@ the listener. A reverse proxy must provide TLS for remote clients. Run
 `npm --prefix framerize-server start -- --help` for every supported option. Run
 `node framerize-server/bin/framerize-server.js check` to validate configuration without contacting an upstream.
 
-`--server-token-file` reads the server token from a private regular file, at most
+`--server-token-file` reads the API token from a regular file of at most
 16 KiB. On Unix, group and other permission bits must be unset. The token is read
-once at startup. A missing server token leaves protected routes inaccessible.
+once at startup. Without a configured token, `/ready` and inference are open.
 
 SIGINT or SIGTERM during startup cancels pending provider creation. The CLI
 closes any provider returned afterward and does not open the listener. During
@@ -98,8 +108,9 @@ failures still exit nonzero.
 ## HTTP contract
 
 `GET /health` returns `{ "status": "ok", "apiVersion": 1 }` without authentication
-or an upstream request. `GET /ready`, `POST /v1/responses`, and
-`POST /v1/chat/completions` require `Authorization: Bearer <server-token>`.
+or an upstream request. When an API token is configured, `GET /ready`,
+`POST /v1/responses` and `POST /v1/chat/completions` require
+`Authorization: Bearer <token>`. Without one, they accept every request.
 
 Readiness returns API version 1, `status: "ready"`, and capabilities
 `responses`, `chatCompletions`, and `streaming`, all true. Unavailability returns
@@ -107,7 +118,7 @@ Readiness returns API version 1, `status: "ready"`, and capabilities
 `credentials_unavailable`, or `upstream_unavailable`. Readiness performs no
 inference or account discovery. No endpoint exposes account metadata.
 
-Authentication failures return 401 and
+With a token configured, authentication failures return 401 and
 `{"error":{"type":"authentication_error","code":"unauthorized","message":"Authentication required"}}`.
 Other application errors have the same shape with `type: "invalid_request_error"`.
 
@@ -122,7 +133,7 @@ preserving status and safe headers. It never returns raw upstream error bodies.
 ## Experimental custom routes
 
 The Framer backend also accepts `POST /openai/v1/responses` and
-`POST /anthropic/v1/messages`. Both require the server bearer token.
+`POST /anthropic/v1/messages`, with the same token rule as the bare routes.
 Use `stream: false` or omit `stream` for completed JSON. Use `stream: true`
 for client events. Background Responses jobs remain unsupported.
 
@@ -204,11 +215,11 @@ A backend that fails or exceeds its shutdown deadline rejects `close()` with
 
 ## Configuration and metadata
 
-`loadConfig(values, env)` validates explicit options and reads the server token
-from `serverTokenEnv`, defaulting to `FRAMERIZE_SERVER_TOKEN`. An injected
-`serverToken` is supported for embedding and fixtures and is non-enumerable.
-`serverTokenFile` overrides the default environment reference. Upstream credentials
-use `authorizationEnv` or `authorizationFile`, never both.
+`loadConfig(values, env)` validates explicit options and reads the API token
+from `serverTokenEnv`, defaulting to `FRAMERIZE_SERVER_TOKEN`, or from
+`serverTokenFile`. An injected `serverToken` is supported for embedding and
+fixtures and is non-enumerable. Without a token the API is open. Upstream
+credentials use `authorizationEnv` or `authorizationFile`, never both.
 
 Timeouts must be positive integers no greater than 2147483647 milliseconds:
 
@@ -232,17 +243,23 @@ body per request to validate JSON before invoking the provider. Existing bare-ro
 responses stream without whole-response buffering. A paused client must resume before its
 idle limit; provider body reads pause while downstream writes are blocked.
 
-`accountsFile` optionally references a JSON array of metadata with `id`, `label`,
-`enabled`, `model`, and `models`. It also accepts a `projectId` and a `session`
-reference containing exactly one `env` or `file` field. Unknown fields, duplicate IDs, and malformed
+`accountsFile` optionally names a JSON array of accounts with `id`, `label`,
+`enabled`, `model`, and `models`. It also accepts a `projectId` and a `session`.
+The session is an inline string, or an object with exactly one `env` or `file`
+field. Unknown fields, duplicate IDs, and malformed
 records fail startup. The file is limited to 1 MiB. `loadAccounts(file)` returns
 immutable records. The generic provider does not use these records. The
 account backend requires an explicit selection when more than one account is
 enabled. It never rotates accounts automatically.
 `examples/metadata.example.json` contains no credentials. Keep actual account records outside Git.
 
-Logs contain request IDs, canonical routes, status, outcome, and duration. They
-exclude request bodies, account records, credentials, and arbitrary error messages.
+The CLI logs JSON lines to stderr: `config.valid`, `server.listening` with its
+port, and `request.finished` with the request ID, canonical route, status,
+outcome and duration. These events carry no request bodies, account records or
+credentials. The logger does not redact. A field passed to it, including an
+error's name and message, is written as given. It keeps the first 2000
+characters of each string and 100 entries per object or array, stops five
+levels deep and marks circular references.
 
 ## Verify locally
 
