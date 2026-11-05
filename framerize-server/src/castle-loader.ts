@@ -3,7 +3,7 @@ import type { FramerMinter } from './framer-backend.js';
 
 export async function createServerMinter(signal: AbortSignal): Promise<FramerMinter> {
   signal.throwIfAborted();
-  const minter = createCastleMinter() as FramerMinter;
+  const minter = createCastleMinter();
   signal.throwIfAborted();
   return minter;
 }

@@ -61,6 +61,14 @@ npm --prefix framerize-server start -- --upstream https://inference.example.test
 Run these commands from the repository root. Installed packages already
 contain the listener bundle, compiled configuration and account loader. They do not need
 TypeScript or a build step. The package includes Castle as `dist/castle.js`.
+Its collection and encoding workers, pinned inputs, and default interaction
+trace are embedded in that file. Each mint has isolated temporary storage.
+Cancellation and `close()` wait for active work to stop and storage to be removed.
+Normal builds do not access the separate Castle repository. Maintainers can
+regenerate the bundle from an existing local checkout with
+`node scripts/vendor-castle-library.mjs /path/to/castle`, run from the workspace
+root. Add `--check` to verify it without rewriting files. The source commit and
+hashes are recorded in `test/helpers/castle-library-source.json`.
 TypeScript source stays out of the npm archive.
 The main export includes `ServerProvider` and `ServerDependencies` types for
 embedding. Providers can return synchronous or asynchronous responses; the
