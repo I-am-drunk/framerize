@@ -48,7 +48,7 @@ test('keeps Node builtin imports external', async () => {
 
 function fixture(overrides = {}, body = "console.log('verified archive');"): Buffer {
   const manifest = { ...identity, private: true, type: 'module',
-    bin: { 'framerize-server': './bin/framerize-server.js' }, ...overrides };
+    bin: { framerize: './bin/framerize-server.js', 'framerize-server': './bin/framerize-server.js' }, ...overrides };
   const files = { 'package/package.json': JSON.stringify(manifest),
     'package/bin/framerize-server.js': "import '../dist/cli.js';", 'package/dist/cli.js': body };
   const chunks: Buffer[] = [];
