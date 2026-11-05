@@ -56,8 +56,9 @@ export async function startServe(
   env?: NodeJS.ProcessEnv,
   signal: AbortSignal = new AbortController().signal,
   overrides: ListenOverrides = {},
+  afterSetup = false,
 ): Promise<ServeHandle> {
-  const { config, localToken, backend } = await resolveInstance(configPath, env, overrides);
+  const { config, localToken, backend } = await resolveInstance(configPath, env, overrides, afterSetup);
   let close = async (): Promise<void> => { await backend.close(); };
   try {
     signal.throwIfAborted();

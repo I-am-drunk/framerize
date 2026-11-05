@@ -9,9 +9,9 @@ import { CLIENT_HELP, nodeRunner, offerClients, parseClientOptions, runClient,
   type ClientSetupDeps, type RemoteTarget } from './compatibility/index.js';
 
 export async function clientDependencies(configPath: string, io: CliIo,
-  env: NodeJS.ProcessEnv, target?: RemoteTarget): Promise<ClientSetupDeps> {
+  env: NodeJS.ProcessEnv, target?: RemoteTarget, afterSetup = false): Promise<ClientSetupDeps> {
   if (!target) {
-    const config = await loadRunConfig(configPath, env);
+    const config = await loadRunConfig(configPath, env, afterSetup);
     if (config.port === 0) throw new RemoteDiagnosticError('listen_invalid',
       'Set FRM_PORT to the running Remote port before starting a client.');
     const host = config.host === '0.0.0.0' ? '127.0.0.1' : config.host === '::' ? '[::1]'
@@ -61,7 +61,7 @@ export async function runClientCommand(argv: readonly string[], io: CliIo,
 }
 
 export async function offerClientSetup(configPath: string, io: CliIo, env: NodeJS.ProcessEnv,
-  dependencies?: ClientSetupDeps, signal?: AbortSignal): Promise<'cancelled' | void> {
+  dependencies?: ClientSetupDeps, signal?: AbortSignal, afterSetup = false): Promise<'cancelled' | void> {
   const cancellation = signal ?? dependencies?.signal;
   if (cancellation?.aborted) return 'cancelled';
   if (!io.ask) return;
@@ -69,7 +69,7 @@ export async function offerClientSetup(configPath: string, io: CliIo, env: NodeJ
     const answer = await io.ask('Set up Claude Code or Codex for this connection? [y/N] ', cancellation);
     if (cancellation?.aborted) return 'cancelled';
     if (!['y', 'yes'].includes(answer?.trim().toLowerCase() ?? '')) return;
-    const deps = dependencies ?? await clientDependencies(configPath, io, env);
+    const deps = dependencies ?? await clientDependencies(configPath, io, env, undefined, afterSetup);
     await offerClients(cancellation ? { ...deps, signal: cancellation } : deps);
     if (cancellation?.aborted) return 'cancelled';
     let defaultPath: string | undefined;
