@@ -76,7 +76,11 @@ for (const [action, output] of [['cancel', 'inherit'], ['cancel', 'ignore'], ['f
       if (closed) assert.equal(await bounded(closed, false), true, 'owned child must close');
       if (worker) {
         const deadline = Date.now() + 1000;
-        while (await listening(worker.port) && Date.now() < deadline) {
+        while (await listening(worker.port).catch(error => {
+          // A reset during shutdown does not prove the listener is closed.
+          if (error.code === 'ECONNRESET') return true;
+          throw error;
+        }) && Date.now() < deadline) {
           await new Promise(resolve => setTimeout(resolve, 10));
         }
         assert.equal(await listening(worker.port), false, 'owned listener must close');
