@@ -1,5 +1,7 @@
-import { mkdir, mkdtemp, open, readFile, rename, rm } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { mkdir, mkdtemp, open, rename, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { RemoteDiagnosticError } from './diagnostics.js';
 import type { CredentialReference } from './credentials.js';
 import { normalizeHostname } from './hostPolicy.js';
@@ -13,9 +15,17 @@ function absoluteReference(reference: CredentialReference, base: string): Creden
   return reference.kind === 'file' ? { kind: 'file', path: resolve(base, reference.path) } : { ...reference };
 }
 
+export async function readConfigText(path: string): Promise<string> {
+  const handle = await open(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOCTTY);
+  try {
+    if (!(await handle.stat()).isFile()) throw new Error();
+    return await handle.readFile('utf8');
+  } finally { await handle.close(); }
+}
+
 export async function loadConfigFile(path: string): Promise<RemoteConfig> {
   let text: string;
-  try { text = await readFile(path, 'utf8'); }
+  try { text = await readConfigText(path); }
   catch (error) {
     const code = (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'profile_missing' : 'profile_invalid';
     throw new RemoteDiagnosticError(code, 'no configuration found; run `frm setup` first');
@@ -39,6 +49,19 @@ export function normalizeConfig(persisted: PersistedConfig, base: string): Remot
   };
 }
 
+async function replaceProfile(temporary: string, path: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try { await rename(temporary, path); return; }
+    catch (error) {
+      const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+      if (process.platform !== 'win32' || attempt === 5
+        || (code !== 'EPERM' && code !== 'EACCES' && code !== 'EBUSY')) throw error;
+      // Keep the old profile in place while a transient Windows replacement failure clears.
+      await delay(20 * (attempt + 1));
+    }
+  }
+}
+
 export async function saveConfigFile(path: string, config: PersistedConfig): Promise<void> {
   let valid: RemoteConfig;
   try { valid = normalizeConfig(parsePersisted(config), process.cwd()); }
@@ -55,7 +78,7 @@ export async function saveConfigFile(path: string, config: PersistedConfig): Pro
     const handle = await open(temporary, 'wx', 0o600);
     try { await handle.writeFile(`${JSON.stringify(valid, null, 2)}\n`); await handle.sync(); }
     finally { await handle.close(); }
-    await rename(temporary, path);
+    await replaceProfile(temporary, path);
   } catch { throw new RemoteDiagnosticError('profile_write', 'could not write the configuration file'); }
   finally { if (staging) await rm(staging, { recursive: true, force: true }); }
 }
