@@ -79,6 +79,7 @@ test('server workflows run through the ci.yml gate and keep all pinned platforms
   assert.match(ci, /if: needs\.changes\.outputs\.server != 'false' && !inputs\.skip_server\n    uses: \.\/\.github\/workflows\/server-ci\.yml/);
   assert.match(read('.github/workflows/release.yml'), /with:\n      skip_server: true/);
   assert.match(workflow, /node: \['22\.12\.0', '22\.23\.4', '24\.13\.0'\]/);
+  assert.match(workflow, /run: npm test -- --test-reporter=tap\n/);
   for (const runner of ['ubuntu-22.04', 'macos-15', 'windows-2022']) assert.ok(workflow.includes(runner));
   assert.equal((workflow.match(/overwrite: true/g) ?? []).length, 4);
   assert.equal((workflow.match(/if-no-files-found: error/g) ?? []).length, 4);
