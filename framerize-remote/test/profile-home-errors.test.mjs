@@ -17,8 +17,8 @@ const setupArgs = ['setup', '--remote', 'https://server.invalid',
   '--host', '127.0.0.1', '--port', '0', '--inference-timeout-ms', '5000'];
 const expectedDiagnostic = {
   error: 'profile_home_invalid', code: 'profile_home_invalid',
-  message: 'FRAMERIZE_REMOTE_HOME must be an absolute directory path.',
-  next: 'Set FRAMERIZE_REMOTE_HOME to an absolute directory, unset it to use the default, or pass --config FILE.',
+  message: 'FRAMERIZE_REMOTE_HOME must be an absolute directory path without control characters.',
+  next: 'Set FRAMERIZE_REMOTE_HOME to an absolute directory without control characters, unset it to use the default, or pass --config FILE.',
 };
 const invalidHomes = [
   ['empty', () => ''],
