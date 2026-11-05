@@ -157,6 +157,9 @@ nothing. Without a terminal, `--update` is the consent.
 Homebrew, mise, winget, Chocolatey and unknown installs get the manual
 command or the client's docs instead, with no version check under `--update`.
 A failed lookup reports the latest version as unknown, never as current.
+During `--check` or `--update`, `SIGINT` or `SIGTERM` cancels pending version
+lookups and exits with code 1: `The command was cancelled.` Cancelling a
+lookup does not start an update.
 
 The prompt after an interactive `frm up` checks both clients. It offers an
 install for a missing client, and an update only when a newer release is
@@ -167,6 +170,9 @@ Cancelling a question after `frm up` succeeds skips the optional offer and
 keeps the successful setup result. The saved connection and service stay in place.
 On first-run bare `frm`, cancelling that offer exits successfully without
 starting the foreground listener. The saved connection remains available.
+Plain `frm setup` also offers client setup after saving the profile.
+Cancelling that offer exits with code 1 and `The command was cancelled.`
+The saved connection remains available.
 `setup --start` runs the same offer after Remote starts. Closing input or
 cancelling the pending question with Ctrl+C, `SIGINT` or `SIGTERM` closes
 the foreground listener. The offer asks no new questions and starts no
