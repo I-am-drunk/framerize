@@ -16,10 +16,82 @@ const { createInstance } = await import(new URL('dist/core.js', serverRoot));
 const { streamCompletedReply } = await import(new URL('dist/compat/completed-stream.js', serverRoot));
 const { createRemoteBackend } = await import(new URL('dist/index.js', remoteRoot));
 
+for (const protocol of ['responses', 'messages']) for (const partial of [false, true]) {
+  for (const returnMode of ['reject', 'pending']) {
+    test(`completed error reader aborts ${protocol} partial=${partial} return=${returnMode}`,
+      { timeout: 2000 }, async context => {
+        const controller = new AbortController();
+        const entered = Promise.withResolvers();
+        const release = Promise.withResolvers();
+        let reads = 0;
+        let returns = 0;
+        let timer;
+        let stream;
+        let pending;
+        context.after(async () => {
+          clearTimeout(timer);
+          controller.abort();
+          release.resolve({ done: true });
+          await pending;
+          await stream?.return();
+        });
+        const body = { [Symbol.asyncIterator]() { return this; }, next() {
+          if (++reads === 1 && partial) return Promise.resolve({ done: false, value: Buffer.from('{"error":') });
+          entered.resolve();
+          return release.promise;
+        }, return() {
+          returns += 1;
+          return returnMode === 'reject' ? Promise.reject(new Error('synthetic return failure'))
+            : new Promise(() => {});
+        } };
+        stream = streamCompletedReply(Promise.resolve({ status: 429, headers: {}, body }),
+          protocol, controller.signal, 1000);
+        assert.equal((await stream.next()).value.toString(), ': keepalive\n\n');
+        pending = stream.next().then(result => ({ result }), error => ({ error }));
+        await entered.promise;
+        controller.abort();
+        const outcome = await Promise.race([pending, new Promise(resolve => {
+          timer = setTimeout(() => resolve({ timedOut: true }), 200);
+        })]);
+        assert.equal(outcome.timedOut, undefined, 'abort must interrupt the pending body read');
+        assert.equal(outcome.error?.name, 'AbortError');
+        assert.equal(returns, 1);
+        assert.equal(reads, partial ? 2 : 1);
+        assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+        assert.deepEqual(await stream.next(), { done: true, value: undefined });
+      });
+  }
+}
+
 async function collect(body) {
   const chunks = [];
   for await (const chunk of body) chunks.push(chunk);
   return Buffer.concat(chunks);
+}
+
+for (const protocol of ['responses', 'messages']) {
+  test(`completed error reader preserves ${protocol} async bodies`, async context => {
+    let returns = 0;
+    let reads = 0;
+    const body = { [Symbol.asyncIterator]() { return this; }, async next() {
+      return ++reads === 1 ? { done: false, value: Buffer.from('{"error":{"code":"fixture"}}') }
+        : { done: true };
+    }, async return() { returns += 1; return { done: true }; } };
+    const pending = Promise.resolve({ status: 429, headers: {}, body });
+    const values = events(await collect(streamCompletedReply(pending, protocol, context.signal, 1000)));
+    assert.equal(values.length, 1);
+    assert.equal((protocol === 'messages' ? values[0].error : values[0]).code, 'fixture');
+    assert.equal(returns, 0);
+    assert.equal(getEventListeners(context.signal, 'abort').length, 0);
+  });
+  test(`completed error reader pre-abort skips ${protocol} iteration`, async () => {
+    let iterations = 0;
+    const body = { [Symbol.asyncIterator]() { iterations += 1; throw new Error('must not iterate'); } };
+    const pending = Promise.resolve({ status: 429, headers: {}, body });
+    await assert.rejects(collect(streamCompletedReply(pending, protocol, AbortSignal.abort(), 1000)),
+      { name: 'AbortError' });
+    assert.equal(iterations, 0);
+  });
 }
 
 function call(protocol, stream, signal) {
