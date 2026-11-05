@@ -98,6 +98,7 @@ test('installed Remote forwards through the installed server with isolated crede
       npm(['install', '--offline', '--ignore-scripts', '--omit=dev', '--package-lock=false',
         '--no-audit', '--no-fund', ...archives], consumer);
       verifyStandaloneTypes(repository, consumer, env);
+      context.diagnostic(verifyServerNodeApi(consumer, env).trim());
       context.diagnostic(verifyRemoteNodeApi(consumer, env).trim());
       scenario = await createScenario();
       server = await startInstalledServer(consumer, env, scenario.url);
@@ -252,6 +253,127 @@ syncBuiltinESMExports();`);
   assert.equal(report.tailscale.scope, 'local_only');
   assert.equal(readFileSync(marker, 'utf8'), 'called');
   assert.doesNotMatch(checked.stdout + checked.stderr, /synthetic-|100\.64\.0\.1/);
+}
+
+function verifyServerNodeApi(consumer: string, env: NodeJS.ProcessEnv): string {
+  const script = join(consumer, 'server-node-api.mjs');
+  writeFileSync(script, String.raw`
+import assert from 'node:assert/strict';
+import { request } from 'node:http';
+import { setImmediate } from 'node:timers/promises';
+import { createServer } from 'framerize-server';
+import { loadConfig } from 'framerize-server/config';
+const signals = ['SIGINT', 'SIGTERM'].map(name => process.listenerCount(name));
+const resources = process.getActiveResourcesInfo().filter(name => /TCP|Timeout/.test(name)).sort();
+const complete = Buffer.from('{"output":[{"content":[{"text":"synthetic"}]}]}');
+const chunk = Buffer.from('data: {"delta":"synthetic"}\n\n');
+const calls = [];
+const stopped = new Map(['disconnect', 'shutdown'].map(mode => [mode, Promise.withResolvers()]));
+let ready = true, closeCalls = 0;
+const provider = {
+  ready({ signal }) {
+    assert.equal(signal.aborted, false);
+    return ready ? true : { ready: false, reason: 'upstream_unavailable' };
+  },
+  async forward({ path, headers, body, signal }) {
+    const parts = []; for await (const part of body) parts.push(part);
+    const bytes = Buffer.concat(parts), mode = JSON.parse(bytes.toString()).mode;
+    calls.push({ path, headers, bytes });
+    if (mode === 'complete') return { status: 200, headers: { 'content-type': 'application/json' }, body: [complete] };
+    const cancelled = stopped.get(mode); assert.ok(cancelled);
+    return { status: 200, headers: { 'content-type': 'text/event-stream' }, body: (async function* () {
+      try {
+        yield chunk;
+        await new Promise(resolve => {
+          if (signal.aborted) resolve();
+          else signal.addEventListener('abort', resolve, { once: true });
+        });
+      } finally { cancelled.resolve(signal.aborted); }
+    })() };
+  },
+  close() { closeCalls += 1; },
+};
+const app = await createServer(loadConfig({ host: '127.0.0.1', port: 0,
+  serverToken: 'synthetic-node-token', idleTimeoutMs: 10_000, shutdownTimeoutMs: 10_000 }), { provider });
+let origin;
+async function bounded(promise) {
+  let timer;
+  try {
+    return await Promise.race([promise, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Server Node API cleanup did not settle')), 2500);
+    })]);
+  } finally { clearTimeout(timer); }
+}
+const headers = { authorization: 'Bearer synthetic-node-token', accept: 'application/json',
+  'content-type': 'application/json', cookie: 'synthetic-client-cookie', 'x-client-private': 'synthetic-private' };
+const payload = mode => Buffer.from(JSON.stringify({ mode, model: 'synthetic', temperature: 0.25 }));
+function exchange(path, bytes, extra = {}) {
+  return new Promise((resolve, reject) => {
+    const outgoing = request(new URL(path, origin), {
+      method: bytes ? 'POST' : 'GET', agent: false, headers: { ...headers, ...extra },
+    }, response => {
+      const parts = [];
+      response.on('data', part => parts.push(part));
+      response.once('end', () => resolve({ status: response.statusCode, headers: response.headers, body: Buffer.concat(parts) }));
+      response.once('error', reject);
+    });
+    outgoing.once('error', reject); outgoing.end(bytes);
+  });
+}
+function stream(mode) {
+  return new Promise((resolve, reject) => {
+    const outgoing = request(new URL('/v1/responses', origin), { method: 'POST', agent: false, headers }, response => {
+      const parts = [];
+      const closed = new Promise(resolve => response.once('close', () => resolve({ complete: response.complete, body: Buffer.concat(parts) })));
+      response.on('data', part => {
+        parts.push(part);
+        const received = Buffer.concat(parts);
+        if (received.length >= chunk.length) resolve({ outgoing, closed, received, status: response.statusCode });
+      });
+      response.once('error', reject);
+    });
+    outgoing.once('error', reject); outgoing.end(payload(mode));
+  });
+}
+try {
+  assert.deepEqual(['SIGINT', 'SIGTERM'].map(name => process.listenerCount(name)), signals);
+  await app.listen();
+  const address = app.server.address(); assert.ok(address && typeof address === 'object');
+  origin = 'http://127.0.0.1:' + address.port;
+  assert.equal((await bounded(exchange('/ready', undefined, { authorization: '' }))).status, 401);
+  const readiness = await bounded(exchange('/ready'));
+  assert.equal(readiness.status, 200);
+  assert.equal(JSON.parse(readiness.body.toString()).status, 'ready');
+  assert.equal(readiness.headers['x-framerize-server-pid'], String(process.pid));
+  ready = false;
+  assert.equal((await bounded(exchange('/ready'))).status, 503);
+  assert.equal(calls.length, 0, 'readiness must not invoke inference');
+  ready = true;
+  const response = await bounded(exchange('/v1/responses', payload('complete')));
+  assert.equal(response.status, 200); assert.deepEqual(response.body, complete);
+  for (const mode of ['disconnect', 'shutdown']) {
+    const active = await bounded(stream(mode));
+    assert.equal(active.status, 200); assert.deepEqual(active.received, chunk);
+    if (mode === 'disconnect') active.outgoing.destroy(); else await bounded(app.close());
+    assert.equal(await bounded(stopped.get(mode).promise), true);
+    const closed = await bounded(active.closed);
+    assert.equal(closed.complete, false); assert.deepEqual(closed.body, chunk);
+  }
+  assert.deepEqual(calls.map(call => call.path), ['/v1/responses', '/v1/responses', '/v1/responses']);
+  assert.deepEqual(calls.map(call => call.bytes), ['complete', 'disconnect', 'shutdown'].map(payload));
+  for (const call of calls) assert.deepEqual(call.headers, { accept: 'application/json', 'content-type': 'application/json' });
+} finally { await bounded(app.close()); }
+assert.equal(closeCalls, 1);
+assert.equal(app.server.listening, false);
+await assert.rejects(bounded(exchange('/health')), { code: 'ECONNREFUSED' });
+await setImmediate(); await setImmediate();
+assert.deepEqual(['SIGINT', 'SIGTERM'].map(name => process.listenerCount(name)), signals);
+assert.deepEqual(process.getActiveResourcesInfo().filter(name => /TCP|Timeout/.test(name)).sort(), resources);
+console.log(JSON.stringify({ node: process.version, serverNodeApi: true, readiness: true,
+  completed: true, streamCleanup: ['disconnect', 'shutdown'], providerCloses: closeCalls }));
+`);
+  return execFileSync(process.execPath, [script],
+    { cwd: consumer, env, encoding: 'utf8', stdio: 'pipe', timeout: 15_000 });
 }
 
 function verifyRemoteNodeApi(consumer: string, env: NodeJS.ProcessEnv): string {
