@@ -1,0 +1,36 @@
+# Adapted from T3 Code .github/actions/ci-changes/action.yml at 5a906583 (MIT).
+name: CI changes
+description: Decide which CI jobs a change needs. See .github/scripts/ci-changes.cjs.
+outputs:
+  source:
+    value: ${{ steps.detect.outputs.source }}
+  packages:
+    value: ${{ steps.detect.outputs.packages }}
+  server:
+    value: ${{ steps.detect.outputs.server }}
+runs:
+  using: composite
+  steps:
+    - id: detect
+      shell: bash
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+      run: |
+        set -uo pipefail
+
+        decide() {
+          node .github/scripts/ci-changes.cjs "$@" | tee -a "$GITHUB_OUTPUT"
+          exit "${PIPESTATUS[0]}"
+        }
+
+        # Pushes, tags and manual runs keep every job.
+        [[ "$EVENT_NAME" == pull_request ]] || decide --full
+
+        # A pull request checks out GitHub's merge commit with fetch-depth: 2,
+        # so its first parent is the base branch and the diff is the PR's change.
+        # --no-renames lists a rename as its old and new path.
+        if ! git diff --name-only --no-renames HEAD^1 HEAD > "$RUNNER_TEMP/changed-paths"; then
+          echo "Could not diff against HEAD^1. Running every job."
+          decide
+        fi
+        decide --paths "$RUNNER_TEMP/changed-paths"

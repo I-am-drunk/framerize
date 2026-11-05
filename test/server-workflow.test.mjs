@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
+import { createRequire } from 'node:module';
 import test from 'node:test';
 
 const read = file => readFileSync(new URL('../' + file, import.meta.url), 'utf8');
@@ -72,14 +73,13 @@ test('server builds use only the typed server target and safe installs', () => {
   assert.match(workflow, /npm run test:native-tools --prefix \.\./);
 });
 
-test('server workflows cover changed inputs and keep all pinned platforms', () => {
-  for (const file of ['.gitattributes', 'scripts/server-native-bundle.ts', 'scripts/package-archive.ts',
-    'scripts/native-account-smoke.ts',
-    'scripts/core-package-check.ts', 'scripts/fixtures/**', 'scripts/*framer-next*',
-    'test/framer-next.test.ts', 'test/server-*']) {
-    assert.equal(workflow.split(`'${file}'`).length - 1, 2, file);
-  }
+test('server workflows run through the ci.yml gate and keep all pinned platforms', () => {
+  const ci = read('.github/workflows/ci.yml');
+  assert.match(workflow, /^on:\n  workflow_call:\n  workflow_dispatch:\n\n/m);
+  assert.match(ci, /if: needs\.changes\.outputs\.server != 'false' && !inputs\.skip_server\n    uses: \.\/\.github\/workflows\/server-ci\.yml/);
+  assert.match(read('.github/workflows/release.yml'), /with:\n      skip_server: true/);
   assert.match(workflow, /node: \['22\.12\.0', '22\.23\.4', '24\.13\.0'\]/);
+  assert.match(workflow, /run: npm test -- --test-reporter=tap\n/);
   for (const runner of ['ubuntu-22.04', 'macos-15', 'windows-2022']) assert.ok(workflow.includes(runner));
   assert.equal((workflow.match(/overwrite: true/g) ?? []).length, 4);
   assert.equal((workflow.match(/if-no-files-found: error/g) ?? []).length, 4);
@@ -132,6 +132,6 @@ test('native smoke awaits account verification on the extracted executable', () 
   assert.throws(() => validate(source.replace('checkNativeAccount(executable)', 'checkNativeAccount(process.execPath)')));
   assert.throws(() => validate(source.replace('digest(path.join(directory, entry))', 'unverified')));
   assert.match(read('package.json'), /\.tools\/test\/server-native-account\.test\.js/);
-  const core = read('.github/workflows/core-ci.yml');
-  assert.equal(core.split("'scripts/native-account-smoke.ts'").length - 1, 2);
+  const { decide, readWorkspace } = createRequire(import.meta.url)('../.github/scripts/ci-changes.cjs');
+  assert.equal(decide(['scripts/native-account-smoke.ts'], readWorkspace(), false).outputs.server, true);
 });

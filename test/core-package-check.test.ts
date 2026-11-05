@@ -65,8 +65,10 @@ test('CI covers both pinned runtimes on all platforms without native builds', ()
   assert.match(workflow, /run: npm test/);
   assert.match(workflow, /core-package-check\.js > "\$RUNNER_TEMP\//);
   assert.match(workflow, /if-no-files-found: error/);
+  assert.match(workflow, /\n  workflow_call:/);
+  assert.doesNotMatch(workflow, /\n  (push|pull_request):/);
   assert.doesNotMatch(workflow,
-    /workflow_dispatch|build:native|npm publish|secrets\./);
+    /build:native|npm publish|secrets\./);
 });
 
 test('rejects missing, unexpected and duplicate package members', () => {

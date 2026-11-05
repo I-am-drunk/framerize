@@ -99,12 +99,12 @@ for (const delayed of [false, true]) {
 
 test('installed transport runs in the six-job core CI matrix', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/core-ci.yml', import.meta.url), 'utf8');
+  const coordinator = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
   const manifest = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
   assert.match(manifest.scripts.test, /node --test .*\.tools\/test\/installed-server-flow\.test\.js/);
   assert.match(manifest.scripts['check:native'], /node \.tools\/scripts\/check-native-server\.js/);
-  assert.equal(workflow.split("- 'scripts/check-native-server.ts'").length - 1, 2);
-  assert.equal(workflow.split("- 'scripts/fixtures/**'").length - 1, 2);
-  assert.equal(workflow.split("- 'test/installed-server-flow.test.ts'").length - 1, 2);
+  assert.match(coordinator, /source:\s+needs: changes\s+if: needs\.changes\.outputs\.source != 'false'\s+uses: \.\/\.github\/workflows\/core-ci\.yml/);
+  assert.match(workflow, /\n  workflow_call:/);
   assert.match(workflow, /node: \['22\.23\.4', '24\.13\.0'\]/);
   assert.match(workflow, /os: \[ubuntu-22\.04, macos-14, windows-2022\]/);
 });
