@@ -248,6 +248,7 @@ export async function controlService(plan: ServicePlan, action: 'start' | 'stop'
   const status = await serviceStatus(plan, run);
   if (!status.installed) return 'missing';
   if (status.otherHome) throw new ServerSetupError('The Server service belongs to another FRAMERIZE_SERVER_HOME.');
+  if (action === 'start' && status.running) return 'done';
   if (action === 'uninstall') {
     if (plan.platform !== 'darwin' || status.loaded) await steps(run, manager.remove);
     await rm(manager.path, { force: true });
