@@ -3,7 +3,7 @@ import test from 'node:test';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { reconcileService, controlService, ensureServiceHost } from '../dist/service-control.js';
+import { reconcileService, controlService, ensureServiceHost, serviceStatus } from '../dist/service-control.js';
 import { selectServiceManager, renderServiceUnit } from '../dist/service-units.js';
 
 async function context(t) {
@@ -11,12 +11,15 @@ async function context(t) {
   t.after(() => rm(root, { recursive: true, force: true }));
   const plan = { home: join(root, 'settings 100%$'), homeDir: root, program: ['/synthetic/node', '/synthetic/server'],
     environmentPath: '/synthetic/bin', platform: 'linux', uid: 1000 };
-  const state = { running: false, enabled: false, linger: false, calls: [] };
+  const state = { running: false, enabled: false, linger: false, pid: 1234, calls: [] };
   const run = async (command, args) => {
     state.calls.push([command, ...args]);
     if (command === 'loginctl' && args[0] === 'enable-linger') state.linger = true;
     if (command === 'loginctl') return { code: 0, stdout: state.linger ? 'yes' : 'no' };
     if (args.includes('is-active')) return { code: state.running ? 0 : 1, stdout: '' };
+    if (args.includes('show')) return { code: 0, stdout: state.running
+      ? `ActiveState=active\nSubState=running\nMainPID=${state.pid}\n`
+      : 'ActiveState=inactive\nSubState=dead\nMainPID=0\n' };
     if (args.includes('is-enabled')) return { code: state.enabled ? 0 : 1, stdout: '' };
     if (args.includes('enable')) state.enabled = true;
     if (args.includes('restart')) state.running = true;
@@ -74,4 +77,84 @@ test('Linux setup repairs disabled linger and verifies the result', async t => {
   assert.equal(state.calls.filter(args => args.includes('enable-linger')).length, 1);
   await ensureServiceHost(plan, run);
   assert.equal(state.calls.filter(args => args.includes('enable-linger')).length, 1);
+});
+
+test('readiness from another process cannot validate a newly installed service', async t => {
+  const { plan, state, run, manager, settings } = await context(t);
+  await assert.rejects(reconcileService(plan, '{}', async () => state.pid + 1, run), /another process/);
+  await assert.rejects(readFile(settings), { code: 'ENOENT' });
+  await assert.rejects(readFile(manager.path), { code: 'ENOENT' });
+  assert.equal(state.running, false);
+});
+
+test('a process that exits during readiness cannot validate a service', async t => {
+  const { plan, state, run } = await context(t);
+  await assert.rejects(reconcileService(plan, '{}', async () => {
+    state.running = false;
+    return state.pid;
+  }, run), /not running/);
+});
+
+test('unchanged setup still rejects readiness from another process', async t => {
+  const { plan, state, run } = await context(t);
+  await reconcileService(plan, '{}', async () => state.pid, run);
+  await assert.rejects(reconcileService(plan, '{}', async () => state.pid + 1, run), /another process/);
+  assert.equal(state.running, true);
+  assert.equal(state.calls.filter(args => args.includes('restart')).length, 1);
+});
+
+test('preflight runs after stopping the old service and preserves it on failure', async t => {
+  const { plan, state, run, settings } = await context(t);
+  await reconcileService(plan, '{"old":true}', async () => state.pid, run);
+  await assert.rejects(reconcileService(plan, '{"new":true}', async () => state.pid, run, async () => {
+    assert.equal(state.running, false);
+    assert.equal(await readFile(settings, 'utf8'), '{"old":true}');
+    throw new Error('port is already in use');
+  }), /already in use/);
+  assert.equal(state.running, true);
+  assert.equal(await readFile(settings, 'utf8'), '{"old":true}');
+});
+
+test('failed rollback retains the original readiness failure', async t => {
+  const { plan, run } = await context(t);
+  let restoring = false;
+  await assert.rejects(reconcileService(plan, '{}', async () => {
+    restoring = true;
+    throw new Error('synthetic readiness failure');
+  }, (command, args) => restoring && args.includes('daemon-reload')
+    ? Promise.resolve({ code: 1, stdout: '' }) : run(command, args)), error => {
+    assert.match(error.message, /synthetic readiness failure/);
+    assert.match(error.message, /Rollback also failed: .*daemon-reload/);
+    assert.ok(error.cause instanceof AggregateError);
+    return true;
+  });
+});
+
+for (const [platform, output] of [
+  ['linux', 'ActiveState=activating\nSubState=auto-restart\nMainPID=1234\n'],
+  ['linux', 'ActiveState=active\nSubState=exited\nMainPID=1234\n'],
+  ['linux', 'ActiveState=active\nSubState=running\nMainPID=0\n'],
+  ['darwin', 'state = waiting\n'],
+  ['darwin', 'state = running\npid = 0\n'],
+]) {
+  test(`service status rejects inactive process facts: ${platform} ${output.trim()}`, async t => {
+    const { plan } = await context(t);
+    const selected = { ...plan, platform };
+    const manager = selectServiceManager(selected);
+    await mkdir(dirname(manager.path), { recursive: true });
+    await writeFile(manager.path, manager.contents);
+    const state = await serviceStatus(selected, async () => ({ code: 0, stdout: output }));
+    assert.equal(state.running, false);
+  });
+}
+
+test('launchd status requires a running PID', async t => {
+  const { plan } = await context(t);
+  const selected = { ...plan, platform: 'darwin' };
+  const manager = selectServiceManager(selected);
+  await mkdir(dirname(manager.path), { recursive: true });
+  await writeFile(manager.path, manager.contents);
+  const state = await serviceStatus(selected, async () => ({ code: 0, stdout: 'state = running\npid = 1234\n' }));
+  assert.equal(state.running, true);
+  assert.equal(state.pid, 1234);
 });
