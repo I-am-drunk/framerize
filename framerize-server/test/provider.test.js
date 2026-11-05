@@ -73,7 +73,7 @@ for (const status of [200, 502]) {
       assert.equal(result.status, status);
       assert.equal(result.headers['x-should-retry'], scenario.expected);
       const bytes = await collect(result.body);
-      if (status === 502) assert.doesNotMatch(bytes.toString(), /synthetic-private-upstream/);
+      assert.equal(bytes.toString(), 'synthetic-private-upstream');
     });
   }
 }
@@ -138,13 +138,9 @@ for (const status of [200, 429]) for (const fillerCount of [0, 2100]) {
     assert.equal(result.headers['retry-after'], '17');
     assert.equal(result.headers['x-private'], undefined);
     const received = await collect(result.body);
-    if (status === 200) assert.deepEqual(received, Buffer.from(payload));
-    else {
-      assert.equal(result.headers['content-type'], 'application/json');
-      assert.deepEqual(JSON.parse(received), { error: { type: 'upstream_error',
-        code: 'upstream_http_error', message: 'Upstream request failed' } });
-    }
-    assert.doesNotMatch(inspect(result.headers) + received, /FAKE_.*_SECRET|nominated-canary/);
+    assert.deepEqual(received, Buffer.from(payload));
+    assert.equal(result.headers['content-type'], 'text/event-stream');
+    assert.doesNotMatch(inspect(result.headers), /FAKE_.*_SECRET|nominated-canary/);
     await checkClosed();
   });
 }
@@ -388,51 +384,88 @@ test('disconnect before body consumption remains observable as a safe typed erro
   await assert.rejects(collect(result.body), { code: 'upstream_error' });
 });
 
-test('non-2xx statuses redact upstream bodies and never follow redirects or retry', async (context) => {
+test('non-2xx statuses preserve upstream bodies and never follow redirects or retry', async (context) => {
   const statuses = [301, 307, 400, 401, 403, 429, 500, 503];
   const logs = [];
   let calls = 0;
+  const expected = gzipSync(Buffer.from('{"error":"synthetic upstream details"}'));
   const { provider } = await fixture(context, (request, response) => {
     request.resume();
     response.writeHead(statuses[calls++], { 'content-type': 'application/json',
       'content-encoding': 'gzip', location: 'http://127.0.0.1:1/private',
       'retry-after': '12', 'x-request-id': 'fixture-error', 'set-cookie': 'private=value' });
-    response.end(gzipSync(Buffer.from('{"error":"FAKE_UPSTREAM_SECRET"}')));
+    response.end(expected);
   }, { logger: { info: (...args) => logs.push(args), error: (...args) => logs.push(args) } });
   for (const status of statuses) {
     const result = await provider.forward({ path: '/v1/responses', body: body() });
     assert.equal(result.status, status);
     assert.equal(result.headers['retry-after'], '12');
     assert.equal(result.headers['x-request-id'], 'fixture-error');
-    assert.equal(result.headers['content-encoding'], undefined);
+    assert.equal(result.headers['content-encoding'], 'gzip');
     assert.equal(result.headers.location, undefined);
     const received = await collect(result.body);
-    assert.deepEqual(JSON.parse(received), { error: { type: 'upstream_error',
-      code: 'upstream_http_error', message: 'Upstream request failed' } });
-    assert.ok(!received.includes('FAKE_UPSTREAM_SECRET'));
+    assert.deepEqual(received, expected);
   }
   assert.equal(calls, statuses.length);
   assert.deepEqual(logs, []);
 });
 
-test('an endless error body is discarded only to the byte limit and its socket closes', async (context) => {
+for (const length of [0, 65_535, 65_536, 65_537]) {
+  test(`error body byte budget at ${length} bytes`, async context => {
+    const expected = Buffer.alloc(length, 65);
+    const { provider } = await fixture(context, (request, response) => {
+      request.resume(); response.writeHead(429); response.end(expected);
+    });
+    const result = await provider.forward({ path: '/v1/responses', body: body() });
+    assert.equal(result.status, 429);
+    if (length <= 65_536) assert.ok((await collect(result.body)).equals(expected));
+    else await assert.rejects(collect(result.body), { code: 'upstream_response_invalid' });
+  });
+}
+
+test('successful bodies are not limited by the error body budget', async context => {
+  const expected = Buffer.alloc(131_072, 66);
+  const { provider } = await fixture(context, (request, response) => {
+    request.resume(); response.end(expected);
+  });
+  const result = await provider.forward({ path: '/v1/responses', body: body() });
+  assert.ok((await collect(result.body)).equals(expected));
+});
+
+test('an endless error body fails at the byte limit and its socket closes', async (context) => {
   const closed = deferred();
   const { provider } = await fixture(context, (request, response) => {
     request.resume(); response.once('close', closed.resolve);
     response.writeHead(500); response.write(Buffer.alloc(131_072, 65));
   });
   const result = await provider.forward({ path: '/v1/responses', body: body() });
-  assert.equal(result.status, 500); await closed.promise;
-  assert.ok(!(await collect(result.body)).includes('AAAA'));
+  assert.equal(result.status, 500);
+  await assert.rejects(collect(result.body), { code: 'upstream_response_invalid' });
+  await closed.promise;
 });
 
-test('an idle upstream error body still returns the sanitized HTTP status', async (context) => {
+for (const contentType of [undefined, 'text/html', 'application/problem+json']) {
+  test(`fragmented error bytes preserve content type ${contentType}`, async context => {
+    const expected = Buffer.from('synthetic upstream detail: 😀\u0000\ufffd');
+    const { provider } = await fixture(context, (request, response) => {
+      request.resume(); response.writeHead(400, contentType ? { 'content-type': contentType } : {});
+      response.write(expected.subarray(0, expected.length - 5));
+      setImmediate(() => response.end(expected.subarray(expected.length - 5)));
+    });
+    const result = await provider.forward({ path: '/v1/responses', body: body() });
+    assert.equal(result.status, 400);
+    assert.equal(result.headers['content-type'], contentType);
+    assert.deepEqual(await collect(result.body), expected);
+  });
+}
+
+test('an idle upstream error body preserves status and rejects stalled iteration', async (context) => {
   const { provider } = await fixture(context, (request, response) => {
     request.resume(); response.writeHead(403); response.flushHeaders();
   }, { idleTimeoutMs: 30 });
   const result = await provider.forward({ path: '/v1/responses', body: body() });
   assert.equal(result.status, 403);
-  assert.equal(JSON.parse(await collect(result.body)).error.message, 'Upstream request failed');
+  await assert.rejects(collect(result.body), { code: 'idle_timeout' });
 });
 
 test('private credential replaces caller secrets and connection-nominated headers are dropped', async (context) => {
@@ -508,11 +541,12 @@ test('abort cancels credential lookup even when the resolver never settles', asy
   await started.promise; controller.abort(); await rejected;
 });
 
-for (const mode of ['abort', 'return', 'close']) {
-  test(`${mode} disposes an unconsumed response socket`, async (context) => {
+for (const status of [200, 429]) for (const mode of ['abort', 'return', 'close']) {
+  test(`${mode} disposes an unconsumed ${status} response socket`, async (context) => {
     const closed = deferred();
     const { provider } = await fixture(context, (request, response) => {
-      request.resume(); response.once('close', closed.resolve); response.write('first');
+      request.resume(); response.once('close', closed.resolve);
+      response.writeHead(status); response.write('first');
     });
     const controller = new AbortController();
     const result = await provider.forward({ path: '/v1/responses', body: body(), signal: controller.signal });
@@ -596,14 +630,20 @@ test('pre-header network failure is typed and is attempted once', async (context
   assert.equal(calls, 1);
 });
 
-test('truncated upstream errors retain their status and never reveal the partial body', async (context) => {
+test('truncated upstream errors retain status and partial bytes without claiming completion', async (context) => {
+  const received = deferred();
+  const expected = Buffer.from('synthetic partial upstream error');
   const { provider } = await fixture(context, (request, response) => {
     request.resume(); response.writeHead(401, { 'content-length': 1000 });
-    response.write('FAKE_TRUNCATED_SECRET'); setTimeout(() => response.destroy(), 10);
+    response.write(expected);
+    void received.promise.then(() => response.destroy());
   });
   const result = await provider.forward({ path: '/v1/responses', body: body() });
   assert.equal(result.status, 401);
-  assert.equal(JSON.parse(await collect(result.body)).error.message, 'Upstream request failed');
+  const iterator = result.body[Symbol.asyncIterator]();
+  try { assert.deepEqual((await iterator.next()).value, expected); }
+  finally { received.resolve(); }
+  await assert.rejects(iterator.next(), { code: 'upstream_error' });
 });
 
 test('invalid chunks and failing upload iterators produce safe typed failures', async (context) => {
@@ -629,7 +669,7 @@ test('early upstream response stops a pending upload and returns its source', as
   const { provider } = await fixture(context, (request, response) => { response.writeHead(413); response.end('secret'); });
   const result = await provider.forward({ path: '/v1/responses', body: source });
   await returned.promise; assert.equal(result.status, 413);
-  assert.equal(JSON.parse(await collect(result.body)).error.code, 'upstream_http_error');
+  assert.equal((await collect(result.body)).toString(), 'secret');
 });
 
 test('active uploads outlive header timeouts', async (context) => {

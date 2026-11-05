@@ -44,9 +44,6 @@ const REQUEST_HEADERS = ['accept', 'content-type', 'openai-beta', 'accept-encodi
   'anthropic-version', 'anthropic-beta'];
 const RESPONSE_HEADERS = ['content-type', 'content-encoding', 'cache-control',
   'x-request-id', 'retry-after', 'x-should-retry'];
-const ERROR_BODY = Buffer.from(JSON.stringify({ error: {
-  type: 'upstream_error', code: 'upstream_http_error', message: 'Upstream request failed',
-} }));
 const failure = (message: string, code = 'upstream_error', status = 502) =>
   new ProviderError(message, { code, status });
 const cancelled = () => failure('Request cancelled', 'request_cancelled', 499);
@@ -275,14 +272,20 @@ async function open(state: Exchange, url: URL, method: string, headers: Record<s
   }
 }
 
-function responseBody(state: Exchange, idleTimeoutMs: number): AsyncIterableIterator<Buffer> {
+function responseBody(state: Exchange, idleTimeoutMs: number,
+  maximumBytes = Infinity): AsyncIterableIterator<Buffer> {
   const iterator = (async function* () {
+    let bytes = 0;
     try {
       const source = state.response![Symbol.asyncIterator]() as AsyncIterator<Buffer>;
       while (true) {
         state.controller.signal.throwIfAborted();
         const next = await wait(source.next(), state.controller.signal, idleTimeoutMs);
         if (next.done) return;
+        if (next.value.length > maximumBytes - bytes) {
+          throw failure('Upstream error body exceeds the byte limit', 'upstream_response_invalid');
+        }
+        bytes += next.value.length;
         yield next.value;
       }
     } catch (error) {
@@ -301,19 +304,6 @@ function responseBody(state: Exchange, idleTimeoutMs: number): AsyncIterableIter
     },
     [Symbol.asyncIterator]() { return this; },
   };
-}
-
-function discardError(state: Exchange): void {
-  let bytes = 0;
-  try {
-    const reason = state.controller.signal.reason;
-    if (['request_cancelled', 'provider_closed'].includes(reason?.code)) throw reason;
-    while (bytes < 65_536 && state.response!.readableLength) {
-      const chunk: Buffer | null = state.response!.read(Math.min(65_536 - bytes, state.response!.readableLength));
-      if (!chunk) break;
-      bytes += chunk.length;
-    }
-  } finally { state.dispose(); }
 }
 
 export function createProvider(values: ProviderOptions = { upstream: '' }): Provider {
@@ -362,16 +352,9 @@ export function createHttpProvider(values: ProviderOptions,
         selected['content-type'] ??= 'application/json';
         const response = await open(state, destination(target), 'POST', selected, body, config);
         const status = response.statusCode;
-        if (status >= 200 && status < 300) return {
-          status, headers: selectedHeaders(response.headers, RESPONSE_HEADERS),
-          body: responseBody(state, config.idleTimeoutMs),
-        };
-        const safeHeaders = selectedHeaders(response.headers, ['retry-after', 'x-request-id', 'x-should-retry']);
-        discardError(state);
         return {
-          status, headers: { ...safeHeaders, 'content-type': 'application/json',
-            'content-length': String(ERROR_BODY.length) },
-          body: (async function* () { yield Buffer.from(ERROR_BODY); })(),
+          status, headers: selectedHeaders(response.headers, RESPONSE_HEADERS),
+          body: responseBody(state, config.idleTimeoutMs, status < 300 ? Infinity : 65_536),
         };
       } catch (error) {
         state.dispose();

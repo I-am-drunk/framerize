@@ -14,7 +14,7 @@ async function upstreamFixture(t, handler) {
   return `http://127.0.0.1:${server.address().port}`;
 }
 
-test('real provider redacts an upstream error body through the app', async (t) => {
+test('real provider preserves an upstream error body through the app', async (t) => {
   const events = [];
   const started = process.hrtime.bigint();
   const record = (event, detail = '') => events.push({ event, detail,
@@ -67,10 +67,10 @@ test('real provider redacts an upstream error body through the app', async (t) =
   assert.equal(response.status, 429);
   assert.equal(response.headers.get('retry-after'), '7');
   assert.equal(response.headers.get('x-request-id'), 'safe-request-id');
+  assert.equal(response.headers.get('content-type'), 'application/json');
   assert.deepEqual(JSON.parse(body), { error: {
-    type: 'upstream_error', code: 'upstream_http_error', message: 'Upstream request failed',
+    message: 'fixture-secret and private upstream detail',
   } });
-  assert.equal(body.includes('fixture-secret'), false);
 });
 
 test('real provider preserves ready bytes when the event loop was blocked', async (t) => {
