@@ -21,7 +21,7 @@ run().then((code) => { process.exitCode = code; }).catch(error => {
     next: 'Check --host or FRAMERIZE_SERVER_HOST and --port or FRAMERIZE_SERVER_PORT. Use an available local address and port.',
   } : error instanceof ConfigurationError ? {
     message: 'Server configuration is invalid.',
-    next: 'Check option values and FRAMERIZE_SERVER_* settings. Run framerize-server --help for supported options.',
+    next: 'Check option values, FRAMERIZE_SERVER_* settings and account session references. Run framerize-server --help for options. Environment guide: https://github.com/I-am-drunk/framerize/blob/main/framerize-server/docs/environment.md.',
   } : { message: 'Server failed to start or stop' };
   process.stderr.write(`${JSON.stringify({ event: 'server.failed', ...detail })}\n`);
   process.exitCode = 1;
