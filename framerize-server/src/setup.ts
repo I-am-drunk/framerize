@@ -13,13 +13,15 @@ import { loadAccounts } from './accounts.js';
 import { captureSettings, configuredSettings, readSettings, serverHome } from './settings.js';
 import { buildPairingUrl, formatHostForUrl, isWildcardHost, renderTerminalQrCode,
   resolveHeadlessConnectionString } from './startup-access.js';
-import { controlService, ensureServiceHost, reconcileService, serviceStatus, ServerSetupError, rollbackError, writeAtomic,
+import { cancellableRunner, controlService, ensureServiceHost, reconcileService, runStep,
+  serviceStatus, ServerSetupError, rollbackError, writeAtomic,
   type StepRunner } from './service-control.js';
 import { prepareTailscale } from './tailscale.js';
 import { classifyReadiness } from '../dist/core.js';
 import type { ServicePlan } from './service-units.js';
 
 export interface SetupDependencies {
+  readonly signal?: AbortSignal;
   readonly env?: NodeJS.ProcessEnv;
   readonly stdout: { write(text: string): unknown };
   readonly ask?: (question: string) => Promise<string>;
@@ -27,7 +29,7 @@ export interface SetupDependencies {
   readonly platform?: NodeJS.Platform;
   readonly uid?: number;
   readonly run?: StepRunner;
-  readonly ready?: (origin: string, token: string) => Promise<number | void>;
+  readonly ready?: (origin: string, token: string, signal?: AbortSignal) => Promise<number | void>;
 }
 
 function localAddress(config: Pick<ServerConfig, 'host' | 'port'>) {
@@ -70,50 +72,70 @@ function servicePlan(env: NodeJS.ProcessEnv, dependencies: SetupDependencies): S
     environmentPath: [dirname(prefix[0]!), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'].join(':') };
 }
 
-async function waitForReady(origin: string, token: string): Promise<number> {
+async function waitForReady(origin: string, token: string, signal?: AbortSignal): Promise<number> {
   const deadline = Date.now() + 15_000;
   do {
+    signal?.throwIfAborted();
     try {
+      const timeout = AbortSignal.timeout(2000);
       const response = await fetch(new URL('/ready', origin), {
-        headers: token ? { authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(2000) });
+        headers: token ? { authorization: `Bearer ${token}` } : {},
+        signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
       const body = new Uint8Array(await response.arrayBuffer());
       const pid = Number(response.headers.get('x-framerize-server-pid'));
       if (classifyReadiness(response.status, body).state === 'ready'
         && Number.isSafeInteger(pid) && pid > 0) return pid;
-    } catch {}
-    await delay(200);
+    } catch { signal?.throwIfAborted(); }
+    try { await delay(200, undefined, { signal }); }
+    catch (error) { signal?.throwIfAborted(); throw error; }
   } while (Date.now() < deadline);
   throw new ServerSetupError('Server did not become ready. Check the provider settings and server.log.');
 }
 
-async function checkPort(host: string, port: number): Promise<void> {
+async function checkPort(host: string, port: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
   await new Promise<void>((resolve, reject) => {
     const probe = createPortProbe(socket => socket.destroy()).unref();
+    const finish = (error?: Error | null): void => {
+      signal?.removeEventListener('abort', abort);
+      if (signal?.aborted) reject(signal.reason);
+      else if (error) reject(error);
+      else resolve();
+    };
+    const abort = (): void => { probe.close(() => finish()); };
     probe.once('error', (error: NodeJS.ErrnoException) => {
       const message = error.code === 'EADDRINUSE'
         ? `The Server port ${host}:${port} is already in use. Stop that listener or choose another port.`
         : `Could not bind the Server port ${host}:${port}: ${error.code ?? error.message}`;
-      reject(new ServerSetupError(message, { cause: error }));
+      finish(new ServerSetupError(message, { cause: error }));
     });
-    probe.listen({ host, port, exclusive: true }, () => probe.close(error => error ? reject(error) : resolve()));
+    signal?.addEventListener('abort', abort, { once: true });
+    try {
+      probe.listen({ host, port, exclusive: true }, () => probe.close(finish));
+    } catch (error) {
+      signal?.removeEventListener('abort', abort);
+      reject(error);
+    }
   });
 }
 
 export async function runSetupCommand(argv: readonly string[], dependencies: SetupDependencies): Promise<number> {
+  dependencies.signal?.throwIfAborted();
+  const run = cancellableRunner(dependencies.run ?? runStep, dependencies.signal);
   const [command, ...args] = argv;
   const action = command === 'service' ? args.shift() : undefined;
   const { flags, tailscalePort, values } = setupArgs(args);
   const env = dependencies.env ?? process.env;
   const plan = servicePlan(env, dependencies);
   if (command === 'status' || action === 'status') {
-    const state = await serviceStatus(plan, dependencies.run);
+    const state = await serviceStatus(plan, run);
     dependencies.stdout.write(flags.json ? `${JSON.stringify(state)}\n`
       : `Server service: ${state.running ? 'running' : state.installed ? 'stopped' : 'not installed'}\n`);
     return 0;
   }
   if (action && ['start', 'stop', 'restart', 'uninstall'].includes(action)) {
-    const result = action === 'uninstall' ? await uninstall(plan, dependencies.run)
-      : await controlService(plan, action as 'start' | 'stop' | 'restart', dependencies.run);
+    const result = action === 'uninstall' ? await uninstall(plan, run)
+      : await controlService(plan, action as 'start' | 'stop' | 'restart', run);
     dependencies.stdout.write(flags.json ? `${JSON.stringify({ service: result })}\n` : `Server service: ${result}\n`);
     return 0;
   }
@@ -145,6 +167,8 @@ async function uninstall(plan: ServicePlan, run?: StepRunner): Promise<'done' | 
 async function configureAndPair(command: string | undefined, action: string | undefined,
   flags: Record<string, boolean>, tailscalePort: number, values: Record<string, string>,
   plan: ServicePlan, dependencies: SetupDependencies): Promise<number> {
+  const { signal } = dependencies;
+  const run = cancellableRunner(dependencies.run ?? runStep, signal);
   if (!['up', 'pair'].includes(command ?? '') && action !== 'install') {
     throw new ServerSetupError('Use up, pair, status, or service install|start|stop|restart|uninstall.');
   }
@@ -178,15 +202,15 @@ async function configureAndPair(command: string | undefined, action: string | un
   const previousLocal = previous && localAddress(previous);
   const previousTarget = loaded.saved?.access?.tailscalePort === servePort ? previousLocal?.origin : undefined;
   const tailnet = useTailscale
-    ? await prepareTailscale(config.port, servePort, dependencies.run, localHost, previousTarget) : undefined;
+    ? await prepareTailscale(config.port, servePort, dependencies.run, localHost, previousTarget, signal) : undefined;
   const origin = tailnet?.origin ?? resolveHeadlessConnectionString(config.host, config.port,
     { privateNetworkOnly: config.privateNetworkOnly });
   if (command === 'pair') {
     if (tailnet && !tailnet.configured) {
       throw new ServerSetupError('Run up --tailscale first to save and start this route before pairing.');
     }
-    const pid = await ready(local, token);
-    if (tailnet && await ready(tailnet.origin, token) !== pid) {
+    const pid = await ready(local, token, signal);
+    if (tailnet && await ready(tailnet.origin, token, signal) !== pid) {
       throw new ServerSetupError('The Tailscale route answered from another Server process.');
     }
     printPairing(origin, token, flags.json === true, dependencies.stdout);
@@ -195,26 +219,27 @@ async function configureAndPair(command: string | undefined, action: string | un
   let oldRoute: Awaited<ReturnType<typeof prepareTailscale>> | undefined;
   if (previous && previousLocal && loaded.saved?.access
     && (!useTailscale || loaded.saved.access.tailscalePort !== servePort)) {
-    oldRoute = await prepareTailscale(previous.port, loaded.saved.access.tailscalePort, dependencies.run, previousLocal.host);
+    oldRoute = await prepareTailscale(previous.port, loaded.saved.access.tailscalePort,
+      dependencies.run, previousLocal.host, undefined, signal);
   }
   const accounts = await loadAccounts(config.accountsFile);
   const names = accounts.flatMap(account => typeof account.session === 'object' && account.session.env
     ? [account.session.env] : []);
   const settings = { ...captureSettings(config, loaded.env, names),
     ...(tailnet ? { access: { tailscalePort: servePort } } : {}) };
-  await ensureServiceHost(plan, dependencies.run);
+  await ensureServiceHost(plan, run);
   let result: 'installed' | 'updated' | 'unchanged';
   try {
     result = await reconcileService(plan, `${JSON.stringify(settings, null, 2)}\n`, async () => {
-      const pid = await ready(local, token);
+      const pid = await ready(local, token, signal);
       if (tailnet) {
         await tailnet.apply();
-        const remotePid = await ready(tailnet.origin, token);
+        const remotePid = await ready(tailnet.origin, token, signal);
         if (pid !== remotePid) throw new ServerSetupError('The Tailscale route answered from another Server process.');
       }
       await oldRoute?.remove();
       return pid;
-    }, dependencies.run, () => checkPort(config.host, config.port));
+    }, dependencies.run, () => checkPort(config.host, config.port, signal), signal);
   } catch (error) {
     const failures: unknown[] = [];
     for (const route of [tailnet, oldRoute]) {

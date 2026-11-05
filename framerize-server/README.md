@@ -68,9 +68,14 @@ the process the service manager reports as running, on both the local address
 and the Tailscale route. A saved route follows a new local port or
 `--tailscale-serve-port`. `--no-tailscale` removes the route `up` added.
 
-If setup fails, `up` tries to restore the previous service, settings and
-Tailscale route. When a restore step also fails, the error reports both
-failures, and the earlier state may be only partly restored.
+If setup fails or receives SIGINT or SIGTERM, `up` tries to restore the
+previous service, settings and Tailscale route. Cancellation stops pending
+readiness checks and waits for the active service command to close before
+rollback. A command that remains alive after one second is force stopped.
+A pending hostname lookup does not delay rollback.
+A second signal can interrupt rollback before restoration is complete.
+When a restore step also fails, the error reports both failures, and the
+earlier state may be only partly restored.
 
 ### Service limits
 

@@ -13,11 +13,35 @@ export function rollbackError(original: unknown, failures: readonly unknown[]): 
   return new ServerSetupError(`${message(original)} Rollback also failed: ${failures.map(message).join('; ')}`,
     { cause: new AggregateError([original, ...failures]) });
 }
-export type StepRunner = (command: string, args: readonly string[]) => Promise<{ code: number; stdout: string }>;
-export const runStep: StepRunner = (command, args) => new Promise(resolve => {
-  execFile(command, [...args], { timeout: 120_000, maxBuffer: 256 * 1024, windowsHide: true },
-    (error, stdout) => resolve({ code: error ? 1 : 0, stdout: String(stdout) }));
+export type StepRunner = (command: string, args: readonly string[], signal?: AbortSignal) =>
+  Promise<{ code: number; stdout: string }>;
+export const runStep: StepRunner = (command, args, signal) => new Promise(resolve => {
+  if (signal?.aborted) { resolve({ code: 1, stdout: '' }); return; }
+  let result = { code: 1, stdout: '' };
+  const child = execFile(command, [...args], {
+    timeout: 120_000, maxBuffer: 256 * 1024, windowsHide: true, ...(signal ? { signal } : {}),
+  }, (error, stdout) => { result = { code: error ? 1 : 0, stdout: String(stdout) }; });
+  const kill = () => { child.kill('SIGKILL'); };
+  let timer = setTimeout(kill, 121_000).unref();
+  const abort = () => { clearTimeout(timer); timer = setTimeout(kill, 1000).unref(); };
+  signal?.addEventListener('abort', abort, { once: true });
+  if (signal?.aborted) abort();
+  child.once('close', () => {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', abort);
+    resolve(result);
+  });
 });
+
+export function cancellableRunner(run: StepRunner, signal?: AbortSignal): StepRunner {
+  if (!signal) return run;
+  return async (command, args) => {
+    signal.throwIfAborted();
+    const result = await run(command, args, signal);
+    signal.throwIfAborted();
+    return result;
+  };
+}
 
 export async function ensureServiceHost(plan: ServicePlan, run: StepRunner = runStep): Promise<void> {
   requiredManager(plan);
@@ -92,9 +116,11 @@ function requiredManager(plan: ServicePlan) {
 
 export async function reconcileService(plan: ServicePlan, settings: string,
   ready: () => Promise<number | void>, run: StepRunner = runStep,
-  beforeStart: () => Promise<void> = async () => {}): Promise<'installed' | 'updated' | 'unchanged'> {
+  beforeStart: () => Promise<void> = async () => {}, signal?: AbortSignal):
+  Promise<'installed' | 'updated' | 'unchanged'> {
   const manager = requiredManager(plan);
-  const before = await serviceStatus(plan, run);
+  const activeRun = cancellableRunner(run, signal);
+  const before = await serviceStatus(plan, activeRun);
   if (before.otherHome) throw new ServerSetupError('The Server service belongs to another FRAMERIZE_SERVER_HOME.');
   const settingsPath = join(plan.home, 'server.json');
   const [oldSettings, oldUnit] = await Promise.all([readOptional(settingsPath), readOptional(manager.path)]);
@@ -103,11 +129,13 @@ export async function reconcileService(plan: ServicePlan, settings: string,
     return 'unchanged';
   }
   try {
-    if (before.installed && (plan.platform === 'linux' || before.loaded)) await steps(run, manager.stop);
+    if (before.installed && (plan.platform === 'linux' || before.loaded)) await steps(activeRun, manager.stop);
     await beforeStart();
+    signal?.throwIfAborted();
     await writeAtomic(settingsPath, settings);
+    signal?.throwIfAborted();
     await writeAtomic(manager.path, manager.contents);
-    await steps(run, manager.activate);
+    await steps(activeRun, manager.activate);
     await verifyReady(await ready());
   } catch (error) {
     try { await restoreService(); }
@@ -117,7 +145,7 @@ export async function reconcileService(plan: ServicePlan, settings: string,
   return before.installed ? 'updated' : 'installed';
 
   async function verifyReady(pid: number | void): Promise<void> {
-    const after = await serviceStatus(plan, run);
+    const after = await serviceStatus(plan, activeRun);
     if (!after.running || (pid !== undefined && after.pid !== pid)) {
       throw new ServerSetupError('The Server service is not running or another process answered readiness. Check server.log.');
     }
