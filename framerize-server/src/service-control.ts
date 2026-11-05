@@ -1,6 +1,6 @@
 // Service activation and rollback adapted from T3 Code cli/up.ts and
 // cloud/bootService.ts at 5a906583fed3fa41dc806f2a19bd9d095537ed3e. MIT, T3 Tools Inc.
-import { execFile } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -17,15 +17,14 @@ export type StepRunner = (command: string, args: readonly string[], signal?: Abo
   Promise<{ code: number; stdout: string }>;
 export const runStep: StepRunner = (command, args, signal) => new Promise((resolve, reject) => {
   if (signal?.aborted) { resolve({ code: 1, stdout: '' }); return; }
-  let result = { code: 1, stdout: '' };
+  const output: Buffer[] = [];
+  let stdoutBytes = 0;
+  let stderrBytes = 0;
   let stopping: Promise<void> | undefined;
   let forced = false;
-  const child = execFile(command, [...args], {
-    timeout: 120_000, maxBuffer: 256 * 1024, windowsHide: true,
-    detached: process.platform !== 'win32', ...(signal ? { signal } : {}),
-  }, (error, stdout) => {
-    result = { code: error ? 1 : 0, stdout: String(stdout) };
-    if (error) stop();
+  const child = spawn(command, [...args], {
+    stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+    detached: process.platform !== 'win32',
   });
   const stop = (): void => {
     forced = true;
@@ -54,6 +53,19 @@ export const runStep: StepRunner = (command, args, signal) => new Promise((resol
       reject(error);
     });
   };
+  child.stdout.on('data', (chunk: Buffer) => {
+    const remaining = Math.max(0, 256 * 1024 - stdoutBytes);
+    if (remaining) output.push(chunk.subarray(0, remaining));
+    stdoutBytes += chunk.length;
+    if (stdoutBytes > 256 * 1024) stop();
+  });
+  child.stderr.on('data', (chunk: Buffer) => {
+    stderrBytes += chunk.length;
+    if (stderrBytes > 256 * 1024) stop();
+  });
+  child.stdout.once('error', stop);
+  child.stderr.once('error', stop);
+  child.once('error', stop);
   const timer = setTimeout(stop, 120_000).unref();
   const abort = stop;
   signal?.addEventListener('abort', abort, { once: true });
@@ -61,11 +73,11 @@ export const runStep: StepRunner = (command, args, signal) => new Promise((resol
   child.once('exit', (code, exitSignal) => {
     if (code !== 0 || exitSignal) stop();
   });
-  child.once('close', () => {
+  child.once('close', code => {
     clearTimeout(timer);
     signal?.removeEventListener('abort', abort);
     void (stopping ?? Promise.resolve()).then(() => {
-      resolve(forced ? { ...result, code: 1 } : result);
+      resolve({ code: forced || code !== 0 ? 1 : 0, stdout: Buffer.concat(output).toString('utf8') });
     }, reject);
   });
 });

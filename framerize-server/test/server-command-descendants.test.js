@@ -41,17 +41,17 @@ const workerScript = `import { createServer } from 'node:net';
 for (const output of ['inherit', 'ignore']) test(`cancellation stops descendants with ${output} output`, {
   timeout: 8500, skip: process.platform === 'win32' && 'Requires POSIX process groups and signals',
 }, async t => {
-  const original = childProcess.execFile;
+  const original = childProcess.spawn;
   const controller = new AbortController();
   const ready = Promise.withResolvers();
   let child, closed, worker, didClose = false, didExit = false;
-  childProcess.execFile = (...args) => {
+  childProcess.spawn = (...args) => {
     child = original(...args);
     closed = new Promise(resolve => child.once('close', () => { didClose = true; resolve(true); }));
     child.once('exit', () => { didExit = true; });
     let text = '';
-    child.stdout.setEncoding('utf8').on('data', chunk => {
-      text += chunk;
+    child.stdout.on('data', chunk => {
+      text += chunk.toString('utf8');
       if (text.includes('\n')) ready.resolve(JSON.parse(text.trim()));
     });
     child.once('error', () => {});
@@ -59,7 +59,7 @@ for (const output of ['inherit', 'ignore']) test(`cancellation stops descendants
   };
   syncBuiltinESMExports();
   t.after(async () => {
-    childProcess.execFile = original;
+    childProcess.spawn = original;
     syncBuiltinESMExports();
     controller.abort();
     if (worker) {
