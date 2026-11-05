@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 
@@ -48,7 +49,8 @@ test('a stable update is not suppressed for a hyphen-only prerelease', { timeout
   assert.deepEqual(errors, []);
   assert.deepEqual(captures.map(command => [command.command, command.args]), [[executable, ['--version']]]);
   assert.deepEqual(fetches, ['https://downloads.claude.ai/claude-code-releases/latest']);
-  assert.deepEqual(reads, ['/synthetic/home/.claude/settings.json', '/etc/claude-code/managed-settings.json']);
+  assert.deepEqual(reads, [join('/synthetic/home', '.claude', 'settings.json'),
+    join('/etc', 'claude-code', 'managed-settings.json')]);
   assert.deepEqual(runs.map(command => [command.command, command.args]), [[executable, ['update']]]);
   assert.match(output.join(''), /Version 1\.2\.3--; 1\.2\.3 is available\./);
   assert.doesNotMatch(output.join(''), /is the latest/);
