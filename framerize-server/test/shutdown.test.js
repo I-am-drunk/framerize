@@ -60,7 +60,7 @@ test('close during listen does not leave a bound server', async () => {
     closeDuringListen = app.close();
     return originalListen(...args);
   };
-  await app.listen();
+  await assert.rejects(app.listen(), { code: 'server_closing', message: 'Server is closing' });
   await closeDuringListen;
   assert.equal(app.server.listening, false);
 });
