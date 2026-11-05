@@ -39,7 +39,7 @@ assert.equal(process.env.UPSTREAM_TOKEN, undefined);
 assert.equal(process.env.HTTP_PROXY, undefined);
 ${probe}
 console.log(process.argv.includes('version') ? '0.0.1'
-  : ${JSON.stringify(server ? 'Framerize server' : 'framerize-remote --server-token-env')});
+  : ${JSON.stringify(server ? 'Server' : 'framerize-remote --server-token-env')});
 `,
   };
   if (server) {

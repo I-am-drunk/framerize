@@ -3,8 +3,7 @@
 Framerize is a Node.js inference API server. Framerize Remote gives a client
 machine a local endpoint that forwards requests to that server.
 
-The server owns provider accounts, provider credentials and Castle. Remote
-keeps its local client token separate from the token it uses to reach the server.
+The server owns provider accounts and Castle. Remote holds neither.
 
 | Run this | Where | Default address |
 | --- | --- | --- |
@@ -26,37 +25,37 @@ npm ci --ignore-scripts --no-audit --no-fund
 npm run build
 ```
 
-## 2. Configure and start the server
+## 2. Start Server
 
-Prepare an authorized account and its private session reference using the
-[account configuration guide](framerize-server/docs/framer-backend.md#select-a-json-account).
-Keep the server token in a separate private file. On Unix, restrict it to the
-owner with `chmod 600 /private/framerize/server-token`. Pass file paths or
-environment variable names to the CLI, never credential values.
+Write an accounts file, for example `/srv/framerize/accounts.json`, with a
+real session in place of `session=...`:
 
-```sh
-node framerize-server/bin/framerize-server.js serve \
-  --backend framer \
-  --accounts-file /private/framerize/accounts.json \
-  --account-id personal \
-  --server-token-file /private/framerize/server-token
+```json
+[{ "id": "personal", "projectId": "your-project-id", "session": "session=..." }]
 ```
 
-Replace `serve` with `check` to validate local configuration without contacting
-the provider. This does not establish that an account can perform inference.
-Use Ctrl+C to stop the server.
+The file holds a live credential. Keep it out of Git. The
+[account guide](framerize-server/docs/framer-backend.md#select-a-json-account)
+also covers sessions read from an environment variable or file.
 
-The default listener is local to the server machine. For clients on another
-machine, use your TLS reverse proxy's HTTPS origin in the Remote command below.
-The [server guide](framerize-server/README.md#run) covers the generic HTTP
-backend, listener options and embedding. The
-[environment guide](framerize-server/docs/environment.md) explains overrides
-and precedence. Neither CLI automatically loads `.env`.
+```sh
+FRAMERIZE_SERVER_BACKEND=framer \
+FRAMERIZE_SERVER_ACCOUNTS=/srv/framerize/accounts.json \
+FRAMERIZE_SERVER_HOST=0.0.0.0 \
+node framerize-server/bin/framerize-server.js serve
+```
+
+Without `FRAMERIZE_SERVER_HOST`, Server listens on loopback only. With no API
+token, any client that reaches the port can run inference on the account.
+Expose it only on a network your friends alone can reach, such as a tailnet.
+Set `FRAMERIZE_SERVER_TOKEN` to require a bearer token. Replace `serve` with
+`check` to validate configuration without contacting the provider. Every option
+has a variable; see the [environment guide](framerize-server/docs/environment.md).
 
 ## 3. Connect Remote on the client machine
 
-Put a copy of the server token in a private file on the client machine.
-Use a different private token file for local clients.
+Remote setup still needs a server token file and a separate local token file.
+If Server runs without a token, any valid token value works in the first file.
 The server URL is its origin, without `/v1`:
 
 ```sh

@@ -141,7 +141,7 @@ export function checkPackageCoexistence(tarballs: readonly string[]) {
         `${manifest.name}${process.platform === 'win32' ? '.cmd' : ''}`);
       assert.ok(existsSync(link), 'installed executable missing');
       if (process.platform !== 'win32') assert.equal(realpathSync(link), realpathSync(executable));
-      const title = manifest.name === 'framerize-remote' ? /framerize-remote/ : /Framerize server/;
+      const title = manifest.name === 'framerize-remote' ? /framerize-remote/ : /^Server\b/m;
       assert.match(runNode([executable, '--help']), title);
       assert.match(runNpm(['exec', '--offline', '--no', '--', manifest.name, '--help']), title);
       assert.match(runNode([path.join(path.dirname(npmCli), 'npx-cli.js'), '--offline', '--no-install',

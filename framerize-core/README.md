@@ -1,31 +1,35 @@
-# Shared Framerize core
+# Core
 
-This private package defines the boundary used by a browserless server and a
-local Framerize Remote instance. Both accept the same inference request shape.
-Only the backend implementation decides where inference runs.
+Core is the private `@framerize/core` package. Server and Remote both bundle
+it as their HTTP listener, so they accept the same inference requests. Only the
+backend decides where inference runs.
 
 ## Included now
 
 - Strict TypeScript request, response, cancellation, readiness, and close types.
 - The accepted API-v1 readiness classifier, ported without changing its policy.
-- One HTTP instance factory for direct and remote backends, with explicit token authentication.
+- One HTTP instance factory for direct and remote backends, with optional bearer authentication.
 - Compiled ESM and declarations, with no runtime dependencies.
 
 `InferenceBackend` carries opaque Buffer streams. It does not parse prompts,
 change models, retry requests, or own account state. Cancellation is explicit
-on every request. Server and remote adapters implement the same interface.
+on every request. Server and Remote adapters implement the same interface.
 
-The current inference paths match the accepted server's two OpenAI endpoints.
-This package does not claim Anthropic support or complete browserless parity.
+The listener serves the two OpenAI bare routes and the experimental
+`/openai/v1/responses` and `/anthropic/v1/messages` routes. Protocol conversion
+for those routes belongs to the backend. Live provider parity is unverified.
 
 `createInstance({ backend, token })` returns `listen()` and `close()`. It binds
 only after `listen()`, on an ephemeral loopback port by default. Set `host` and
 `port` explicitly in each application's validated configuration. The instance
 owns the supplied backend and calls its `close()` exactly once.
 
-Set `token: null` only to lock every protected route when no credential is
-configured. It never enables anonymous inference. Empty or invalid strings
-still fail validation. The returned `server` retains Node embedding access.
+`authentication` defaults to `'required'`. Every route except `/health` then
+needs `Authorization: Bearer <token>`. With `token: null` and the default,
+those routes always return 401. Set `authentication: 'none'` with `token: null`
+to serve them without a bearer token. Combining `'none'` with a token string
+fails validation, as do empty or invalid token strings. The returned `server`
+retains Node embedding access.
 
 Response bodies may be synchronous or asynchronous iterables of Buffers.
 Requests remain asynchronous iterables. Timeout expiry gives already-ready
@@ -69,10 +73,9 @@ HTTP authentication failures, and clean up the connection.
 ## Build and test
 
 Run `npm ci --ignore-scripts`, `npm run build`, `npm run check`, and `npm test`
-from the repository root. The server bundles this listener into its package.
-The root scripts validate core, server and packaging tools. Remote integration
-and browserless provider compatibility remain separate requirements.
+from the repository root. Server and Remote bundle this listener into their
+packages. Live provider compatibility is a separate check.
 
 Do not publish an npm consumer that depends on this private workspace package.
-Bundle the used core code into that consumer's release output, then test the
+Bundle the used Core code into that consumer's release output, then test the
 installed artifact outside the workspace.

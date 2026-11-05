@@ -37,6 +37,15 @@ const ENVIRONMENT = Object.freeze({
   backend: 'FRAMERIZE_SERVER_BACKEND', accountsFile: 'FRAMERIZE_SERVER_ACCOUNTS',
   accountId: 'FRAMERIZE_SERVER_ACCOUNT', framerOrigin: 'FRAMERIZE_SERVER_FRAMER_ORIGIN',
   host: 'FRAMERIZE_SERVER_HOST', port: 'FRAMERIZE_SERVER_PORT', upstream: 'FRAMERIZE_SERVER_UPSTREAM',
+  serverTokenEnv: 'FRAMERIZE_SERVER_TOKEN_ENV', serverTokenFile: 'FRAMERIZE_SERVER_TOKEN_FILE',
+  authorizationEnv: 'FRAMERIZE_SERVER_AUTHORIZATION_ENV',
+  authorizationFile: 'FRAMERIZE_SERVER_AUTHORIZATION_FILE',
+  logLevel: 'FRAMERIZE_SERVER_LOG_LEVEL', maxBodyBytes: 'FRAMERIZE_SERVER_MAX_BODY_BYTES',
+  headersTimeoutMs: 'FRAMERIZE_SERVER_HEADERS_TIMEOUT_MS',
+  inferenceTimeoutMs: 'FRAMERIZE_SERVER_INFERENCE_TIMEOUT_MS',
+  idleTimeoutMs: 'FRAMERIZE_SERVER_IDLE_TIMEOUT_MS',
+  requestHeadersTimeoutMs: 'FRAMERIZE_SERVER_REQUEST_HEADERS_TIMEOUT_MS',
+  shutdownTimeoutMs: 'FRAMERIZE_SERVER_SHUTDOWN_TIMEOUT_MS',
 });
 
 function invalid(name: string): never {
@@ -53,6 +62,11 @@ export function loadConfig(values: unknown = {}, env: Readonly<Record<string, st
   const selected: Record<string, unknown> = {};
   for (const [name, variable] of Object.entries(ENVIRONMENT)) {
     if (!Object.hasOwn(input, name) && env[variable] !== undefined) selected[name] = env[variable];
+  }
+  const explicitToken = input.serverToken !== undefined && input.serverToken !== null;
+  if (explicitToken || Object.hasOwn(input, 'serverTokenEnv') || Object.hasOwn(input, 'serverTokenFile')) {
+    delete selected.serverTokenEnv;
+    delete selected.serverTokenFile;
   }
   const label = (name: string) => Object.hasOwn(selected, name) ? ENVIRONMENT[name as keyof typeof ENVIRONMENT] : name;
   const config: Record<string, unknown> = { ...DEFAULTS, ...selected, ...input };
@@ -100,9 +114,15 @@ export function loadConfig(values: unknown = {}, env: Readonly<Record<string, st
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) invalid(label('upstream'));
     config.upstream = url.href;
   }
+  const namedToken = Boolean(config.serverTokenEnv)
+    && (Object.hasOwn(input, 'serverTokenEnv') || Object.hasOwn(selected, 'serverTokenEnv'));
+  if (config.serverTokenFile && (namedToken || input.serverToken)) {
+    invalid('server credential references');
+  }
   const token = input.serverToken ?? (config.serverTokenFile ? '' : env[config.serverTokenEnv as string] ?? '');
   if (typeof token !== 'string' || (token && !/^[A-Za-z0-9._~+/-]+=*$/.test(token))) invalid('server token');
-  if (input.serverToken && config.serverTokenFile) invalid('server credential references');
+  if (namedToken && !explicitToken && !token) invalid('server token');
+  if (config.serverTokenFile || explicitToken) config.serverTokenEnv = '';
   Object.defineProperty(config, 'serverToken', { value: token, enumerable: false });
   return Object.freeze(config) as unknown as ServerConfig;
 }

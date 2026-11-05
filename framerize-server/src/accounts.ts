@@ -11,16 +11,18 @@ export interface AccountMetadata {
   readonly model?: string;
   readonly models?: readonly string[];
   readonly projectId?: string;
-  readonly session?: AccountSessionReference;
+  readonly session?: AccountSession;
 }
 
 export type AccountSessionReference = Readonly<
   { env: string; file?: never } | { file: string; env?: never }
 >;
 
+export type AccountSession = string | AccountSessionReference;
+
 export interface FramerAccount extends AccountMetadata {
   readonly projectId: string;
-  readonly session: AccountSessionReference;
+  readonly session: AccountSession;
 }
 
 export async function loadAccounts(path?: string): Promise<readonly AccountMetadata[]> {
@@ -85,12 +87,18 @@ async function readAccounts(path?: string): Promise<readonly AccountMetadata[]> 
     }
     return Object.freeze({ ...account, id: account.id,
       ...(Array.isArray(account.models) ? { models: Object.freeze([...account.models]) } : {}),
-      ...(account.session !== undefined ? { session: sessionReference(account.session, path) } : {}),
+      ...(account.session !== undefined ? { session: parseSession(account.session, path) } : {}),
     });
   }));
 }
 
-function sessionReference(value: unknown, source: string): AccountSessionReference {
+function validSession(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 16_384
+    && value === value.trim() && /^[\x20-\x7e]+$/.test(value);
+}
+
+function parseSession(value: unknown, source: string): AccountSession {
+  if (validSession(value)) return value;
   if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 1) {
     if ('env' in value && typeof value.env === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(value.env)) {
       return Object.freeze({ env: value.env });
@@ -117,17 +125,20 @@ export async function loadFramerAccount(path: string, accountId?: string): Promi
   return selected as FramerAccount;
 }
 
-export async function readAccountSession(reference: AccountSessionReference,
+export async function readAccountSession(reference: AccountSession,
   env: Readonly<Record<string, string | undefined>> = process.env, signal?: AbortSignal): Promise<string> {
   try {
     signal?.throwIfAborted();
+    if (typeof reference === 'string') {
+      if (!validSession(reference)) throw new Error();
+      return reference;
+    }
     if (!reference || Object.keys(reference).length !== 1) throw new Error();
     const variable = reference.env;
     const value = typeof variable === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(variable)
       ? env[variable] : variable === undefined ? await readSessionFile(reference.file, signal) : undefined;
     signal?.throwIfAborted();
-    if (typeof value !== 'string' || !value || value.length > 16_384 ||
-        value !== value.trim() || !/^[\x20-\x7e]+$/.test(value)) throw new Error();
+    if (!validSession(value)) throw new Error();
     return value;
   } catch { throw new ConfigurationError('Account session unavailable'); }
 }

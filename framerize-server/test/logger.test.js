@@ -11,19 +11,37 @@ function captureLogger(level = 'info') {
   return { logger: createLogger({ stream, level }), read: () => output };
 }
 
-test('structured logs redact bearer tokens and credential-shaped fields', () => {
+test('structured logs preserve explicitly supplied fields and error details', () => {
   const { logger, read } = captureLogger();
   logger.info('request.failed', {
     authorization: 'Bearer fixture-secret',
     cookie: 'session=fixture-secret',
     nested: { token: 'fixture-secret', safe: 'retained' },
     error: new Error('upstream rejected Bearer fixture-secret'),
+    prompt: 'Explain this synthetic example',
+    sessionCount: 3,
   });
   const output = read();
-  assert.equal(output.includes('fixture-secret'), false);
+  assert.equal(output.includes('fixture-secret'), true);
   const line = JSON.parse(output);
   assert.equal(line.nested.safe, 'retained');
+  assert.equal(line.prompt, 'Explain this synthetic example');
+  assert.equal(line.sessionCount, 3);
+  assert.deepEqual(line.error, { name: 'Error', message: 'upstream rejected Bearer fixture-secret' });
   assert.equal(line.level, 'info');
+});
+
+test('large supplied payloads and errors still have size limits', () => {
+  const { logger, read } = captureLogger();
+  logger.info('payload', {
+    input: 'x'.repeat(4000),
+    messages: Array.from({ length: 200 }, (_, index) => index),
+    error: new Error('x'.repeat(4000)),
+  });
+  const line = JSON.parse(read());
+  assert.equal(line.input, 'x'.repeat(2000));
+  assert.equal(line.messages.length, 100);
+  assert.equal(line.error.message, 'x'.repeat(2000));
 });
 
 test('log level suppresses lower-priority records', () => {

@@ -28,7 +28,7 @@ export interface CliDependencies {
     CliInstance | Promise<CliInstance>;
 }
 
-const HELP = `Framerize server
+const HELP = `Server
 Usage: framerize-server [serve|check] [options]
   --backend http|framer          Provider backend, default http
   --account-id NAME              Enabled JSON account to use with the framer backend
@@ -36,9 +36,9 @@ Usage: framerize-server [serve|check] [options]
   --upstream URL                  Authorized inference API base URL, env FRAMERIZE_SERVER_UPSTREAM
   --authorization-env NAME        Upstream credential environment variable
   --authorization-file FILE       Private upstream credential file
-  --server-token-env NAME         Server token variable, default FRAMERIZE_SERVER_TOKEN
-  --server-token-file FILE        Private server token file
-  --accounts-file FILE            JSON account metadata without credentials
+  --server-token-env NAME         Optional API token, default FRAMERIZE_SERVER_TOKEN
+  --server-token-file FILE        Optional API token file
+  --accounts-file FILE            JSON accounts with sessions or environment/file references
   --host ADDRESS                  Listen address, env FRAMERIZE_SERVER_HOST, default 127.0.0.1
   --port NUMBER                   Listen port, env FRAMERIZE_SERVER_PORT, default 8789
   --headers-timeout-ms NUMBER     Readiness, preparation and connection wait, default 15000
@@ -48,7 +48,7 @@ Usage: framerize-server [serve|check] [options]
   --shutdown-timeout-ms NUMBER    Provider shutdown limit, default 5000
   --max-body-bytes NUMBER         JSON request limit, default 16777216
   --log-level LEVEL               debug, info, warn, error, silent
-Command-line options override these environment values. Credentials use the references above.
+Command-line options override environment values. Without an API token, access is open.
 `;
 const FLAGS = new Set(['backend', 'account-id', 'framer-origin', 'upstream', 'authorization-env', 'authorization-file', 'server-token-env',
   'server-token-file', 'accounts-file', 'host', 'port', 'headers-timeout-ms', 'inference-timeout-ms',
