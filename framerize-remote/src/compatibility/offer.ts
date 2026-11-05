@@ -14,7 +14,8 @@ async function offerInstall(client: ClientName, deps: ClientSetupDeps): Promise<
   const install = installCommand(client, deps.platform);
   if (!install) { deps.io.stdout(`${label}: not found. Install it for ${deps.platform} from ${docs}\n`); return 'unsupported'; }
   deps.io.stdout(`${label}: not found on PATH.\nOfficial installer: ${install.display}\n`);
-  if (!await confirm(deps.prompt, `Install ${label}?`, 'install') || deps.signal?.aborted) return 'declined';
+  if (!await confirm(deps.prompt, `Install ${label}?`, 'install', deps.signal)
+    || deps.signal?.aborted) return 'declined';
   const code = await deps.runner.run(install, deps.env);
   if (code !== 0) { deps.io.stderr(`${label} installer exited with code ${code}.\n`); return 'failed'; }
   if (locate(client, deps)) return 'installed';
@@ -32,7 +33,7 @@ async function offerUpdate(client: ClientName, deps: ClientSetupDeps, executable
   const present = { client, state: 'present', version: version.status } as const;
   if (deps.signal?.aborted || version.status !== 'behind') return present;
   if (plan.kind === 'manual') { deps.io.stdout(`To update ${label}: ${plan.reason}\n`); return present; }
-  if (!await confirm(deps.prompt, `Update ${label} with ${plan.command.display}?`, 'update')
+  if (!await confirm(deps.prompt, `Update ${label} with ${plan.command.display}?`, 'update', deps.signal)
     || deps.signal?.aborted) return present;
   const code = await deps.runner.run(plan.command, deps.env);
   if (code !== 0) deps.io.stderr(`${label} update exited with code ${code}.\n`);

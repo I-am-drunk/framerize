@@ -110,8 +110,9 @@ export async function serve(configPath: string, io: CliIo, json: boolean,
       ...(exposed ? { exposure: 'non-loopback-http' } : {}) })}\n`
       : `Remote readiness passed.\n${warning}Local API: http://${address}:${port}/v1\nStop: Ctrl+C\n`);
     if (setupClients && !json) {
-      await offerClientSetup(configPath, io, { ...process.env, FRM_HOST: host, FRM_PORT: String(port) },
+      const offer = await offerClientSetup(configPath, io, { ...process.env, FRM_HOST: host, FRM_PORT: String(port) },
         undefined, controller.signal);
+      if (offer === 'cancelled') stop();
     }
     await stopped;
     stoppedCleanly = true;

@@ -29,7 +29,6 @@ async function runUp(input: string | undefined, io: CliIo, env: NodeJS.ProcessEn
     if (controller.signal.aborted) throw new RemoteDiagnosticError('aborted');
     io.stdout(json ? `${JSON.stringify(result)}\n` : formatUp(result));
     if (!json) await offerClientSetup(configPath, io, env, undefined, controller.signal);
-    if (controller.signal.aborted) throw new RemoteDiagnosticError('aborted');
     return result;
   } catch (error) {
     if (!(error instanceof SetupRollbackError) && (controller.signal.aborted

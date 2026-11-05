@@ -45,18 +45,25 @@ export async function runClientCommand(argv: readonly string[], io: CliIo,
 }
 
 export async function offerClientSetup(configPath: string, io: CliIo, env: NodeJS.ProcessEnv,
-  dependencies?: ClientSetupDeps, signal?: AbortSignal): Promise<void> {
+  dependencies?: ClientSetupDeps, signal?: AbortSignal): Promise<'cancelled' | void> {
   const cancellation = signal ?? dependencies?.signal;
-  if (!io.ask || cancellation?.aborted) return;
-  const answer = await io.ask('Set up Claude Code or Codex for this connection? [y/N] ');
-  if (cancellation?.aborted || !['y', 'yes'].includes(answer?.trim().toLowerCase() ?? '')) return;
-  const deps = dependencies ?? await clientDependencies(configPath, io, env);
-  await offerClients(cancellation ? { ...deps, signal: cancellation } : deps);
-  if (cancellation?.aborted) return;
-  let defaultPath: string | undefined;
-  try { defaultPath = profilePath(undefined, env); } catch { /* An explicit profile can bypass an invalid home. */ }
-  const custom = configPath !== defaultPath;
-  io.stdout(`Start a client with frm client claude or frm client codex${custom
-    ? ', adding --config FILE for this profile.' : '.'}\n`);
-  if (custom) io.stdout(`Profile file: ${configPath}\n`);
+  if (cancellation?.aborted) return 'cancelled';
+  if (!io.ask) return;
+  try {
+    const answer = await io.ask('Set up Claude Code or Codex for this connection? [y/N] ', cancellation);
+    if (cancellation?.aborted) return 'cancelled';
+    if (!['y', 'yes'].includes(answer?.trim().toLowerCase() ?? '')) return;
+    const deps = dependencies ?? await clientDependencies(configPath, io, env);
+    await offerClients(cancellation ? { ...deps, signal: cancellation } : deps);
+    if (cancellation?.aborted) return 'cancelled';
+    let defaultPath: string | undefined;
+    try { defaultPath = profilePath(undefined, env); } catch { /* An explicit profile can bypass an invalid home. */ }
+    const custom = configPath !== defaultPath;
+    io.stdout(`Start a client with frm client claude or frm client codex${custom
+      ? ', adding --config FILE for this profile.' : '.'}\n`);
+    if (custom) io.stdout(`Profile file: ${configPath}\n`);
+  } catch (error) {
+    if (cancellation?.aborted || (error instanceof Error && error.name === 'AbortError')) return 'cancelled';
+    throw error;
+  }
 }

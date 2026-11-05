@@ -163,9 +163,11 @@ install for a missing client, and an update only when a newer release is
 known. For Homebrew and Chocolatey installs it checks `brew info` or
 `choco search` and prints the manual command when a newer release exists.
 Each step needs its typed word, and it never starts a client.
-`setup --start` runs the same offer after Remote starts. If `SIGINT` or
-`SIGTERM` stops Remote during the offer, the offer asks no new questions and
-starts no further installs or updates.
+Cancelling a question after `frm up` succeeds skips the optional offer and
+keeps the successful setup result. The saved connection and service stay in place.
+`setup --start` runs the same offer after Remote starts. Ctrl+C, `SIGINT` or
+`SIGTERM` cancels a pending question and closes the foreground listener. The
+offer asks no new questions and starts no further installs or updates.
 
 ## Configuration
 

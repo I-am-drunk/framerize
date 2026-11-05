@@ -12,7 +12,7 @@ export interface ClientIo {
 }
 
 /** Asks one question on a terminal. Absent when stdin or stdout is not a TTY. */
-export type Prompt = (question: string) => Promise<string | null>;
+export type Prompt = (question: string, signal?: AbortSignal) => Promise<string | null>;
 
 /** Every outside effect the command uses. The parent supplies real values; tests stub them. */
 export interface ClientSetupDeps {
@@ -25,7 +25,7 @@ export interface ClientSetupDeps {
   readonly runner: ProcessRunner;
   readonly io: ClientIo;
   readonly prompt?: Prompt;
-  /** Stops the setup flow from starting another prompt or client operation. */
+  /** Cancels pending prompts and stops the setup flow from starting another client operation. */
   readonly signal?: AbortSignal;
   readonly probe?: ExecutableProbe;
   readonly realPath?: (path: string) => string;
@@ -44,19 +44,21 @@ export const defaultRealPath = (path: string): string => {
 };
 
 /** Asks one question and accepts only the exact word. Anything else, or no terminal, declines. */
-export async function confirm(prompt: Prompt | undefined, question: string, word: string): Promise<boolean> {
-  if (!prompt) return false;
-  const answer = await prompt(`${question} Type ${word} to continue: `);
-  return answer?.trim() === word;
+export async function confirm(prompt: Prompt | undefined, question: string, word: string,
+  signal?: AbortSignal): Promise<boolean> {
+  if (!prompt || signal?.aborted) return false;
+  const answer = await prompt(`${question} Type ${word} to continue: `, signal);
+  return !signal?.aborted && answer?.trim() === word;
 }
 
 /** A prompt only when both streams are terminals, so agents and pipes never block on input. */
 export function terminalPrompt(input: NodeJS.ReadStream, output: NodeJS.WriteStream): Prompt | undefined {
   if (!input.isTTY || !output.isTTY) return undefined;
-  return async question => {
+  return async (question, signal) => {
     const { createInterface } = await import('node:readline/promises');
     const reader = createInterface({ input, output });
-    try { return await reader.question(question); } catch { return null; } finally { reader.close(); }
+    try { return await reader.question(question, signal ? { signal } : {}); }
+    catch { return null; } finally { reader.close(); }
   };
 }
 
