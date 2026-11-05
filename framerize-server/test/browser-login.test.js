@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { BrowserLoginError, FRAMER_LOGIN_URL, findBrowser, loginWithBrowser, sessionFromCookies,
   supportsBrowserLogin } from '../dist/browser-login.js';
 
-const fakeBrowser = fileURLToPath(new URL('./helpers/fake-browser.js', import.meta.url));
+const fakeBrowser = fileURLToPath(new URL('../fixtures/fake-browser.mjs', import.meta.url));
 const session = 'session=synthetic-browser-session';
 const expiresAt = () => new Date(Date.now() + 3_600_000).toISOString();
 const gone = pid => { try { process.kill(pid, 0); return false; } catch (error) { return error.code === 'ESRCH'; } };
