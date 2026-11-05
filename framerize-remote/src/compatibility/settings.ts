@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { lstat, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { claudeEnv, type RemoteTarget } from './configure.js';
 
 /** Claude Code reads user settings from CLAUDE_CONFIG_DIR, else ~/.claude. */
@@ -28,7 +28,7 @@ async function settingsDestination(path: string): Promise<string> {
       return undefined;
     });
     if (entry?.isSymbolicLink()) throw new SettingsError('Claude settings link has no target.');
-    return path;
+    return resolve(path);
   }
 }
 
@@ -80,6 +80,9 @@ export async function writeClaudeSettings(settingsPath: string, stateDir: string
   const settings = await readSettings(settingsPath) ?? {};
   const env = { ...(settings.env ?? {}) };
   const record = await readRecord(stateDir);
+  if (record && await settingsDestination(record.settingsPath) !== settingsPath) {
+    throw new SettingsError('Claude settings are already managed at another path. Run frm client claude --undo with the same Remote profile before changing CLAUDE_CONFIG_DIR.');
+  }
   const values = claudeEnv(target);
   const foreign = MANAGED_KEYS.filter(key => env[key] !== undefined && !ours(record, key, env[key]));
   if (foreign.length > 0) {

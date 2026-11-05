@@ -161,6 +161,9 @@ running Remote. Arguments after `--` pass through unchanged, such as
   A link with no target fails before anything is written. If the settings
   file is gone, `--undo` reports that Framerize has not written Claude
   settings and forgets its record.
+  Each Remote profile tracks one settings file. Before changing
+  `CLAUDE_CONFIG_DIR`, run `frm client claude --undo` with that profile.
+  New settings writes can be undone from any working directory.
 - `--check` prints the OS, client path, version and Remote address.
 - `--config FILE` uses that profile for a launch, `--check`, `--persist` and
   `--undo`. `--persist` keeps its undo record beside FILE, so pass the same
