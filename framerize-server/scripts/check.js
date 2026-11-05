@@ -7,6 +7,7 @@ const manifest = JSON.parse(await readFile(new URL('../package.json', import.met
 assert.equal(manifest.name, 'framerize', 'Unexpected server package name');
 assert.notEqual(manifest.private, true, 'Server package must permit npm publication');
 const generated = ['accounts.d.ts', 'accounts.js', 'config.d.ts', 'config.js', 'core.js', 'core.d.ts',
+  'browser-login.js', 'browser-login.d.ts',
   ...['startup-access', 'private-network', 'qr-code', 'settings', 'setup', 'service-units',
     'service-control', 'tailscale'].flatMap(name => [`${name}.js`, `${name}.d.ts`]),
   'backend.d.ts', 'backend.js', 'castle.js', 'castle-loader.d.ts', 'castle-loader.js',
@@ -40,6 +41,7 @@ for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies']
 }
 assert.deepEqual((await readdir(new URL('../src/', import.meta.url))).sort(), [
   'account-backend.ts', 'accounts.ts', 'backend.ts', 'castle-loader.ts', 'castle.ts',
+  'browser-login.ts',
   'cli.ts', 'compat', 'config.ts', 'errors.ts', 'framer-auth.ts', 'framer-backend.ts',
   'framer-request.ts', 'logger.ts', 'provider.ts', 'server.ts',
   'startup-access.ts', 'private-network.ts', 'qr-code.ts', 'settings.ts', 'setup.ts',
