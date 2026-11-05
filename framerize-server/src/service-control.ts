@@ -71,6 +71,7 @@ export async function serviceStatus(plan: ServicePlan, run: StepRunner = runStep
   const state = installed ? await run(manager.active.command, manager.active.args) : undefined;
   const loaded = state?.code === 0;
   const output = state?.stdout ?? '';
+  const activeState = /^ActiveState=(\S+)$/m.exec(output)?.[1];
   const pid = Number(plan.platform === 'linux' ? /^MainPID=(\d+)$/m.exec(output)?.[1]
     : /^\s*pid = (\d+)\s*$/m.exec(output)?.[1]);
   const active = plan.platform === 'linux'
@@ -78,7 +79,7 @@ export async function serviceStatus(plan: ServicePlan, run: StepRunner = runStep
     : /^\s*state = running\s*$/m.test(output);
   const running = loaded && active && Number.isSafeInteger(pid) && pid > 0;
   const enabled = !manager.enabled || (await run(manager.enabled.command, manager.enabled.args)).code === 0;
-  return { supported: true, installed, running, loaded, pid: running ? pid : undefined,
+  return { supported: true, installed, running, loaded, activeState, pid: running ? pid : undefined,
     enabled, current: contents === manager.contents && enabled, otherHome,
     unitPath: manager.path, logPath: join(plan.home, 'server.log') };
 }
@@ -130,7 +131,8 @@ export async function reconcileService(plan: ServicePlan, settings: string,
     else await writeAtomic(manager.path, oldUnit);
     await steps(run, manager.reload);
     if (oldUnit !== undefined && before.enabled) await steps(run, manager.enable);
-    const restore = before.running || (plan.platform === 'linux' ? before.enabled : before.loaded);
+    const restore = before.running || (plan.platform === 'linux'
+      ? before.enabled && before.activeState !== undefined && before.activeState !== 'inactive' : before.loaded);
     if (oldUnit !== undefined && restore) await steps(run, manager.activate);
   }
 }

@@ -79,6 +79,24 @@ test('Linux setup repairs disabled linger and verifies the result', async t => {
   assert.equal(state.calls.filter(args => args.includes('enable-linger')).length, 1);
 });
 
+test('failed setup leaves an enabled service stopped when it was stopped before setup', async t => {
+  const { plan, state, run, manager, settings } = await context(t);
+  await reconcileService(plan, '{"old":true}', async () => state.pid, run);
+  await controlService(plan, 'stop', run);
+  assert.equal(state.enabled, true);
+  assert.equal(state.running, false);
+  const unit = await readFile(manager.path, 'utf8');
+  state.calls.length = 0;
+  await assert.rejects(reconcileService(plan, '{"new":true}',
+    async () => assert.fail('readiness must not run'), run,
+    async () => { throw new Error('synthetic occupied port'); }), /synthetic occupied port/);
+  assert.equal(state.running, false);
+  assert.equal(state.enabled, true);
+  assert.ok(!state.calls.some(args => args.includes('restart')));
+  assert.equal(await readFile(settings, 'utf8'), '{"old":true}');
+  assert.equal(await readFile(manager.path, 'utf8'), unit);
+});
+
 test('readiness from another process cannot validate a newly installed service', async t => {
   const { plan, state, run, manager, settings } = await context(t);
   await assert.rejects(reconcileService(plan, '{}', async () => state.pid + 1, run), /another process/);
@@ -198,14 +216,19 @@ test('uninstall removes an unloaded launchd job without bootout', async t => {
   await assert.rejects(readFile(manager.path), { code: 'ENOENT' });
 });
 
-test('failed setup restores a previously enabled service with no running PID', async t => {
+test('failed setup restores an enabled service that was automatically restarting', async t => {
   const { plan, state, run, manager, settings } = await context(t);
   await mkdir(dirname(manager.path), { recursive: true });
   await writeFile(manager.path, manager.contents);
   await mkdir(plan.home, { recursive: true });
   await writeFile(settings, '{"old":true}');
   state.enabled = true;
-  await assert.rejects(reconcileService(plan, '{"new":true}', async () => state.pid, run,
+  const restarting = async (command, args) => {
+    const result = await run(command, args);
+    return args.includes('show') && !state.running
+      ? { code: 0, stdout: 'ActiveState=activating\nSubState=auto-restart\nMainPID=0\n' } : result;
+  };
+  await assert.rejects(reconcileService(plan, '{"new":true}', async () => state.pid, restarting,
     async () => { throw new Error('port is already in use'); }), /already in use/);
   assert.equal(state.running, true);
   assert.equal(await readFile(settings, 'utf8'), '{"old":true}');
