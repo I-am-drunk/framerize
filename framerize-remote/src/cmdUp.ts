@@ -1,11 +1,11 @@
 // `frm up` adapts T3 Code apps/server/src/cli/up.ts setUp at 5a906583 (MIT, T3 Tools Inc.):
 // one command saves the connection, reconciles the background service, restarts it only when
 // its settings changed, rolls the profile back when the service step fails, and prints the state.
-import { readFile, rm, writeFile } from 'node:fs/promises';
+import { rm, writeFile } from 'node:fs/promises';
 import type { CliIo } from './cli.js';
 import { runCheck } from './cmdRun.js';
 import { CONFIG_DEFAULTS, parsePersisted, type PersistedConfig } from './config.js';
-import { saveConfigFile } from './configStore.js';
+import { readConfigText, saveConfigFile } from './configStore.js';
 import { validate, type CredentialReference } from './credentials.js';
 import { FRM_LOCAL_TOKEN, FRM_SERVER_TOKEN, frmSettings } from './frmEnv.js';
 import { RemoteDiagnosticError, ServiceCommandCleanupError, SetupRollbackError, type DiagnosticCode } from './diagnostics.js';
@@ -46,7 +46,7 @@ async function connection(input: string | undefined, saved: PersistedConfig | un
 
 async function readSaved(path: string): Promise<{ text: string | undefined; config: PersistedConfig | undefined }> {
   let text: string;
-  try { text = await readFile(path, 'utf8'); }
+  try { text = await readConfigText(path); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { text: undefined, config: undefined };
     throw new RemoteDiagnosticError('profile_invalid');
@@ -127,7 +127,7 @@ export async function setUp(input: string | undefined, io: CliIo, options: UpOpt
   let snapshot: ServiceSnapshot | undefined;
   try {
     await saveConfigFile(options.configPath, profile);
-    const after = await readFile(options.configPath, 'utf8');
+    const after = await readConfigText(options.configPath);
     active();
     const notReady = await readiness(options.configPath, options.env, signal);
     active();

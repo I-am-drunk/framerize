@@ -14,15 +14,17 @@ function absoluteReference(reference: CredentialReference, base: string): Creden
   return reference.kind === 'file' ? { kind: 'file', path: resolve(base, reference.path) } : { ...reference };
 }
 
+export async function readConfigText(path: string): Promise<string> {
+  const handle = await open(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOCTTY);
+  try {
+    if (!(await handle.stat()).isFile()) throw new Error();
+    return await handle.readFile('utf8');
+  } finally { await handle.close(); }
+}
+
 export async function loadConfigFile(path: string): Promise<RemoteConfig> {
   let text: string;
-  try {
-    const handle = await open(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOCTTY);
-    try {
-      if (!(await handle.stat()).isFile()) throw new Error();
-      text = await handle.readFile('utf8');
-    } finally { await handle.close(); }
-  }
+  try { text = await readConfigText(path); }
   catch (error) {
     const code = (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'profile_missing' : 'profile_invalid';
     throw new RemoteDiagnosticError(code, 'no configuration found; run `frm setup` first');
