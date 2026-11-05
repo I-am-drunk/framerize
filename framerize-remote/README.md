@@ -157,6 +157,9 @@ nothing. Without a terminal, `--update` is the consent.
 Homebrew, mise, winget, Chocolatey and unknown installs get the manual
 command or the client's docs instead, with no version check under `--update`.
 A failed lookup reports the latest version as unknown, never as current.
+During `--check` or `--update`, `SIGINT` or `SIGTERM` cancels pending version
+lookups and exits with code 1: `The command was cancelled.` Cancelling a
+lookup does not start an update.
 
 The prompt after an interactive `frm up` checks both clients. It offers an
 install for a missing client, and an update only when a newer release is

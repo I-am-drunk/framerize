@@ -33,9 +33,12 @@ export function locate(client: ClientName, deps: ClientSetupDeps): string | null
 /** Without a terminal the explicit flag is the consent. A terminal confirms update by typing the word. */
 async function consented(options: ClientOptions, deps: ClientSetupDeps, flag: boolean,
   question: string, word: 'install' | 'update'): Promise<boolean> {
+  deps.signal?.throwIfAborted();
   if (options.noInput || !deps.prompt) return flag;
   if (word === 'install' && flag) return true;
-  return confirm(deps.prompt, question, word);
+  const consent = await confirm(deps.prompt, question, word, deps.signal);
+  deps.signal?.throwIfAborted();
+  return consent;
 }
 
 async function ensureInstalled(options: ClientOptions, deps: ClientSetupDeps): Promise<string | number> {
@@ -69,6 +72,7 @@ async function updateInstalled(options: ClientOptions, deps: ClientSetupDeps, ex
     return EXIT.ok;
   }
   const version = await checkVersion(options.client, executable, plan, lookupDeps(deps));
+  deps.signal?.throwIfAborted();
   deps.io.stdout(`${label} is installed at ${executable}.\n${versionLine(version)}\n`);
   if (version.status === 'current') return EXIT.ok;
   deps.io.stdout(`Update command: ${plan.command.display}\n`);
@@ -88,7 +92,8 @@ async function check(options: ClientOptions, deps: ClientSetupDeps): Promise<num
   deps.io.stdout(`OS: ${deps.platform}\n${label}: ${executable ?? 'not found on PATH'}\n`);
   if (executable) {
     const version = await deps.runner.capture({ command: executable, args: ['--version'],
-      display: `${command} --version` }, deps.env);
+      display: `${command} --version` }, deps.env, deps.signal);
+    deps.signal?.throwIfAborted();
     deps.io.stdout(`Version: ${version?.trim().split('\n')[0] ?? 'unavailable'}\n`);
   }
   deps.io.stdout(`Remote base URL: ${base}\nLocal token: ${deps.target.localToken ? 'set' : 'not set'}\n`);
