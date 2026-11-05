@@ -124,13 +124,13 @@ for (const path of ['/v1/responses', '/v1/chat/completions']) {
 }
 
 for (const status of [401, 402, 403, 429, 500]) {
-  test(`HTTP ${status} stays sanitized without retrying or retiring the session`, async context => {
+  test(`HTTP ${status} retains its body without retrying or retiring the session`, async context => {
     const setup = await fixture(context, (request, response) => {
       response.writeHead(status); response.end('synthetic-private-upstream-error');
     });
     const result = await setup.backend.forward(call());
     assert.equal(result.status, status);
-    assert.doesNotMatch((await collect(result.body)).toString(), /synthetic-private/);
+    assert.equal((await collect(result.body)).toString(), 'synthetic-private-upstream-error');
     assert.equal(setup.requests.length, 2);
     assert.equal(await setup.backend.ready({ signal: signal() }), true);
     assert.equal(setup.requests.length, 2);
