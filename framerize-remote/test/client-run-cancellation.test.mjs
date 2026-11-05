@@ -420,7 +420,11 @@ function terminalStartupFixture(context) {
   context.mock.method(fs, 'openSync', () => 123);
   context.mock.method(fs, 'closeSync', () => {});
   syncBuiltinESMExports();
-  context.after(() => { context.mock.restoreAll(); syncBuiltinESMExports(); });
+  context.after(() => {
+    context.mock.timers.reset();
+    context.mock.restoreAll();
+    syncBuiltinESMExports();
+  });
   context.mock.timers.enable({ apis: ['setTimeout'] });
   const group = new PassThrough(), control = new PassThrough(), kills = [];
   const child = Object.assign(new EventEmitter(), { pid: 123456,
