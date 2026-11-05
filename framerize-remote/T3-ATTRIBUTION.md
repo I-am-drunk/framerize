@@ -102,6 +102,12 @@ under the same MIT License.
   tests the Windows branch.
   Passing setup cancellation through version lookups and release-body reads
   is also Framerize code.
+  Cancellation of running installers and updaters is Framerize code. POSIX
+  commands use a separate process group. Shell job control preserves the
+  terminal session for prompts. A startup handshake reports the group before
+  allowing execution. Cancellation sends SIGTERM, waits 500 ms, then sends
+  SIGKILL to the group, including descendants whose parent has exited.
+  Windows uses bounded `taskkill /T /F` and waits for command closure.
 
 `test/tailscale.test.mjs` predates these adaptations. Its spawn-failure,
 deadline and stderr-diagnostic cases cover the same behaviors as
