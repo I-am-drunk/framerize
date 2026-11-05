@@ -176,10 +176,9 @@ running Remote. Arguments after `--` pass through unchanged, such as
 
 ### Install and update
 
-To install a missing client, type `install`, pass `--install` or set
-`FRM_CLIENT_INSTALL=1`. Without consent, the command exits 3. `--no-input`
-and `FRM_NO_INPUT=1` disable prompts. Linux and macOS download installers
-fully before execution. Windows uses PowerShell; other platforms show a link.
+Installing a client needs typed `install`, `--install` or `FRM_CLIENT_INSTALL=1`.
+Without consent it exits 3. Linux and macOS download the full script before
+running it. Windows uses PowerShell.
 
 `--update` finds the updater that owns the installed client from its path.
 The options are the client's own `update` for native installs, `npm install -g`
