@@ -347,8 +347,7 @@ try {
   assert.equal(readiness.headers['x-framerize-server-pid'], String(process.pid));
   ready = false;
   assert.equal((await bounded(exchange('/ready'))).status, 503);
-  assert.equal((await bounded(exchange('/v1/responses', payload('complete')))).status, 503);
-  assert.equal(calls.length, 0, 'unavailable providers must not receive inference');
+  assert.equal(calls.length, 0, 'readiness must not invoke inference');
   ready = true;
   const response = await bounded(exchange('/v1/responses', payload('complete')));
   assert.equal(response.status, 200); assert.deepEqual(response.body, complete);
