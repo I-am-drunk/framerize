@@ -88,3 +88,29 @@ test('an absent root settings directory still selects the root local path', posi
   assert.ok(h.reads.includes(local));
   assert.ok(!h.reads.includes(nested));
 });
+
+for (const event of ['SIGINT', 'SIGTERM']) {
+  test(`${event} cancels the Git lookup before any client launch`, posix, async () => {
+    const h = fixture();
+    const before = ['SIGINT', 'SIGTERM'].map(name => process.listeners(name));
+    h.deps.runner.capture = async (_command, _env, signal) => {
+      assert.ok(signal instanceof AbortSignal);
+      process.emit(event);
+      assert.equal(signal.aborted, true);
+      return `${root}\n`;
+    };
+    await assert.rejects(runClient(['claude'], h.deps), { name: 'AbortError' });
+    assert.deepEqual(h.runs, []);
+    assert.deepEqual(h.reads, []);
+    assert.deepEqual(['SIGINT', 'SIGTERM'].map(name => process.listeners(name)), before);
+  });
+}
+
+test('Git lookup signal handlers are gone before the client starts', posix, async () => {
+  const h = fixture(), before = ['SIGINT', 'SIGTERM'].map(name => process.listeners(name));
+  h.deps.runner.run = async () => {
+    assert.deepEqual(['SIGINT', 'SIGTERM'].map(name => process.listeners(name)), before);
+    return 0;
+  };
+  assert.equal(await runClient(['claude'], h.deps), 0);
+});
