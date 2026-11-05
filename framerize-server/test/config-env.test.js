@@ -71,7 +71,7 @@ test('CLI options override environment values without reading process.env', asyn
   assert.equal(seen[0].config.host, 'localhost');
   assert.equal(seen[0].config.port, 0);
   assert.equal(seen[0].config.upstream, ENV.FRAMERIZE_SERVER_UPSTREAM);
-  assert.equal(seen[0].provider.config, seen[0].config);
+  assert.deepEqual(seen[0].provider.config, seen[0].config);
   await assert.rejects(run(['check'], { ...dependencies, env: { FRAMERIZE_SERVER_PORT: 'x' } }),
     { message: 'Invalid FRAMERIZE_SERVER_PORT' });
 });

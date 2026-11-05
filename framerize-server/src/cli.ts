@@ -1,4 +1,4 @@
-import { loadConfig, type ServerConfig } from './config.js';
+import { loadConfig, readServerToken, type ServerConfig } from './config.js';
 import { createLogger, type Logger, type LogOutput } from './logger.js';
 import { createServer, type ServerDependencies, type ServerProvider } from './server.js';
 import type { FramerizeInstance } from '../dist/core.js';
@@ -96,13 +96,16 @@ export async function run(argv: readonly string[] = process.argv.slice(2),
   events.on('SIGINT', stop);
   events.on('SIGTERM', stop);
   try {
+    const serverConfig = loadConfig({
+      ...config, serverTokenFile: '', serverToken: await readServerToken(config),
+    }, env);
     const makeProvider: NonNullable<CliDependencies['createProvider']> =
       dependencies.createProvider ?? (await import('./backend.js')).createConfiguredProvider;
     if (controller.signal.aborted) return 0;
     provider = config.upstream || config.backend === 'framer'
       ? await makeProvider(config, { signal: controller.signal, env }) : undefined;
     if (controller.signal.aborted) return 0;
-    app = await (dependencies.createServer ?? createServer)(config, { provider, logger });
+    app = await (dependencies.createServer ?? createServer)(serverConfig, { provider, logger });
     if (controller.signal.aborted) return 0;
     if (command === 'check') {
       await close();
