@@ -100,7 +100,7 @@ test('installed Remote forwards through the installed server with isolated crede
         '--no-audit', '--no-fund', ...archives], consumer);
       verifyStandaloneTypes(repository, consumer, env);
       context.diagnostic(verifyServerNodeApi(consumer, env).trim());
-      verifyAccountManagement(consumer, env);
+      await verifyAccountManagement(consumer, env);
       context.diagnostic(verifyRemoteNodeApi(consumer, env).trim());
       scenario = await createScenario();
       server = await startInstalledServer(consumer, env, scenario.url);
