@@ -1,4 +1,4 @@
-import { ConfigurationError, ProviderError } from './errors.js';
+import { ConfigurationError, ProviderError, mintFailureDiagnostic } from './errors.js';
 import { createHttpProvider, type Provider } from './provider.js';
 import { decodeFramerRequest, encodeFramerRequest, FRAMER_ROUTES } from './framer-request.js';
 import type { FramerAuth } from './framer-auth.js';
@@ -230,7 +230,11 @@ export function createFramerBackend(input: FramerBackendOptions): InferenceBacke
         const authorization = await accessToken(config, signal);
         signal.throwIfAborted();
         const castleToken = await Promise.resolve().then(async () => (await config.mint({ signal })).token)
-          .catch(() => { throw failed('credentials_unavailable'); });
+          .catch((rejection: unknown) => {
+            const failure = failed('credentials_unavailable');
+            Object.defineProperty(failure, 'diagnostic', { value: mintFailureDiagnostic(rejection) });
+            throw failure;
+          });
         signal.throwIfAborted();
         const encoded = encodeFramerRequest(decoded, config.projectId, castleToken);
         operation.prepared(config.inferenceTimeoutMs);
