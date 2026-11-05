@@ -88,7 +88,17 @@ export async function writeClaudeSettings(settingsPath: string, stateDir: string
   const written: Written = {};
   for (const key of MANAGED_KEYS) { written[key] = digest(values[key]!); env[key] = values[key]; }
   await writeAtomic(recordPath(stateDir), `${JSON.stringify({ settingsPath, written }, null, 2)}\n`);
-  await writeAtomic(settingsPath, `${JSON.stringify({ ...settings, env }, null, 2)}\n`);
+  try { await writeAtomic(settingsPath, `${JSON.stringify({ ...settings, env }, null, 2)}\n`); }
+  catch (error) {
+    try {
+      if (record) await writeAtomic(recordPath(stateDir), `${JSON.stringify(record, null, 2)}\n`);
+      else await rm(recordPath(stateDir), { force: true });
+    } catch (restoreError) {
+      throw new SettingsError('Claude settings could not be saved, and their undo record could not be restored. Check Claude settings before retrying.',
+        { cause: new AggregateError([error, restoreError]) });
+    }
+    throw error;
+  }
 }
 
 export type UndoResult = 'restored' | 'not_configured' | 'changed_since';
