@@ -22,13 +22,11 @@ async function bounded(promise, description) {
   })]); } finally { clearTimeout(timer); }
 }
 
-async function availablePort() {
+async function reservePort() {
   const server = createHttpServer();
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
-  const { port } = server.address();
-  await new Promise(resolve => server.close(resolve));
-  return port;
+  return server;
 }
 
 function exchange(port, path, token, body) {
@@ -53,7 +51,8 @@ for (const token of [undefined, 'synthetic-pair+/=']) {
     { skip: process.platform !== 'linux', timeout: 30000 }, async context => {
       const root = await mkdtemp(join(tmpdir(), 'frm-pair-flow-'));
       const home = join(root, 'profile');
-      const port = await availablePort();
+      const reservation = await reservePort();
+      const { port } = reservation.address();
       const localToken = token ? 'synthetic-local-only' : undefined;
       const previousEnv = process.env;
       const originalExecFile = childProcess.execFile;
@@ -72,6 +71,7 @@ for (const token of [undefined, 'synthetic-pair+/=']) {
         syncBuiltinESMExports();
         try { await stop(); }
         finally {
+          if (reservation.listening) await new Promise(resolve => reservation.close(resolve));
           if (running()) {
             child.kill('SIGKILL');
             await bounded(closed, 'frm cleanup did not finish');
@@ -144,6 +144,7 @@ for (const token of [undefined, 'synthetic-pair+/=']) {
         },
       } });
       const address = await server.listen();
+      context.diagnostic(JSON.stringify({ serverPort: address.port, localPort: port }));
       const origin = `http://127.0.0.1:${address.port}`;
       const link = buildPairingUrl(origin, token);
       const io = { stdout() {}, stderr(text) { assert.fail(text); } };
@@ -159,6 +160,7 @@ for (const token of [undefined, 'synthetic-pair+/=']) {
           'up must wait for the local API before reporting success');
         return code;
       };
+      await new Promise(resolve => reservation.close(resolve));
       assert.equal(await up(), 0);
       await bounded(ready, 'saved frm service did not become ready');
       assert.equal((await exchange(port, '/ready', localToken)).status, 200);
