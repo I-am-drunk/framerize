@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -71,12 +71,13 @@ function killCaptured(pid) {
   catch (error) { if (error.code !== 'ESRCH') throw error; }
 }
 
-function executableSource() {
+function executableSource(expectedArgs) {
   return `#!${process.execPath}
 const fs = require('node:fs');
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.FRM_TEST_COMMANDS, JSON.stringify({pid: process.pid, args}) + '\\n');
-if (args.length !== 1 || args[0] !== '--version') process.exit(79);
+const expectedArgs = ${JSON.stringify(expectedArgs)};
+if (JSON.stringify(args) !== JSON.stringify(expectedArgs)) process.exit(79);
 const listener = require('node:net').createServer(socket => socket.end('probe:' + process.pid));
 listener.listen(0, '127.0.0.1', () => {
   const state = process.env.FRM_TEST_PROBE;
@@ -109,8 +110,8 @@ require('node:module').syncBuiltinESMExports();
 `;
 }
 
-async function makeFixture(context) {
-  const root = await mkdtemp(join(tmpdir(), 'frm-client-cancellation-'));
+async function makeFixture(context, gitLookup = false) {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'frm-client-cancellation-')));
   const fixture = { root, bin: join(root, '.local', 'bin'), home: join(root, 'profile'),
     state: join(root, 'probe.json'), commands: join(root, 'commands.jsonl'),
     spawned: join(root, 'spawned.jsonl'), forbidden: join(root, 'forbidden.jsonl'),
@@ -142,10 +143,13 @@ async function makeFixture(context) {
   fixture.profile = join(fixture.home, 'framerize-remote.json');
   fixture.original = Buffer.from('{\r\n  "remote": "http://127.0.0.1:9",\r\n'
     + '  "host": "127.0.0.1", "port": 8788\r\n}\r\n \t');
-  fixture.executable = join(fixture.bin, 'claude');
+  fixture.executable = join(fixture.bin, gitLookup ? 'git' : 'claude');
+  fixture.args = gitLookup ? ['-C', root, 'worktree', 'list', '--porcelain', '-z'] : ['--version'];
+  if (gitLookup) await writeFile(join(fixture.bin, 'claude'),
+    `#!${process.execPath}\nprocess.exit(79);\n`, { mode: 0o700 });
   await writeFile(fixture.profile, fixture.original, { mode: 0o600 });
-  await writeFile(fixture.executable, executableSource(), { mode: 0o700 });
-  await writeFile(fixture.guard, guardSource(fixture.executable, fixture.spawned, fixture.forbidden),
+  await writeFile(fixture.executable, executableSource(fixture.args), { mode: 0o700 });
+  await writeFile(fixture.guard, guardSource(gitLookup ? 'git' : fixture.executable, fixture.spawned, fixture.forbidden),
     { mode: 0o600 });
   fixture.env = { HOME: root, USERPROFILE: root, PATH: fixture.bin, FRM_HOME: fixture.home,
     CLAUDE_CONFIG_DIR: join(root, 'claude'), FRM_TEST_PROBE: fixture.state,
@@ -156,15 +160,17 @@ async function makeFixture(context) {
   return fixture;
 }
 
-for (const mode of ['--check', '--update']) {
+for (const mode of ['--check', '--update', null]) {
   for (const signal of ['SIGINT', 'SIGTERM']) {
-    test(`frm client claude ${mode} cancels its version probe on ${signal}`, {
+    const action = mode ? ` ${mode}` : '';
+    const stage = mode ? 'version probe' : 'Git lookup';
+    test(`frm client claude${action} cancels its ${stage} on ${signal}`, {
       timeout: 15000, skip: process.platform === 'win32'
         ? 'Windows kill does not deliver catchable POSIX SIGINT/SIGTERM' : false,
     }, async context => {
-      const fixture = await makeFixture(context);
+      const fixture = await makeFixture(context, mode === null);
       fixture.child = spawn(process.execPath, ['--require', fixture.guard, launcher,
-        'client', 'claude', mode], {
+        'client', 'claude', ...(mode ? [mode] : [])], {
         cwd: fixture.root, env: fixture.env, stdio: ['ignore', 'pipe', 'pipe'],
       });
       fixture.closed = new Promise((resolveExit, reject) => {
@@ -185,7 +191,7 @@ for (const mode of ['--check', '--update']) {
       fixture.probe = await waitForProbe(fixture.state, fixture.running);
       const { pid, port } = fixture.probe;
       assert.deepEqual(await records(fixture.spawned), [{ pid }]);
-      assert.deepEqual(await records(fixture.commands), [{ pid, args: ['--version'] }]);
+      assert.deepEqual(await records(fixture.commands), [{ pid, args: fixture.args }]);
       assert.equal(await probeResponse(port), `probe:${pid}`, 'Observe a live owned probe before signalling');
       assert.equal(fixture.running(), true);
       const beforeSignal = stdout.length;
@@ -202,7 +208,7 @@ for (const mode of ['--check', '--update']) {
       assert.deepEqual(observed, {
         exit: { code: 1, signal: null },
         stderr: 'The command was cancelled.\nNext: Run the command again to retry.\n',
-        stdoutAfterSignal: '', commands: [['--version']], spawnedPids: [pid], forbidden: [],
+        stdoutAfterSignal: '', commands: [fixture.args], spawnedPids: [pid], forbidden: [],
         unchangedProfile: true, closedBeforeCleanup: true, overflow: false,
       });
     });
