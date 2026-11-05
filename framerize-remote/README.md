@@ -34,18 +34,19 @@ TypeScript consumers need Node type declarations in their own development tools.
 Copy the link that `framerize up` or `framerize pair` printed:
 
 ```sh
-frm 'http://192.168.1.20:8789/pair#token=...'
+frm connect 'http://192.168.1.20:8789/pair#token=...'
 ```
 
-`frm LINK` is the same as `frm up LINK`. It saves the Server origin and any
+`frm connect LINK`, `frm LINK` and `frm up LINK` use the same setup code.
+It saves the Server origin and any
 token from the link in `FRM_HOME/framerize-remote.json`, mode 0600. It checks
 Server readiness, then installs and starts the background service. Clients use
 `http://127.0.0.1:8788/v1`. A link without `#token=` is for a Server with no
 API token. `frm up ORIGIN` saves a plain origin and keeps any saved token.
 
 Running `frm` with no command and no saved profile does the same in a terminal:
-it asks for a link or address. In a terminal, `up` then offers to set up
-Claude Code or Codex. `frm up --json` prints the result and asks nothing.
+it asks for a link or address. In a terminal, `connect` then offers to set up
+Claude Code or Codex. `frm connect --json` prints the result and asks nothing.
 
 `up` checks that the managed service has started its local API before reporting
 success. Before startup completes, Ctrl+C cancels the pending check or service
