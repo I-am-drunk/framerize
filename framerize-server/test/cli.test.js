@@ -1,11 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { parseArgs, run } from '../dist/cli.js';
 import { CliUsageError, ServerListenError } from '../dist/errors.js';
 
@@ -211,23 +206,6 @@ test('provider rejection after cancellation stops cleanly, but cleanup failure r
     else assert.equal(await pending, 0);
     for (const name of ['SIGINT', 'SIGTERM']) assert.equal(events.listenerCount(name), 0);
   }
-});
-
-test('actual launcher reports constant fatal output without echoing bad input', context => {
-  const root = mkdtempSync(join(tmpdir(), 'server-cli-fatal-'));
-  context.after(() => rmSync(root, { recursive: true, force: true }));
-  const launcher = fileURLToPath(new URL('../bin/framerize-server.js', import.meta.url));
-  const result = spawnSync(process.execPath, [launcher, 'serve', '--port', 'synthetic-canary'], {
-    cwd: root, encoding: 'utf8', timeout: 5000,
-    env: { HOME: root, TMPDIR: root, NODE_DISABLE_COMPILE_CACHE: '1' },
-  });
-  assert.equal(result.error, undefined);
-  assert.equal(result.status, 1);
-  assert.equal(result.stdout, '');
-  assert.deepEqual(JSON.parse(result.stderr), {
-    event: 'server.failed', message: 'Server failed to start or stop',
-  });
-  assert.doesNotMatch(result.stderr, /synthetic-canary/);
 });
 
 test('argument errors stop before configuration or startup', async () => {

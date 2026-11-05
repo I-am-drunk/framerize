@@ -25,6 +25,16 @@ If the command reports "Invalid command or option", run `framerize-server --help
 This covers unknown commands, unsupported options and missing option values.
 The diagnostic does not print the supplied arguments.
 
+If startup reports "Server configuration is invalid", check option values and
+the [supported environment settings](docs/environment.md). For example, `--port`
+must be an integer from 0 to 65535. With `--backend framer`, also check the
+session environment variable or file named in your
+[account JSON](docs/framer-backend.md#select-a-json-account). The session variable
+can have a custom name outside `FRAMERIZE_SERVER_*`; its value must be set and
+valid, or the referenced session file must be readable and valid.
+Run `framerize-server --help` for supported options. The diagnostic links to the
+environment guide and does not print configuration values or credentials.
+
 If startup reports "Account metadata file is unavailable or invalid", check
 `--accounts-file`, read permissions, and the
 [JSON account format](docs/framer-backend.md#select-a-json-account).

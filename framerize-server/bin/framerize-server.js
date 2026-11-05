@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { run } from '../dist/cli.js';
-import { AccountFileError, AccountSelectionError, CliUsageError,
+import { AccountFileError, AccountSelectionError, CliUsageError, ConfigurationError,
   ServerListenError, ServerTokenFileError } from '../dist/errors.js';
 
 run().then((code) => { process.exitCode = code; }).catch(error => {
@@ -19,6 +19,9 @@ run().then((code) => { process.exitCode = code; }).catch(error => {
   } : error instanceof ServerListenError ? {
     message: 'Server could not listen on the configured host and port.',
     next: 'Check --host or FRAMERIZE_SERVER_HOST and --port or FRAMERIZE_SERVER_PORT. Use an available local address and port.',
+  } : error instanceof ConfigurationError ? {
+    message: 'Server configuration is invalid.',
+    next: 'Check option values, FRAMERIZE_SERVER_* settings and account session references. Run framerize-server --help for options. Environment guide: https://github.com/I-am-drunk/framerize/blob/main/framerize-server/docs/environment.md.',
   } : { message: 'Server failed to start or stop' };
   process.stderr.write(`${JSON.stringify({ event: 'server.failed', ...detail })}\n`);
   process.exitCode = 1;
