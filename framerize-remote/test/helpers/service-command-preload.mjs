@@ -43,4 +43,11 @@ for (const name of ['spawnSync', 'exec', 'execSync', 'execFileSync', 'fork']) {
   processes[name] = () => { throw new Error(`Forbidden process API: ${name}`); };
 }
 syncBuiltinESMExports();
+if (process.env.FRM_FIXTURE_DENY_STOP === '1') {
+  const kill = process.kill;
+  process.kill = (pid, signal) => {
+    if (pid < 0) throw Object.assign(new Error('synthetic-private-denial'), { code: 'EPERM' });
+    return kill(pid, signal);
+  };
+}
 process.channel?.unref();

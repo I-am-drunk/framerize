@@ -25,8 +25,8 @@ async function listening(port) {
   }), 1000); } finally { socket.destroy(); }
 }
 
-for (const command of ['service', 'up']) for (const signal of ['SIGINT', 'SIGTERM']) {
-  test(`${command} drains its service command group after ${signal}`, {
+for (const failure of [false, true]) for (const command of ['service', 'up']) for (const signal of failure ? ['SIGTERM'] : ['SIGINT', 'SIGTERM']) {
+  test(`${command} ${failure ? 'reports cleanup failure' : 'drains its service command group'} after ${signal}`, {
     timeout: 12000, skip: process.platform !== 'linux' && 'Uses a synthetic systemd runner',
   }, async t => {
     const root = await mkdtemp(join(tmpdir(), 'frm-service-cli-'));
@@ -72,7 +72,8 @@ for (const command of ['service', 'up']) for (const signal of ['SIGINT', 'SIGTER
     await writeFile(config, before, { mode: 0o600 });
     const args = command === 'up' ? ['up', origin, '--json'] : ['service', 'install', '--json'];
     child = spawn(process.execPath, ['--import', preload, join(packageRoot, 'bin/frm.js'), ...args], {
-      cwd: root, env: { HOME: root, FRM_HOME: home, XDG_CONFIG_HOME: join(root, 'config'), PATH: '' },
+      cwd: root, env: { HOME: root, FRM_HOME: home, XDG_CONFIG_HOME: join(root, 'config'), PATH: '',
+        ...(failure ? { FRM_FIXTURE_DENY_STOP: '1' } : {}) },
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     });
     const ready = Promise.withResolvers();
@@ -98,8 +99,9 @@ for (const command of ['service', 'up']) for (const signal of ['SIGINT', 'SIGTER
     const workerListening = await listening(address.port);
     t.diagnostic(JSON.stringify({ command, signal, result, workerListening }));
     assert.deepEqual(result, { code: 1, endedBy: null });
-    assert.equal(workerListening, false, 'the launcher must drain its command group before exiting');
-    assert.equal(JSON.parse(stderr).error, 'aborted');
+    assert.equal(workerListening, failure, 'the launcher must drain its command group or report cleanup failure');
+    assert.equal(JSON.parse(stderr).error, failure ? 'service_cleanup_failed' : 'aborted');
+    assert.doesNotMatch(stderr, /synthetic-private/);
     assert.equal(stdout, '');
     assert.equal(await readFile(config, 'utf8'), before);
     await assert.rejects(readFile(join(root, 'config/systemd/user/frm.service')), { code: 'ENOENT' });
