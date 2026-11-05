@@ -92,16 +92,30 @@ async function waitForReady(origin: string, token: string, signal?: AbortSignal)
   throw new ServerSetupError('Server did not become ready. Check the provider settings and server.log.');
 }
 
-async function checkPort(host: string, port: number): Promise<void> {
+async function checkPort(host: string, port: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
   await new Promise<void>((resolve, reject) => {
     const probe = createPortProbe(socket => socket.destroy()).unref();
+    const finish = (error?: Error | null): void => {
+      signal?.removeEventListener('abort', abort);
+      if (signal?.aborted) reject(signal.reason);
+      else if (error) reject(error);
+      else resolve();
+    };
+    const abort = (): void => { probe.close(() => finish()); };
     probe.once('error', (error: NodeJS.ErrnoException) => {
       const message = error.code === 'EADDRINUSE'
         ? `The Server port ${host}:${port} is already in use. Stop that listener or choose another port.`
         : `Could not bind the Server port ${host}:${port}: ${error.code ?? error.message}`;
-      reject(new ServerSetupError(message, { cause: error }));
+      finish(new ServerSetupError(message, { cause: error }));
     });
-    probe.listen({ host, port, exclusive: true }, () => probe.close(error => error ? reject(error) : resolve()));
+    signal?.addEventListener('abort', abort, { once: true });
+    try {
+      probe.listen({ host, port, exclusive: true }, () => probe.close(finish));
+    } catch (error) {
+      signal?.removeEventListener('abort', abort);
+      reject(error);
+    }
   });
 }
 
@@ -225,7 +239,7 @@ async function configureAndPair(command: string | undefined, action: string | un
       }
       await oldRoute?.remove();
       return pid;
-    }, dependencies.run, () => checkPort(config.host, config.port), signal);
+    }, dependencies.run, () => checkPort(config.host, config.port, signal), signal);
   } catch (error) {
     const failures: unknown[] = [];
     for (const route of [tailnet, oldRoute]) {

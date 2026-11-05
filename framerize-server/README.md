@@ -72,6 +72,7 @@ If setup fails or receives SIGINT or SIGTERM, `up` tries to restore the
 previous service, settings and Tailscale route. Cancellation stops pending
 readiness checks and waits for the active service command to close before
 rollback. A command that remains alive after one second is force stopped.
+A pending hostname lookup does not delay rollback.
 When a restore step also fails, the error reports both failures, and the
 earlier state may be only partly restored.
 
