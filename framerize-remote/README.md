@@ -60,6 +60,11 @@ are not moved automatically. The profile stores
 only non-secret references: the remote URL, credential references, listen host
 and port, and the two explicit exposure flags. Tokens are never written to it.
 
+An invalid `FRAMERIZE_REMOTE_HOME` reports `profile_home_invalid`. Set it to
+an absolute directory without control characters, unset it to use the default,
+or pass `--config FILE`. Use `framerize-remote help` or
+`framerize-remote --version` even when the directory setting is invalid.
+
 Saves are atomic and owner-only on POSIX. New file references become absolute
 paths; relative references in existing profiles resolve beside the profile.
 Omit `--start` to save without loading credentials or contacting the server.
