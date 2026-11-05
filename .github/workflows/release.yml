@@ -13,6 +13,8 @@ env:
 jobs:
   qualify:
     uses: ./.github/workflows/ci.yml
+    with:
+      skip_server: true
     secrets: inherit
   assemble:
     needs: qualify

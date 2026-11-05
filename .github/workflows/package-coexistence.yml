@@ -2,47 +2,6 @@ name: package-coexistence
 
 on:
   workflow_call:
-  pull_request:
-    paths:
-      - '.gitattributes'
-      - 'framerize-remote/**'
-      - 'framerize-server/**'
-      - 'framerize-core/**'
-      - 'scripts/core-package-check.ts'
-      - '.github/workflows/ci.yml'
-      - '.github/workflows/release.yml'
-      - 'scripts/build-server.ts'
-      - 'package*.json'
-      - 'tsconfig*.json'
-      - 'scripts/package-coexistence.ts'
-      - 'scripts/package-archive.ts'
-      - 'scripts/fixtures/**'
-      - 'test/installed-remote-flow.test.ts'
-      - 'test/package-coexistence.test.ts'
-      - 'test/package-archive.test.ts'
-      - 'test/package-coexistence-workflow.test.mjs'
-      - '.github/workflows/package-coexistence.yml'
-  push:
-    branches: [main]
-    paths:
-      - '.gitattributes'
-      - 'framerize-remote/**'
-      - 'framerize-server/**'
-      - 'framerize-core/**'
-      - 'scripts/core-package-check.ts'
-      - '.github/workflows/ci.yml'
-      - '.github/workflows/release.yml'
-      - 'scripts/build-server.ts'
-      - 'package*.json'
-      - 'tsconfig*.json'
-      - 'scripts/package-coexistence.ts'
-      - 'scripts/package-archive.ts'
-      - 'scripts/fixtures/**'
-      - 'test/installed-remote-flow.test.ts'
-      - 'test/package-coexistence.test.ts'
-      - 'test/package-archive.test.ts'
-      - 'test/package-coexistence-workflow.test.mjs'
-      - '.github/workflows/package-coexistence.yml'
   workflow_dispatch:
 
 permissions:
