@@ -25,8 +25,11 @@ async function listening(port) {
   }), 1000); } finally { socket.destroy(); }
 }
 
-for (const failure of [false, true]) for (const command of ['service', 'up']) for (const signal of failure ? ['SIGTERM'] : ['SIGINT', 'SIGTERM']) {
-  test(`${command} ${failure ? 'reports cleanup failure' : 'drains its service command group'} after ${signal}`, {
+for (const failure of [false, true, 'rollback'])
+for (const command of failure === 'rollback' ? ['up'] : ['service', 'up'])
+for (const signal of failure ? ['SIGTERM'] : ['SIGINT', 'SIGTERM']) {
+  test(`${command} ${failure === 'rollback' ? 'reports rollback cleanup failure'
+    : failure ? 'reports cleanup failure' : 'drains its service command group'} after ${signal}`, {
     timeout: 12000, skip: process.platform !== 'linux' && 'Uses a synthetic systemd runner',
   }, async t => {
     const root = await mkdtemp(join(tmpdir(), 'frm-service-cli-'));
@@ -39,24 +42,25 @@ for (const failure of [false, true]) for (const command of ['service', 'up']) fo
     });
     let child, closed, address, stdout = '', stderr = '';
     const children = new Set();
+    const workers = [];
     t.after(async () => {
       for (const pid of children) {
         try { process.kill(-pid, 'SIGKILL'); }
         catch (error) { if (error.code !== 'ESRCH') throw error; }
       }
       try {
-        if (address) {
-          try { process.kill(address.workerPid, 'SIGKILL'); }
+        for (const worker of workers) {
+          try { process.kill(worker.workerPid, 'SIGKILL'); }
           catch (error) { if (error.code !== 'ESRCH') throw error; }
         }
         if (child?.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
         if (closed) await bounded(closed);
-        if (address) {
+        for (const worker of workers) {
           const deadline = Date.now() + 1000;
-          while (await listening(address.port) && Date.now() < deadline) {
+          while (await listening(worker.port) && Date.now() < deadline) {
             await new Promise(resolve => setTimeout(resolve, 10));
           }
-          assert.equal(await listening(address.port), false);
+          assert.equal(await listening(worker.port), false);
         }
       } finally {
         server.closeAllConnections();
@@ -73,7 +77,8 @@ for (const failure of [false, true]) for (const command of ['service', 'up']) fo
     const args = command === 'up' ? ['up', origin, '--json'] : ['service', 'install', '--json'];
     child = spawn(process.execPath, ['--import', preload, join(packageRoot, 'bin/frm.js'), ...args], {
       cwd: root, env: { HOME: root, FRM_HOME: home, XDG_CONFIG_HOME: join(root, 'config'), PATH: '',
-        ...(failure ? { FRM_FIXTURE_DENY_STOP: '1' } : {}) },
+        ...(failure === true ? { FRM_FIXTURE_DENY_STOP: '1' } : {}),
+        ...(failure === 'rollback' ? { FRM_FIXTURE_ROLLBACK_FAILURE: '1' } : {}) },
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     });
     const ready = Promise.withResolvers();
@@ -82,7 +87,7 @@ for (const failure of [false, true]) for (const command of ['service', 'up']) fo
         assert.ok(Number.isSafeInteger(message.pid) && message.pid > 1);
         children.add(message.pid);
       }
-      if (message.kind === 'ready') { address = message; ready.resolve(message); }
+      if (message.kind === 'ready') { workers.push(message); address = message; ready.resolve(message); }
     });
     child.stdout.on('data', chunk => { stdout += chunk; });
     child.stderr.on('data', chunk => { stderr += chunk; });
@@ -94,16 +99,27 @@ for (const failure of [false, true]) for (const command of ['service', 'up']) fo
     assert.ok(children.has(address.pid));
     assert.ok(Number.isSafeInteger(address.workerPid) && address.workerPid > 1);
     assert.equal(await listening(address.port), true);
+    const initialCommand = address.pid;
     assert.equal(child.kill(signal), true);
     const result = await bounded(closed);
     const workerListening = await listening(address.port);
     t.diagnostic(JSON.stringify({ command, signal, result, workerListening }));
     assert.deepEqual(result, { code: 1, endedBy: null });
-    assert.equal(workerListening, failure, 'the launcher must drain its command group or report cleanup failure');
-    assert.equal(JSON.parse(stderr).error, failure ? 'service_cleanup_failed' : 'aborted');
+    assert.equal(workerListening, Boolean(failure), 'the launcher must drain its command group or report cleanup failure');
+    const diagnostic = JSON.parse(stderr);
+    assert.equal(diagnostic.error, failure === 'rollback' ? 'service_rollback_failed'
+      : failure ? 'service_cleanup_failed' : 'aborted');
+    if (failure === 'rollback') {
+      assert.notEqual(address.pid, initialCommand);
+      assert.equal(diagnostic.setup.code, 'aborted');
+      assert.equal(diagnostic.cleanup?.code, 'service_cleanup_failed');
+      assert.match(diagnostic.cleanup.message, /Some may still be running/);
+    }
     assert.doesNotMatch(stderr, /synthetic-private/);
     assert.equal(stdout, '');
     assert.equal(await readFile(config, 'utf8'), before);
-    await assert.rejects(readFile(join(root, 'config/systemd/user/frm.service')), { code: 'ENOENT' });
+    const unit = join(root, 'config/systemd/user/frm.service');
+    if (failure === 'rollback') assert.match(await readFile(unit, 'utf8'), /ExecStart=/);
+    else await assert.rejects(readFile(unit), { code: 'ENOENT' });
   });
 }

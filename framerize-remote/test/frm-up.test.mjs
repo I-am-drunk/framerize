@@ -15,7 +15,8 @@ const compiled = await build({ stdin: { contents: `export * from ${JSON.stringif
   export * from ${JSON.stringify(source('diagnostics'))};`, resolveDir: fileURLToPath(new URL('.', import.meta.url)) },
   alias: { '@framerize/core': fileURLToPath(new URL('../../framerize-core/src/index.ts', import.meta.url)) },
   bundle: true, platform: 'node', format: 'esm', write: false });
-const { setUp, formatUp, ServiceCommandCleanupError } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
+const { setUp, formatUp, ServiceCommandCleanupError, RemoteDiagnosticError, commandFailure } = await import(
+  `data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
 const quiet = { stdout() {}, stderr() {} };
 
 async function availablePort() {
@@ -438,3 +439,38 @@ test('up preserves command cleanup failure while rolling back a cancelled instal
   await assert.rejects(readFile(options.configPath), { code: 'ENOENT' });
   assert.equal(control.active, false);
 });
+
+for (const originalCode of ['aborted', 'service_failed']) {
+  test(`up preserves rollback command cleanup failure after ${originalCode}`, async context => {
+    const { root, origin, options } = await fixture(context, { requireToken: null });
+    const controller = new AbortController();
+    const failure = new ServiceCommandCleanupError(new Error('synthetic-private-cleanup'));
+    const original = options.service.run;
+    let restoring = false;
+    options.signal = controller.signal;
+    options.service.run = async (command, args, signal) => {
+      if (args.includes('restart')) {
+        if (originalCode === 'aborted') controller.abort();
+        throw new RemoteDiagnosticError(originalCode);
+      }
+      if (args.includes('disable')) {
+        restoring = true;
+        assert.equal(signal, undefined);
+        throw failure;
+      }
+      return original(command, args, signal);
+    };
+    await assert.rejects(setUp(origin, quiet, options), error => {
+      const result = JSON.parse(commandFailure(error, true));
+      assert.equal(result.error, 'service_rollback_failed');
+      assert.equal(result.setup.code, originalCode);
+      assert.equal(result.cleanup?.code, 'service_cleanup_failed');
+      assert.match(commandFailure(error, false), /Some may still be running/);
+      assert.doesNotMatch(commandFailure(error, false), /synthetic-private/);
+      return true;
+    });
+    assert.equal(restoring, true);
+    await assert.rejects(readFile(options.configPath), { code: 'ENOENT' });
+    assert.match(await readFile(join(root, '.config/systemd/user/frm.service'), 'utf8'), /ExecStart=/);
+  });
+}
