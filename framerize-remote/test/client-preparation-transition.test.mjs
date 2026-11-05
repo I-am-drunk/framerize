@@ -21,7 +21,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) for (const code of [0, 23]) {
     const before = counts();
     const originalEnv = process.env;
     const originalSpawn = childProcess.spawn;
-    const executable = join(root, process.platform === 'win32' ? 'codex.exe' : 'codex');
+    const executable = join(root, process.platform === 'win32' ? 'codex.EXE' : 'codex');
     await writeFile(executable, 'synthetic executable, never run', { mode: 0o700 });
     let atLaunch, launchedFile, result;
     const forwarded = [];
