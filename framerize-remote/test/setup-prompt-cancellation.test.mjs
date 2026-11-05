@@ -112,4 +112,3 @@ for (const command of ['setup', 'up']) {
     });
   }
 }
-
