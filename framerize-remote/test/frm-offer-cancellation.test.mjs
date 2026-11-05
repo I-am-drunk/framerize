@@ -84,7 +84,7 @@ async function unusedPort() {
   return port;
 }
 
-const cancellations = ['SIGINT', 'SIGTERM', 'Ctrl+C'];
+const cancellations = ['SIGINT', 'SIGTERM', 'Ctrl+C', 'EOF', 'Ctrl+D'];
 for (const mode of ['up', 'setup --start', 'bare frm'])
 for (const signal of mode === 'bare frm' ? [...cancellations, 'decline'] : cancellations) {
   const name = signal === 'decline' ? 'bare frm starts its listener after declining the offer'
@@ -178,7 +178,9 @@ require('node:module').syncBuiltinESMExports();
       })]), 'Bare frm did not start after declining the offer');
       assert.equal(await health(port), 200);
       assert.equal(child.kill('SIGTERM'), true);
-    } else if (signal === 'Ctrl+C') child.stdin.write('\x03');
+    } else if (signal === 'EOF') child.stdin.end();
+    else if (signal === 'Ctrl+D') child.stdin.write('\x04');
+    else if (signal === 'Ctrl+C') child.stdin.write('\x03');
     else assert.equal(child.kill(signal), true);
     const exit = await bounded(closed, 'Offer ignored cancellation', 1500).catch(() => null);
     const listenerStillOpen = mode !== 'up'
