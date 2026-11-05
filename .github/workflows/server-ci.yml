@@ -45,7 +45,7 @@ jobs:
         run: npm ci --prefix .. --ignore-scripts --no-audit --no-fund && npm run build:server --prefix ..
       - run: npm run test:native-tools --prefix ..
       - run: npm run check
-      - run: npm test
+      - run: npm test -- --test-reporter=tap
       - run: npm run acceptance
       - run: npm run pack:check
 
