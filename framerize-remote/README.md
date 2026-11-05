@@ -364,5 +364,80 @@ Its status is advisory and does not change the readiness exit code, except
 that cancellation exits nonzero. Local daemon status does not prove remote
 reachability. Remote still needs an accessible server origin and valid token.
 
-Browserless provider and Castle runtime integration, native delivery and
-release CI migration remain separate unfinished work.
+Remote's local checks do not establish live provider compatibility or
+qualify Server's Castle runtime or native artifacts. See the
+[release gates](../docs/wip-status.md#before-a-release) for the remaining requirements.
+
+## Use the Node API
+
+Install the built archive in your application directory:
+
+```sh
+npm install /path/to/framerize-remote-0.2.0.tgz --ignore-scripts
+```
+
+`createRemoteBackend` forwards requests without starting a local listener or
+reading a saved `frm` profile. Supply its endpoint, token and limits explicitly:
+
+```js
+import { createRemoteBackend, parseRemoteEndpoint } from 'framerize-remote';
+
+const backend = createRemoteBackend({
+  endpoint: parseRemoteEndpoint('http://127.0.0.1:8789', false),
+  serverToken: process.env.FRM_SERVER_TOKEN || null,
+  headersTimeoutMs: 15_000,
+  inferenceTimeoutMs: 300_000,
+  idleTimeoutMs: 60_000,
+  readinessBodyMaxBytes: 64 * 1024,
+  readinessWholeMs: 20_000,
+});
+
+try {
+  const diagnosis = await backend.diagnose({ signal: AbortSignal.timeout(20_000) });
+  console.log(diagnosis);
+} finally {
+  backend.close();
+}
+```
+
+Use the Server origin, without an API path, query, fragment or credentials.
+Passing `false` to `parseRemoteEndpoint` rejects public plaintext HTTP origins;
+private and loopback HTTP origins remain allowed. The backend uses only the
+token passed as `serverToken`; the example reads the environment explicitly.
+An unset or empty token becomes `null` in this example. The backend does not
+validate token contents.
+
+Invalid limits throw synchronously from `createRemoteBackend`. Each limit
+must be a positive safe integer no greater than 2,147,483,647, and
+`readinessBodyMaxBytes` must also be no greater than 65,536.
+`inferenceTimeoutMs` is optional and defaults to 300,000 milliseconds.
+
+`ready({ signal })` returns `true` or `{ ready: false, reason }`.
+`diagnose({ signal })` returns that result as `readiness` and adds a diagnostic
+`code` on failure. Cancellation is a failed readiness result, not a thrown error.
+
+`forward({ path, headers, body, signal })` returns `{ status, headers, body }`.
+Use one of the inference paths listed under [Endpoints](#endpoints), lowercase
+header names, and an async iterable of Buffers for the request body. Read the
+response body with `for await`, which accepts its synchronous and asynchronous
+forms. The backend forwards bytes without parsing inference JSON or events.
+It forwards only `accept`, `content-type` and `openai-beta` request headers,
+plus `anthropic-version` and `anthropic-beta` on `/openai/v1/responses` and
+`/anthropic/v1/messages`. Other caller headers, including `authorization`,
+are dropped; the Server credential comes from `serverToken`.
+
+For `/v1/responses` and `/v1/chat/completions`, unavailable Server readiness
+returns a 503 JSON response. Cancellation and transport failures can reject
+the promise. On `/openai/v1/responses` and `/anthropic/v1/messages`, transport
+failures before `forward()` returns reject with an error carrying `code`,
+`status` and `retryable`. Handle failures from both `forward()` and response
+body iteration.
+
+Keep an `AbortController` for each forwarding operation and set your own
+total deadline through its signal. On the bare `/v1` routes, the backend
+bounds individual phases but has no deadline for the whole exchange.
+`inferenceTimeoutMs` bounds the whole exchange on the two prefixed routes.
+Consume the response body or abort the signal when discarding it. `close()`
+returns `void`, aborts active requests and permanently closes the backend;
+repeated calls are safe. The backend installs no process signal handlers.
+The application owns cancellation and shutdown.
