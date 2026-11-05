@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { spawn } from 'node:child_process';
-import { getEventListeners } from 'node:events';
+import { EventEmitter, getEventListeners } from 'node:events';
 import { createServer } from 'node:http';
 import { createConnection } from 'node:net';
+import { PassThrough } from 'node:stream';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 
@@ -32,6 +34,14 @@ function portResult(port) {
     socket.once('connect', () => { socket.destroy(); resolve('open'); });
     socket.once('error', error => { socket.destroy(); resolve(error.code); });
   });
+}
+
+async function assertPortCloses(port) {
+  for (let attempt = 0; attempt < 40; attempt++) {
+    if (await portResult(port) === 'ECONNREFUSED') return;
+    await delay(20);
+  }
+  assert.fail('The owned listener remained open after cancellation');
 }
 
 function setupHarness(overrides = {}) {
@@ -158,7 +168,7 @@ function probeFixture(t, tree) {
       else { try { process.kill(-child.pid, 'SIGKILL'); } catch {} }
     }
     if (closed) await bounded(closed);
-    if (port) assert.equal(await portResult(port), 'ECONNREFUSED');
+    if (port) await assertPortCloses(port);
   };
   t.after(cleanup);
   return { runner, reached: reached.promise, cleanup, waitClose: () => closed, waitExit: () => exited };
@@ -166,8 +176,8 @@ function probeFixture(t, tree) {
 
 for (const stage of ['installed', 'latest']) {
   test(`cancelling the offer stops the ${stage} version probe`, {
-    timeout: 8000, skip: stage === 'latest' && process.platform === 'win32'
-      ? 'POSIX descendant process-group cleanup' : false,
+    timeout: 8000, skip: process.platform === 'win32'
+      ? 'Real POSIX process-group cleanup; Windows uses a fake runner below' : false,
   }, async t => {
     const probe = probeFixture(t, stage === 'latest');
     const commands = [];
@@ -190,7 +200,7 @@ for (const stage of ['installed', 'latest']) {
       result = await bounded(pending, 750).catch(() => 'pending');
       if (result === 'cancelled') {
         released = await bounded(probe.waitClose(), 750).then(() => true, () => false);
-        if (released) assert.equal(await portResult(port), 'ECONNREFUSED');
+        if (released) await assertPortCloses(port);
       }
       t.diagnostic(JSON.stringify({ stage, result, released }));
     } finally { await probe.cleanup(); await bounded(pending); }
@@ -232,4 +242,24 @@ test('a successful probe removes its cancellation listener', async () => {
   assert.equal(output, '2.1.300\n');
   assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
   controller.abort();
+});
+
+test('Windows cancellation requests termination of the captured process tree', async () => {
+  const child = new EventEmitter(), calls = [], controller = new AbortController();
+  child.pid = 987654;
+  child.stdout = new PassThrough();
+  child.unref = () => {};
+  child.kill = () => assert.fail('Successful taskkill needs no fallback');
+  const runner = nodeRunner('win32', (...args) => { calls.push(args); return child; });
+  const pending = runner.capture({ command: 'synthetic.cmd', args: ['--version'],
+    display: 'synthetic --version' }, {}, controller.signal);
+  controller.abort();
+  assert.equal(await bounded(pending), null);
+  assert.equal(child.stdout.destroyed, true);
+  assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1][0], 'taskkill');
+  assert.deepEqual(calls[1][1], ['/PID', '987654', '/T', '/F']);
+  assert.equal(calls[1][2].shell, false);
+  child.emit('close', 0);
 });

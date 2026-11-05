@@ -3,12 +3,16 @@ import type { ReadText } from './conflicts.js';
 import { claudeManagedSettingsPath, parseSettingsObject } from './conflicts.js';
 
 /** Retains at most 4096 response bytes, or returns null on any failure. */
-export type FetchText = (url: string, timeoutMs: number) => Promise<string | null>;
+export type FetchText = (url: string, timeoutMs: number, signal?: AbortSignal) => Promise<string | null>;
 
-export const fetchText: FetchText = async (url, timeoutMs) => {
+export const fetchText: FetchText = async (url, timeoutMs, signal) => {
+  if (signal?.aborted) return null;
   let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   try {
-    const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), redirect: 'follow' });
+    const timeout = AbortSignal.timeout(timeoutMs);
+    const response = await fetch(url, {
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout, redirect: 'follow',
+    });
     if (!response.ok) {
       await response.body?.cancel();
       return null;

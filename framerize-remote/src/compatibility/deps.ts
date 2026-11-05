@@ -25,7 +25,7 @@ export interface ClientSetupDeps {
   readonly runner: ProcessRunner;
   readonly io: ClientIo;
   readonly prompt?: Prompt;
-  /** Cancels pending prompts and stops the setup flow from starting another client operation. */
+  /** Cancels pending prompts and version lookups, and prevents further setup operations. */
   readonly signal?: AbortSignal;
   readonly probe?: ExecutableProbe;
   readonly realPath?: (path: string) => string;
@@ -66,5 +66,6 @@ export function terminalPrompt(input: NodeJS.ReadStream, output: NodeJS.WriteStr
 export function lookupDeps(deps: ClientSetupDeps): LookupDeps {
   return { platform: deps.platform, env: deps.env, home: deps.home, runner: deps.runner,
     fetch: deps.fetch ?? fetchText, read: deps.read ?? readText,
+    ...(deps.signal ? { signal: deps.signal } : {}),
     ...(deps.probe ? { probe: deps.probe } : {}) };
 }

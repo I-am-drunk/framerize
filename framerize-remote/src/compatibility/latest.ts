@@ -19,12 +19,13 @@ export interface LookupDeps {
   readonly runner: ProcessRunner;
   readonly fetch: FetchText;
   readonly read: ReadText;
+  readonly signal?: AbortSignal;
   readonly probe?: ExecutableProbe;
 }
 
 const capture = async (deps: LookupDeps, tool: string, args: readonly string[]): Promise<string | null> => {
   const command = resolveCommandPath(tool, deps.platform, deps.env, deps.probe);
-  return command ? deps.runner.capture({ command, args, display: [tool, ...args].join(' ') }, deps.env) : null;
+  return command ? deps.runner.capture({ command, args, display: [tool, ...args].join(' ') }, deps.env, deps.signal) : null;
 };
 
 /** `choco search --exact --limit-output` prints `<id>|<version>` for a match. */
@@ -43,12 +44,14 @@ const RELEASE_TIMEOUT_MS = 4000;
  * Like T3, npm lookups go through the user's npm so its registry, auth and proxy apply.
  */
 export async function lookupLatestVersion(client: ClientName, plan: UpdatePlan, deps: LookupDeps): Promise<string | null> {
+  if (deps.signal?.aborted) return null;
   try {
     const npmPackage = CLIENTS[client].npmPackage;
     const owner = plan.owner;
     if (owner.kind === 'native' && client === 'claude') {
       const channel = await claudeUpdateChannel(deps.read, deps.platform, deps.env, claudeSettingsPath(deps.env, deps.home));
-      const text = (await deps.fetch(claudeReleaseUrl(channel), RELEASE_TIMEOUT_MS))?.trim() ?? null;
+      if (deps.signal?.aborted) return null;
+      const text = (await deps.fetch(claudeReleaseUrl(channel), RELEASE_TIMEOUT_MS, deps.signal))?.trim() ?? null;
       return isNativeVersion(text) ? text : null;
     }
     if (owner.kind === 'homebrew') {
@@ -66,10 +69,11 @@ export async function lookupLatestVersion(client: ClientName, plan: UpdatePlan, 
 /** Installed version, latest version and status for one owned install. Never throws. */
 export async function checkVersion(client: ClientName, executable: string, plan: UpdatePlan,
   deps: LookupDeps): Promise<VersionCheck> {
+  if (deps.signal?.aborted) return versionStatus(null, null, compareSemverVersions);
   let installed: string | null = null;
   try {
     installed = parseInstalledVersion(await deps.runner.capture({ command: executable, args: ['--version'],
-      display: `${CLIENTS[client].command} --version` }, deps.env));
+      display: `${CLIENTS[client].command} --version` }, deps.env, deps.signal));
   } catch {}
   const latest = installed ? await lookupLatestVersion(client, plan, deps) : null;
   return versionStatus(installed, latest, compareSemverVersions);

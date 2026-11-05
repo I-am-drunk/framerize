@@ -21,8 +21,8 @@ export function spawnPlan(command: ClientCommand, platform: NodeJS.Platform) {
 export interface ProcessRunner {
   /** Runs with inherited stdio and resolves the exit code. */
   readonly run: (command: ClientCommand, env: NodeJS.ProcessEnv) => Promise<number>;
-  /** Captures bounded stdout, or null on failure, timeout or a nonzero exit. */
-  readonly capture: (command: ClientCommand, env: NodeJS.ProcessEnv) => Promise<string | null>;
+  /** Captures bounded stdout, or null on failure, timeout, cancellation or a nonzero exit. */
+  readonly capture: (command: ClientCommand, env: NodeJS.ProcessEnv, signal?: AbortSignal) => Promise<string | null>;
 }
 
 const CAPTURE_TIMEOUT_MS = 5000;
@@ -62,7 +62,8 @@ export function nodeRunner(platform: NodeJS.Platform = process.platform, launch:
         child.once('close', (code, signal) => { done(); resolve(code ?? (signal ? 1 : 0)); });
       });
     },
-    capture(command, env) {
+    capture(command, env, signal) {
+      if (signal?.aborted) return Promise.resolve(null);
       const plan = spawnPlan(command, platform);
       return new Promise(resolve => {
         let child: ReturnType<typeof spawn>;
@@ -76,6 +77,7 @@ export function nodeRunner(platform: NodeJS.Platform = process.platform, launch:
           if (settled) return;
           settled = true;
           clearTimeout(timer);
+          signal?.removeEventListener('abort', fail);
           resolve(value);
         };
         const fail = (): void => {
@@ -96,6 +98,8 @@ export function nodeRunner(platform: NodeJS.Platform = process.platform, launch:
         child.once('close', code => {
           finish(code !== 0 ? null : Buffer.concat(chunks).toString('utf8'));
         });
+        signal?.addEventListener('abort', fail, { once: true });
+        if (signal?.aborted) fail();
       });
     },
   };
