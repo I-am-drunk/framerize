@@ -130,8 +130,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       'GITHUB_RUN_ATTEMPT', 'GITHUB_REF', 'GITHUB_EVENT_NAME']) assert.ok(env[key]);
     const git = (argument: string) => execFileSync('git', ['rev-parse', argument], { encoding: 'utf8' }).trim();
     assert.equal(git('HEAD'), env.GITHUB_SHA);
-    const versions = Object.fromEntries(['framerize-remote', 'framerize'].map(name =>
-      [name, (JSON.parse(bytes(join(name, 'package.json')).toString()) as { version: string }).version]));
+    const versions = Object.fromEntries(['framerize-remote', 'framerize-server'].map(directory => {
+      const { name, version } = JSON.parse(bytes(join(directory, 'package.json')).toString()) as Package;
+      return [name, version];
+    }));
     const result = assemblePackageRelease(process.argv[2]!, process.argv[3]!, process.argv[4]!, {
       repository: env.GITHUB_REPOSITORY!, sha: env.GITHUB_SHA!, tree: git('HEAD^{tree}'),
       event: env.GITHUB_EVENT_NAME!, runId: env.GITHUB_RUN_ID!, runAttempt: env.GITHUB_RUN_ATTEMPT!,
