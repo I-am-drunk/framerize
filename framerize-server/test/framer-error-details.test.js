@@ -70,7 +70,8 @@ async function collect(body) {
 }
 
 for (const protocol of ['responses', 'messages']) {
-  test(`completed error reader preserves ${protocol} async bodies`, async context => {
+  test(`completed error reader preserves ${protocol} async bodies`, async () => {
+    const controller = new AbortController();
     let returns = 0;
     let reads = 0;
     const body = { [Symbol.asyncIterator]() { return this; }, async next() {
@@ -78,11 +79,11 @@ for (const protocol of ['responses', 'messages']) {
         : { done: true };
     }, async return() { returns += 1; return { done: true }; } };
     const pending = Promise.resolve({ status: 429, headers: {}, body });
-    const values = events(await collect(streamCompletedReply(pending, protocol, context.signal, 1000)));
+    const values = events(await collect(streamCompletedReply(pending, protocol, controller.signal, 1000)));
     assert.equal(values.length, 1);
     assert.equal((protocol === 'messages' ? values[0].error : values[0]).code, 'fixture');
     assert.equal(returns, 0);
-    assert.equal(getEventListeners(context.signal, 'abort').length, 0);
+    assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
   });
   test(`completed error reader pre-abort skips ${protocol} iteration`, async () => {
     let iterations = 0;
