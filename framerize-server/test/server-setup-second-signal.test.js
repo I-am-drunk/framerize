@@ -21,6 +21,7 @@ async function bounded(promise, message, milliseconds = 2000) {
 }
 
 async function worker() {
+  process.channel.ref();
   const { run } = await import(pathToFileURL(join(packageRoot, 'dist/cli.js')));
   const selector = createServer().listen(0, '127.0.0.1');
   await once(selector, 'listening');
@@ -86,7 +87,9 @@ if (process.argv[2] === 'worker') {
     assert.equal(ready.phase, 'ready', ready.message);
     const rollback = once(child, 'message');
     assert.equal(child.kill(signal), true);
-    const [started] = await bounded(rollback, 'Rollback was not reached');
+    const [started] = await bounded(Promise.race([rollback, closed.then(([code, ended]) => {
+      throw new Error(`Worker exited before rollback: ${code}/${ended}; ${stderr}`);
+    })]), 'Rollback was not reached');
     assert.equal(started.phase, 'rollback', started.message);
     t.diagnostic(JSON.stringify({ signal, rollbackListeners: started.listeners }));
     assert.equal(child.kill(signal), true);
