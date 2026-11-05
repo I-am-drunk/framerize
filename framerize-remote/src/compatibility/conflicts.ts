@@ -51,10 +51,12 @@ export interface LaunchSettings {
 /** Inspects user, project, local and managed Claude settings before a launch. */
 export async function inspectClaudeSettings(read: ReadText, input: { readonly platform: NodeJS.Platform;
   readonly env: NodeJS.ProcessEnv; readonly userPath: string; readonly cwd: string;
+  readonly localPath?: string;
   readonly expected: Readonly<Record<string, string>> }): Promise<LaunchSettings> {
   const managedPath = claudeManagedSettingsPath(input.platform, input.env);
-  const files = [input.userPath, join(input.cwd, '.claude', 'settings.json'),
-    join(input.cwd, '.claude', 'settings.local.json'), managedPath];
+  const localPath = join(input.cwd, '.claude', 'settings.local.json');
+  const files = new Set([input.userPath, join(input.cwd, '.claude', 'settings.json'),
+    localPath, input.localPath ?? localPath, managedPath]);
   let overrideBaseUrl = false;
   const blocking: SettingsConflict[] = [];
   for (const path of files) {
