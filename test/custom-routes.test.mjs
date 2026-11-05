@@ -114,14 +114,14 @@ for (const protocol of protocols) for (const viaRemote of [false, true]) {
       assert.equal(setup.counts.mints, 1);
     });
   }
-  test(`custom HTTP refusal is sanitized without enabling replay: ${name}`, async context => {
+  test(`custom HTTP refusal preserves its body without enabling replay: ${name}`, async context => {
     const setup = await fixture(context, protocol, viaRemote, { status: 429,
       payload: 'SYNTHETIC_SECRET', headers: { 'retry-after': '10', 'x-should-retry': 'true' } });
     const result = await setup.post();
     assert.equal(result.status, 429);
     assert.equal(result.headers['retry-after'], '10');
     assert.equal(result.headers['x-should-retry'], 'false');
-    assert.equal(result.body.includes('SYNTHETIC_SECRET'), false);
+    assert.deepEqual(result.body, setup.payload);
     assert.equal(setup.observed.length, 1);
   });
   test(`completed custom reply preserves bytes and credentials: ${name}`, async context => {

@@ -98,7 +98,12 @@ for (const protocol of protocols) for (const viaRemote of [false, true]) {
     const received = events(result.body);
     assert.equal(received.length, 1);
     assert.equal(received[0].type, 'error');
-    assert.equal(result.body.includes('SYNTHETIC_SECRET'), false);
+    if (failure.name === 'HTTP refusal') {
+      const error = protocol.name === 'responses' ? received[0] : received[0].error;
+      assert.equal(error.code, 'upstream_http_error');
+      assert.equal(error.message, failure.payload);
+      assert.equal(received[0].upstream, failure.payload);
+    } else assert.equal(result.body.includes('SYNTHETIC_SECRET'), false);
     assert.equal(setup.observed.length, 1);
     assert.equal(setup.counts.mints, 1);
   });
