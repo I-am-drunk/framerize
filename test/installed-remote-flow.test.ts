@@ -310,7 +310,8 @@ try {
   assert.equal(readFileSync(join(packageRoot, 'T3-LICENSE'), 'utf8'),
     readFileSync(join(repository, 'framerize-remote/T3-LICENSE'), 'utf8'));
   writeFileSync(join(consumer, 'consumer.ts'), `
-import { createRemoteBackend, parseRemoteEndpoint, type RemoteConfig } from 'framerize-remote';
+import { createRemoteBackend, parseRemoteEndpoint, type RemoteConfig,
+  type RemoteBackendConfig, type RemoteEndpoint } from 'framerize-remote';
 import { createProvider, type ProviderOptions } from 'framerize-server/provider';
 import { createFramerAuth, type FramerAuth } from 'framerize-server/framer-auth';
 import { createFramerBackend, type FramerMinter } from 'framerize-server/framer-backend';
@@ -330,9 +331,11 @@ const syncProvider: ServerProvider = { ready: () => true,
 const server = await createServer({}, { provider: syncProvider, logger });
 const stopped: Promise<void> = server.close();
 const remoteConfig: Pick<RemoteConfig, 'remote'> = { remote: 'http://127.0.0.1' };
-const backend = createRemoteBackend({ endpoint: parseRemoteEndpoint(remoteConfig.remote, false),
+const endpoint: RemoteEndpoint = parseRemoteEndpoint(remoteConfig.remote, false);
+const backendConfig: RemoteBackendConfig = { endpoint,
   serverToken: 'synthetic', headersTimeoutMs: 100, idleTimeoutMs: 100,
-  readinessBodyMaxBytes: 65536, readinessWholeMs: 200 });
+  readinessBodyMaxBytes: 65536, readinessWholeMs: 200 };
+const backend = createRemoteBackend(backendConfig);
 backend.close();
 const options: ProviderOptions = { upstream: 'http://127.0.0.1',
   credential: ({ signal }) => { signal.throwIfAborted(); return 'synthetic'; } };
