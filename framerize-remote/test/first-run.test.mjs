@@ -56,17 +56,44 @@ test('cancelling startup closes readiness without opening the local listener', {
   await refused(port);
 });
 
-test('actual launcher keeps failed JSON commands machine readable and redacted', async context => {
-  const { root } = await fixture(context);
+test('actual launcher reports argument errors with actionable, redacted diagnostics', async context => {
+  const { root, profile } = await fixture(context);
+  await mkdir(join(root, 'profile'));
+  const saved = 'synthetic-profile-canary';
+  await writeFile(profile, saved);
   const launcher = fileURLToPath(new URL('../bin/framerize-remote.js', import.meta.url));
-  const result = spawnSync(process.execPath, [launcher, 'check', '--synthetic-canary', '--json'], {
+  const launch = args => spawnSync(process.execPath, [launcher, ...args], {
     cwd: root, encoding: 'utf8', timeout: 5000,
-    env: { HOME: root, USERPROFILE: root, TMPDIR: root, NODE_DISABLE_COMPILE_CACHE: '1' },
+    env: { HOME: root, USERPROFILE: root, TMPDIR: root, NODE_DISABLE_COMPILE_CACHE: '1',
+      FRAMERIZE_REMOTE_HOME: join(root, 'profile') },
   });
-  assert.equal(result.error, undefined); assert.equal(result.status, 1);
-  assert.equal(result.stdout, '');
-  assert.equal(JSON.parse(result.stderr).error, 'command_failed');
-  assert.doesNotMatch(result.stderr, /synthetic-canary/);
+  const message = 'The command options are invalid, incomplete or repeated.';
+  const next = 'Run framerize-remote help for supported commands and options.';
+  for (const command of ['check', 'serve']) {
+    const cases = [
+      ['unknown option', ['--synthetic-argument-canary']],
+      ['positional argument', ['synthetic-argument-canary']],
+      ['missing value', [command === 'serve' ? '--port' : '--config']],
+      ['duplicate option', command === 'serve'
+        ? ['--port', '0', '--port', '1'] : ['--tailscale', '--tailscale']],
+    ];
+    for (const json of [false, true]) for (const [name, args] of cases) {
+      await context.test(`${command}, ${name}, ${json ? 'JSON' : 'text'}`, () => {
+        const result = launch([command, ...args, ...(json ? ['--json'] : [])]);
+        assert.equal(result.error, undefined); assert.equal(result.status, 1);
+        assert.equal(result.stdout, '');
+        if (json) assert.deepEqual(JSON.parse(result.stderr), {
+          error: 'command_arguments', code: 'command_arguments', message, next,
+        });
+        else assert.equal(result.stderr, `${message}\nNext: ${next}\n`);
+        assert.doesNotMatch(result.stderr, /canary/);
+      });
+    }
+  }
+  assert.equal(await readFile(profile, 'utf8'), saved);
+  const help = launch(['help']);
+  assert.equal(help.error, undefined); assert.equal(help.status, 0);
+  assert.equal(help.stderr, ''); assert.match(help.stdout, /Usage:/);
 });
 
 for (const json of [false, true]) {

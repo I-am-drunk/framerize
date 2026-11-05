@@ -1,4 +1,5 @@
 const messages = {
+  command_arguments: ['The command options are invalid, incomplete or repeated.', 'Run framerize-remote help for supported commands and options.'],
   setup_arguments: ['The setup options are invalid, incomplete or repeated.', 'Run framerize-remote setup --help for supported options.'],
   remote_required: ['The remote server address is missing.', 'Add --remote with your server origin, such as https://server.example.'],
   remote_invalid: ['The remote server address is invalid or uses unapproved HTTP.', 'Use an HTTPS origin without a path, query or credentials. Local HTTP requires numeric loopback.'],
@@ -40,7 +41,8 @@ export function diagnostic(code: DiagnosticCode) {
 
 export function diagnosticText(code: DiagnosticCode): string {
   const detail = diagnostic(code);
-  const message = code === 'cleanup_failed' ? detail.message : `Not ready: ${detail.message}`;
+  const message = code === 'cleanup_failed' || code === 'command_arguments'
+    ? detail.message : `Not ready: ${detail.message}`;
   return `${message}\nNext: ${detail.next}`;
 }
 

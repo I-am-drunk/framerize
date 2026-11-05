@@ -95,6 +95,11 @@ fixed messages and never echo raw arguments, remote URLs, bodies, or credentials
 - `serve [--json] [--host ADDRESS] [--port NUMBER] [--allow-non-loopback]`: checks readiness before listening.
 - `setup --start [--json]`: saves the profile and uses the same startup path.
 
+Unknown or repeated options, missing option values and unexpected positional
+arguments in `check` or `serve` exit with code 1 and point to command help.
+JSON output identifies these syntax errors as `command_arguments`. They are
+reported before loading the saved profile and do not echo argument values.
+
 ## Temporary listen settings
 
 Use `framerize-remote serve --port 8789` to change the local port for one run.
