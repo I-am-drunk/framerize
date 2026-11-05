@@ -24,7 +24,8 @@ test('ci.yml selects the source and package gates from changed files', () => {
   for (const source of [core, readFileSync(workflowPath, 'utf8')]) validateEvents(source);
   assert.match(ci, /^  pull_request:\n  push:\n    branches: \[main, 'restart\/\*\*'\]$/m);
   assert.match(ci, /if: needs\.changes\.outputs\.source != 'false'\n    uses: \.\/\.github\/workflows\/core-ci\.yml/);
-  assert.match(ci, /if: needs\.changes\.outputs\.packages != 'false'\n    uses: \.\/\.github\/workflows\/package-coexistence\.yml/);
+  assert.match(section(ci, 'packages', 2), /needs\.changes\.outputs\.packages != 'false'/);
+  assert.match(ci, /packages: \$\{\{ github\.event_name == 'pull_request' && 'true'/);
 });
 const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
@@ -288,7 +289,14 @@ function validatePermissions(source) {
 }
 
 function validateUploads(source) {
-  const uploads = source.split(/^      - /m).filter((step) => /uses: actions\/upload-artifact@/.test(step));
+  const allUploads = source.split(/^      - /m).filter((step) => /uses: actions\/upload-artifact@/.test(step));
+  const previews = allUploads.filter(step => /name: pr-preview-\$\{\{ github.run_id \}\}/.test(step));
+  assert.ok(previews.length <= 1);
+  for (const step of previews) {
+    assert.match(step, /if: github.event_name == 'pull_request'/);
+    assert.match(step, /retention-days: 7/);
+  }
+  const uploads = allUploads.filter(step => !previews.includes(step));
   assert.equal(uploads.length, 2, 'retain producer and matrix consumer evidence');
   const names = [];
   for (const step of uploads) {
@@ -353,8 +361,8 @@ function validateExecution(source) {
   for (const [, version] of versions) {
     assert.match(version.trim(), /^(?:['"]22\.23\.4['"]|\$\{\{ matrix\.node \}\})$/, 'qualify pinned Node');
   }
-  const build = 'npm ci --ignore-scripts --no-audit --no-fund && npm run build';
-  const withoutBuild = source.replace(build, '').replace('npm ci --ignore-scripts --no-audit --no-fund', '');
+  const withoutBuild = source.replace('npm run build', '')
+    .replaceAll('npm ci --ignore-scripts --no-audit --no-fund', '');
   assert.doesNotMatch(withoutBuild, /\bnpm (?:ci|install|publish)\b|\bnpm run (?:binary|build)\b/);
   assert.doesNotMatch(source, /(?:echo|printf)[^\r\n]*NODE_OPTIONS/,
     'GitHub blocks NODE_OPTIONS writes through GITHUB_ENV');
@@ -408,10 +416,11 @@ test('workflow declares pinned actions, all three runners, and root cwd', () => 
 test('only the producer builds the shared core before packaging', () => {
   const source = readFileSync(workflowPath, 'utf8');
   const producer = section(source, 'produce', 2);
-  const build = 'npm ci --ignore-scripts --no-audit --no-fund && npm run build';
+  const build = 'npm run build';
   assert.equal(source.split(build).length - 1, 1);
   assert.ok(producer.includes(build));
   assert.ok(producer.indexOf(build) < producer.indexOf('Pack each package once'));
+  assert.ok(producer.indexOf('preview-version.cjs stamp') < producer.indexOf(build));
 });
 
 function validateProducerDownload(input) {

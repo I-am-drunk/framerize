@@ -492,7 +492,7 @@ function verifyStandaloneTypes(repository: string, consumer: string, env: NodeJS
   const cli = (args: string[]) => execFileSync(process.execPath,
     [join(packageRoot, manifest.bin.frm), ...args],
     { cwd: consumer, env, encoding: 'utf8', timeout: 10000 });
-  assert.equal(cli(['version']).trim(), '0.2.0');
+  assert.equal(cli(['version']).trim(), manifest.version);
   assert.match(cli(['setup', '--help']), /--server-token-env/);
   const serveHelp = cli(['serve', '--help']);
   assert.match(serveHelp, /FRM_REMOTE/);
@@ -534,7 +534,7 @@ try {
 
 `], { cwd: consumer, env, stdio: 'pipe', timeout: 5000 });
   assert.ok(existsSync(join(packageRoot, manifest.bin.frm)));
-  assert.match(cli(['--help']), /^frm 0\.2\.0\n/);
+  assert.equal(cli(['--help']).split(/\r?\n/, 1)[0], `frm ${manifest.version}`);
   for (const key of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
     assert.deepEqual(Object.keys(manifest[key] ?? {}), []);
   }
