@@ -55,7 +55,8 @@ async function ensureInstalled(options: ClientOptions, deps: ClientSetupDeps): P
     deps.io.stderr(`${label} was not installed. Rerun with --install or FRM_CLIENT_INSTALL=1 to consent.\n`);
     return EXIT.needsConsent;
   }
-  const code = await deps.runner.run(install, deps.env);
+  const code = await deps.runner.run(install, deps.env, deps.signal);
+  deps.signal?.throwIfAborted();
   if (code !== 0) { deps.io.stderr(`${label} installer exited with code ${code}.\n`); return EXIT.failed; }
   const installed = locate(options.client, deps);
   if (installed) return installed;
@@ -80,7 +81,8 @@ async function updateInstalled(options: ClientOptions, deps: ClientSetupDeps, ex
     deps.io.stderr(`${label} was not updated. Run this command again and type update to confirm.\n`);
     return EXIT.needsConsent;
   }
-  const code = await deps.runner.run(plan.command, deps.env);
+  const code = await deps.runner.run(plan.command, deps.env, deps.signal);
+  deps.signal?.throwIfAborted();
   if (code !== 0) deps.io.stderr(`${label} update exited with code ${code}.\n`);
   return code === 0 ? EXIT.ok : EXIT.failed;
 }
@@ -157,5 +159,5 @@ export async function runClient(argv: readonly string[], deps: ClientSetupDeps):
     // Command-line settings outrank user and project files, so a foreign base URL cannot win.
     if (settings.overrideBaseUrl) launch = withSettingsOverride(launch, claudeBaseUrl(deps.target.origin));
   }
-  return deps.runner.run(launch, launchEnv(options.client, deps.env));
+  return deps.runner.run(launch, launchEnv(options.client, deps.env), deps.signal);
 }

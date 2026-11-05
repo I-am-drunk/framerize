@@ -19,35 +19,80 @@ export function spawnPlan(command: ClientCommand, platform: NodeJS.Platform) {
 }
 
 export interface ProcessRunner {
-  /** Runs with inherited stdio and resolves the exit code. */
-  readonly run: (command: ClientCommand, env: NodeJS.ProcessEnv) => Promise<number>;
+  /** Runs with inherited stdio; cancellation stops the owned command before resolving. */
+  readonly run: (command: ClientCommand, env: NodeJS.ProcessEnv, signal?: AbortSignal) => Promise<number>;
   /** Captures bounded stdout, or null on failure, timeout, cancellation or a nonzero exit. */
   readonly capture: (command: ClientCommand, env: NodeJS.ProcessEnv, signal?: AbortSignal) => Promise<string | null>;
 }
 
 const CAPTURE_TIMEOUT_MS = 5000;
 const CAPTURE_MAX_BYTES = 64 * 1024;
+const COMMAND_STOP_GRACE_MS = 500;
 
-function stopCapture(child: ReturnType<typeof spawn>, platform: NodeJS.Platform, launch: typeof spawn): void {
-  if (!child.pid) { child.kill('SIGKILL'); return; }
+function stopCapture(child: ReturnType<typeof spawn>, platform: NodeJS.Platform, launch: typeof spawn,
+  stopped?: () => void): void {
+  if (!child.pid) { child.kill('SIGKILL'); stopped?.(); return; }
   if (platform !== 'win32') {
     try { process.kill(-child.pid, 'SIGKILL'); }
     catch { child.kill('SIGKILL'); }
+    stopped?.();
     return;
   }
   try {
     const killer = launch('taskkill', ['/PID', String(child.pid), '/T', '/F'],
-      { stdio: 'ignore', windowsHide: true, shell: false });
-    killer.once('error', () => { child.kill('SIGKILL'); });
-    killer.once('close', code => { if (code !== 0) child.kill('SIGKILL'); });
-    killer.unref();
-  } catch { child.kill('SIGKILL'); }
+      { stdio: 'ignore', windowsHide: true, shell: false,
+        ...(stopped ? { timeout: 1000, killSignal: 'SIGKILL' as const } : {}) });
+    killer.once('error', () => { child.kill('SIGKILL'); stopped?.(); });
+    killer.once('close', code => { if (code !== 0) child.kill('SIGKILL'); stopped?.(); });
+    if (!stopped) killer.unref();
+  } catch { child.kill('SIGKILL'); stopped?.(); }
+}
+
+function runCancellable(command: ClientCommand, env: NodeJS.ProcessEnv, signal: AbortSignal,
+  platform: NodeJS.Platform, launch: typeof spawn): Promise<number> {
+  if (signal.aborted) return Promise.resolve(1);
+  const plan = spawnPlan(command, platform);
+  return new Promise((resolve, reject) => {
+    const child = launch(plan.file, plan.args, { env: { ...env, ...command.env }, shell: plan.shell,
+      stdio: 'inherit', windowsHide: false, detached: platform !== 'win32' });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let treeStopped: Promise<void> | undefined;
+    let cancelled = false;
+    let settled = false;
+    const cancel = (): void => {
+      if (cancelled || settled) return;
+      cancelled = true;
+      if (platform === 'win32') {
+        treeStopped = new Promise(resolve => stopCapture(child, platform, launch, resolve));
+        return;
+      }
+      try { if (child.pid) process.kill(-child.pid, 'SIGTERM'); else child.kill('SIGTERM'); }
+      catch { child.kill('SIGTERM'); }
+      timer = setTimeout(() => stopCapture(child, platform, launch), COMMAND_STOP_GRACE_MS);
+    };
+    const finish = (): boolean => {
+      if (settled) return false;
+      settled = true;
+      clearTimeout(timer);
+      signal.removeEventListener('abort', cancel);
+      if (cancelled && platform !== 'win32') stopCapture(child, platform, launch);
+      return true;
+    };
+    child.once('error', error => { if (finish()) reject(error); });
+    child.once('close', async (code, exitSignal) => {
+      await treeStopped;
+      if (finish()) resolve(cancelled ? 1 : code ?? (exitSignal ? 1 : 0));
+    });
+    signal.addEventListener('abort', cancel, { once: true });
+    if (signal.aborted) cancel();
+  });
 }
 
 /** Real process boundary. Tests inject a ProcessRunner instead. */
 export function nodeRunner(platform: NodeJS.Platform = process.platform, launch: typeof spawn = spawn): ProcessRunner {
   return {
-    run(command, env) {
+    run(command, env, signal) {
+      if (signal) return runCancellable(command, env, signal, platform, launch);
       const plan = spawnPlan(command, platform);
       return new Promise((resolve, reject) => {
         const child = launch(plan.file, plan.args, { env: { ...env, ...command.env }, shell: plan.shell,
