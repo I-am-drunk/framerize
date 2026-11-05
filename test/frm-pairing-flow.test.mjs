@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import childProcess, { spawn } from 'node:child_process';
+import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 import { EventEmitter, once } from 'node:events';
 import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
@@ -8,6 +8,7 @@ import { createServer as createHttpServer, request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { PassThrough } from 'node:stream';
 
 const packageRoot = (key, name) => process.env[key]
   ?? fileURLToPath(new URL(`../${name}/`, import.meta.url));
@@ -56,6 +57,7 @@ for (const token of [undefined, 'synthetic-pair+/=']) {
       const localToken = token ? 'synthetic-local-only' : undefined;
       const previousEnv = process.env;
       const originalExecFile = childProcess.execFile;
+      const originalSpawn = childProcess.spawn;
       let server, child, closed, ready, output = '', starts = 0, enabled = false;
       const env = { HOME: root, USERPROFILE: root, XDG_CONFIG_HOME: join(root, 'config'),
         FRM_HOME: home, FRM_PORT: String(port), NODE_DISABLE_COMPILE_CACHE: '1', PATH: '',
@@ -68,6 +70,7 @@ for (const token of [undefined, 'synthetic-pair+/=']) {
       context.after(async () => {
         process.env = previousEnv;
         childProcess.execFile = originalExecFile;
+        childProcess.spawn = originalSpawn;
         syncBuiltinESMExports();
         try { await stop(); }
         finally {
@@ -84,7 +87,7 @@ for (const token of [undefined, 'synthetic-pair+/=']) {
         await stop();
         starts += 1;
         output = '';
-        child = spawn(process.execPath, [join(remoteRoot, 'bin/frm.js'), 'serve'],
+        child = originalSpawn(process.execPath, [join(remoteRoot, 'bin/frm.js'), 'serve'],
           { cwd: root, env: { HOME: root, FRM_HOME: home, PATH: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
         closed = new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal })));
         ready = new Promise((resolve, reject) => {
@@ -122,6 +125,25 @@ for (const token of [undefined, 'synthetic-pair+/=']) {
           callback(result.code ? new Error('inactive') : null, result.stdout);
           commandChild.emit('close', result.code, null);
         }, error => { callback(error, ''); commandChild.emit('close', 1, null); });
+        return commandChild;
+      };
+      childProcess.spawn = (program, args) => {
+        const commandChild = new EventEmitter();
+        commandChild.stdout = new PassThrough();
+        commandChild.stderr = new PassThrough();
+        commandChild.kill = () => false;
+        commandChild.unref = () => commandChild;
+        command(program, args).then(result => {
+          commandChild.stdout.end(result.stdout);
+          commandChild.stderr.end();
+          commandChild.emit('exit', result.code, null);
+          commandChild.emit('close', result.code, null);
+        }, error => {
+          commandChild.stdout.end();
+          commandChild.stderr.end();
+          commandChild.emit('error', error);
+          commandChild.emit('close', 1, null);
+        });
         return commandChild;
       };
       syncBuiltinESMExports();

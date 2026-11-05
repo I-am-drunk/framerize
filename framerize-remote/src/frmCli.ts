@@ -1,6 +1,6 @@
 import { access } from 'node:fs/promises';
 import { run, serve, type CliIo } from './cli.js';
-import { ClientCleanupError, RemoteDiagnosticError, SetupRollbackError } from './diagnostics.js';
+import { ClientCleanupError, RemoteDiagnosticError, ServiceCommandCleanupError, SetupRollbackError } from './diagnostics.js';
 import { FRM_HELP } from './present.js';
 import { profilePath } from './profilePaths.js';
 import { offerClientSetup, runClientCommand } from './clientCli.js';
@@ -32,7 +32,7 @@ async function runUp(input: string | undefined, io: CliIo, env: NodeJS.ProcessEn
       && (await offerClientSetup(configPath, io, env, undefined, controller.signal)) === 'cancelled';
     return { result, offerCancelled };
   } catch (error) {
-    if (error instanceof ClientCleanupError) throw error;
+    if (error instanceof ClientCleanupError || error instanceof ServiceCommandCleanupError) throw error;
     if (!(error instanceof SetupRollbackError) && (controller.signal.aborted
       || (error instanceof Error && error.name === 'AbortError'))) throw new RemoteDiagnosticError('aborted');
     throw error;
