@@ -6,6 +6,8 @@ T3 Tools Inc., at commit fbe5df2d4b630d13adc8fe2d38cab354e6d66d67.
 
 ## Adapted files
 
+- `src/present.ts` uses the package JSON import from
+  `apps/server/src/cli/invocation.ts` to report the packaged version.
 - `src/hostPolicy.ts` adapts the loopback classification from
   `packages/shared/src/hostClassification.ts`: `normalizeHostname` and the
   127.0.0.0/8, localhost, and ::1 loopback tests. The Effect dependency and the

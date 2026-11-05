@@ -34,9 +34,13 @@ The upstream license text is in `T3-LICENSE`.
   `pair` never creates a route; only `up` does. Moving a saved route to a new
   port and restoring a prior route are Framerize additions.
 
+`src/cli.ts` uses the package JSON version import from
+`apps/server/src/cli/invocation.ts` at T3 Code revision
+`fbe5df2d4b630d13adc8fe2d38cab354e6d66d67`, under the same MIT License.
+
 ## Vendored file
 
-`src/qr-code.ts` is `packages/shared/src/qrCode.ts` from the same revision,
+`src/qr-code.ts` is `packages/shared/src/qrCode.ts` from revision `5a906583`,
 byte for byte, after one added provenance line. It is the Project Nayuki QR
 Code generator, MIT License, Copyright (c) Project Nayuki. Its license is
 embedded in the file and retained in `NAYUKI-LICENSE`.
