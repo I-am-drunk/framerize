@@ -67,6 +67,8 @@ produce a green count. Backend changes need focused behavior tests. Use
 [test-framerize](.agents/skills/test-framerize/SKILL.md) for installed flows.
 Keep source, installed-package, native and live results separate. An unavailable
 runner is not a test failure or a pass. Retain useful unchanged evidence.
+The `Check` job in `.github/workflows/ci.yml` is the single required CI result.
+`.github/scripts/ci-changes.cjs` selects its gates; an unknown path runs them all.
 
 ## Code Review Rules
 

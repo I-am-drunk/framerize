@@ -17,3 +17,22 @@ T3-specific WebSocket/Effect architecture, browser-panel commands, desktop/mobil
 tooling, account-data copying, vouch/exemption lists, Macroscope labels, model bans
 and automatic closure rules are not carried over. Framerize uses its existing
 TypeScript packages, synthetic HTTP fixtures and Codex review integration.
+
+## CI change selection
+
+These files adapt T3 Code at commit `5a906583fed3fa41dc806f2a19bd9d095537ed3e`
+under the same MIT License:
+
+- `.github/scripts/ci-changes.cjs` adapts `.github/scripts/ci-changes.cjs`:
+  `readWorkspace`, `ownersOf`, `decide`, `main`, the inert-path rule, the
+  dependents walk and fail-open selection. It reads npm workspaces and
+  `file:` dependencies instead of pnpm, and reports `source`, `packages` and
+  `server` gates. Rust, mobile, web, release-smoke, test-package lists and
+  T3's extra-owner tables are omitted.
+- `.github/actions/ci-changes/action.yml` adapts the matching composite action.
+  Pushes and manual runs pass `--full` without fetching a base commit.
+- `.github/workflows/ci.yml` adapts the `changes` job and the required `Check`
+  job's skip rule. The existing source, package and server workflows remain
+  the gate implementations, unchanged apart from their triggers.
+- `test/ci-changes.test.mjs` adapts the inert-docs and full-selection cases
+  from `scripts/check-changed.test.ts`.
