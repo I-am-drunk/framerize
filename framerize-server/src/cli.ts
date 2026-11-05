@@ -1,7 +1,7 @@
 import { loadConfig, readServerToken, type ServerConfig } from './config.js';
 import { createLogger, type Logger, type LogOutput } from './logger.js';
 import { createServer, type ServerDependencies, type ServerProvider } from './server.js';
-import { ServerListenError } from './errors.js';
+import { CliUsageError, ServerListenError } from './errors.js';
 import type { FramerizeInstance } from '../dist/core.js';
 
 export interface ParsedArgs {
@@ -57,14 +57,14 @@ const FLAGS = new Set(['backend', 'account-id', 'framer-origin', 'upstream', 'au
 export function parseArgs(argv: readonly string[]): ParsedArgs {
   const args = [...argv];
   const command = args[0]?.startsWith('-') ? 'serve' : args.shift() ?? 'serve';
-  if (command !== 'serve' && command !== 'check') throw new Error('Unknown command');
+  if (command !== 'serve' && command !== 'check') throw new CliUsageError('Unknown command');
   const values: Record<string, string> = {};
   while (args.length) {
     const option = args.shift()!;
-    if (!option.startsWith('--')) throw new Error('Invalid option');
+    if (!option.startsWith('--')) throw new CliUsageError('Invalid option');
     const flag = option.slice(2);
     const value = args.shift();
-    if (!FLAGS.has(flag) || !value || value.startsWith('--')) throw new Error('Invalid option');
+    if (!FLAGS.has(flag) || !value || value.startsWith('--')) throw new CliUsageError('Invalid option');
     values[flag.replace(/-([a-z])/g, (match: string, letter: string) => letter.toUpperCase())] = value;
   }
   return { command, values };

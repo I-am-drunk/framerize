@@ -51,6 +51,13 @@ export class AccountFileError extends ConfigurationError {}
 
 export class AccountSelectionError extends ConfigurationError {}
 
+export class CliUsageError extends Error {
+  constructor(message: 'Unknown command' | 'Invalid option') {
+    super(message);
+    this.name = 'CliUsageError';
+  }
+}
+
 export class ServerListenError extends Error {
   constructor() {
     super('Server listen failed');

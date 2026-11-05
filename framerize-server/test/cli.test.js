@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs, run } from '../dist/cli.js';
-import { ServerListenError } from '../dist/errors.js';
+import { CliUsageError, ServerListenError } from '../dist/errors.js';
 
 test('CLI selects the account provider without a generic upstream', async () => {
   let made = 0; let closed = 0;
@@ -230,6 +230,18 @@ test('actual launcher reports constant fatal output without echoing bad input', 
   assert.doesNotMatch(result.stderr, /synthetic-canary/);
 });
 
+test('argument errors stop before configuration or startup', async () => {
+  const { events, read } = outputProcess();
+  await assert.rejects(run(['check', '--port'], {
+    process: events,
+    get env() { assert.fail('Invalid arguments must not read configuration'); },
+    createProvider() { assert.fail('Invalid arguments must not create a provider'); },
+    createServer() { assert.fail('Invalid arguments must not create a server'); },
+  }), CliUsageError);
+  assert.equal(read(), '');
+  for (const signal of ['SIGINT', 'SIGTERM']) assert.equal(events.listenerCount(signal), 0);
+});
+
 test('CLI parsing preserves its input and maps supported options', () => {
   const args = ['serve', '--port', '0', '--server-token-file', '/private/synthetic'];
   const original = [...args];
@@ -239,6 +251,7 @@ test('CLI parsing preserves its input and maps supported options', () => {
   assert.deepEqual(parseArgs([]), { command: 'serve', values: {} });
   for (const args of [['canary'], ['--canary', 'value'], ['--port'], ['--port', '--canary']]) {
     assert.throws(() => parseArgs(args), error => {
+      assert.ok(error instanceof CliUsageError);
       assert.doesNotMatch(error.message, /canary/);
       return /Unknown command|Invalid option/.test(error.message);
     });
