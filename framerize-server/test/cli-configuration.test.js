@@ -33,7 +33,7 @@ function launch(state, args, env = {}, file = launcher) {
 
 const diagnostic = {
   event: 'server.failed', message: 'Server configuration is invalid.',
-  next: 'Check option values and FRAMERIZE_SERVER_* settings. Run framerize-server --help for supported options.',
+  next: 'Check option values, FRAMERIZE_SERVER_* settings and account session references. Run framerize-server --help for options. Environment guide: https://github.com/I-am-drunk/framerize/blob/main/framerize-server/docs/environment.md.',
 };
 
 const invalid = [
@@ -49,6 +49,28 @@ for (const [name, args, env] of invalid) {
   test(`real CLI reports redacted configuration guidance for ${name}`, context => {
     const result = launch(stateFor(context), args, env);
     assert.equal(result.status, 1);
+    assert.deepEqual(JSON.parse(result.stderr), diagnostic);
+  });
+}
+
+const sessions = [
+  ['unset environment', { env: 'SESSION_canary' }, {}],
+  ['invalid environment', { env: 'SESSION_canary' }, { SESSION_canary: ' session-canary ' }],
+  ['missing file', { file: 'missing-session-canary' }, {}],
+];
+
+for (const [name, session, env] of sessions) {
+  test(`real CLI reports account session guidance for ${name}`, context => {
+    const state = stateFor(context);
+    const accounts = join(state, 'accounts-canary.json');
+    writeFileSync(accounts, JSON.stringify([
+      { id: 'account-canary', projectId: 'project-canary', session },
+    ]), { mode: 0o600 });
+    const result = launch(state, ['serve', '--backend', 'framer', '--accounts-file', accounts,
+      '--host', '127.0.0.1', '--port', '0', '--framer-origin', 'http://127.0.0.1:1'],
+    { FRAMERIZE_SERVER_TOKEN: 'token-canary', ...env });
+    assert.equal(result.status, 1);
+    assert.ok(!result.stderr.includes(state), 'Private state paths must not appear in diagnostics');
     assert.deepEqual(JSON.parse(result.stderr), diagnostic);
   });
 }
