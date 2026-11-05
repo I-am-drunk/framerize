@@ -53,12 +53,14 @@ export function diagnostic(code: DiagnosticCode) {
 
 export function diagnosticText(code: DiagnosticCode): string {
   const detail = diagnostic(code);
-  const message = code === 'cleanup_failed' || code === 'command_arguments' || code.startsWith('service_')
+  const message = code === 'aborted' || code === 'cleanup_failed'
+    || code === 'command_arguments' || code.startsWith('service_')
     ? detail.message : `Not ready: ${detail.message}`;
   return `${message}\nNext: ${detail.next}`;
 }
 
 export function commandFailure(error: unknown, json: boolean): string | undefined {
+  if (error instanceof Error && error.name === 'AbortError') error = new RemoteDiagnosticError('aborted');
   if (!(error instanceof RemoteDiagnosticError)) return undefined;
   const setup = error instanceof SetupRollbackError ? diagnostic(error.setupCode) : undefined;
   return json ? JSON.stringify({ error: error.code, ...diagnostic(error.code), ...(setup ? { setup } : {}) })
