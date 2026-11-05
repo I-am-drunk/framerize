@@ -366,3 +366,56 @@ reachability. Remote still needs an accessible server origin and valid token.
 
 Browserless provider and Castle runtime integration, native delivery and
 release CI migration remain separate unfinished work.
+
+## Use the Node API
+
+Install the built archive in your application directory:
+
+```sh
+npm install /path/to/framerize-remote-0.2.0.tgz --ignore-scripts
+```
+
+`createRemoteBackend` forwards requests without starting a local listener or
+reading a saved `frm` profile. Supply its endpoint, token and limits explicitly:
+
+```js
+import { createRemoteBackend, parseRemoteEndpoint } from 'framerize-remote';
+
+const backend = createRemoteBackend({
+  endpoint: parseRemoteEndpoint('http://127.0.0.1:8789', false),
+  serverToken: process.env.FRM_SERVER_TOKEN ?? null,
+  headersTimeoutMs: 15_000,
+  inferenceTimeoutMs: 300_000,
+  idleTimeoutMs: 60_000,
+  readinessBodyMaxBytes: 64 * 1024,
+  readinessWholeMs: 20_000,
+});
+
+try {
+  const diagnosis = await backend.diagnose({ signal: AbortSignal.timeout(20_000) });
+  console.log(diagnosis);
+} finally {
+  await backend.close();
+}
+```
+
+Use the Server origin, without an API path, query, fragment or credentials.
+Passing `false` to `parseRemoteEndpoint` rejects public plaintext HTTP origins;
+private and loopback HTTP origins remain allowed. The backend uses only the
+token passed as `serverToken`; the example reads the environment explicitly.
+
+`ready({ signal })` returns `true` or `{ ready: false, reason }`.
+`diagnose({ signal })` returns that result as `readiness` and adds a diagnostic
+`code` on failure. Cancellation is a failed readiness result, not a thrown error.
+
+`forward({ path, headers, body, signal })` returns `{ status, headers, body }`.
+Use one of the inference paths listed under [Endpoints](#endpoints), lowercase
+header names, and an async iterable of Buffers for the request body. Read the
+response body with `for await`, which accepts its synchronous and asynchronous
+forms. The backend forwards bytes without parsing inference JSON or events.
+
+Keep an `AbortController` for each forwarding operation. Consume its response
+body or abort the signal when discarding it; handle failures from both
+`forward()` and body iteration. `close()` aborts active requests and permanently
+closes the backend; repeated calls are safe. The backend installs no process
+signal handlers. The application owns cancellation and shutdown.
