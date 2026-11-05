@@ -247,8 +247,20 @@ export async function snapshotService(context: ServiceContext): Promise<ServiceS
  */
 export async function restoreService(context: ServiceContext, snapshot: ServiceSnapshot): Promise<void> {
   const manager = requireManager(context);
-  const optional = (steps: readonly ServiceStep[]) => steps.map((step) => ({ ...step, optional: true }));
-  await runSteps(context, optional(snapshot.unit === undefined || !snapshot.enabled ? manager.deactivate : manager.stop));
+  const stop = snapshot.unit === undefined || !snapshot.enabled ? manager.deactivate : manager.stop;
+  await runSteps({ ...context, run: async (command, args, signal) => {
+    const result = await (context.run ?? runStep)(command, args, signal);
+    if (result.code === 0) return result;
+    const probe = manager.probes.pid;
+    const state = await (context.run ?? probeStep)(probe.command, probe.args.map(arg =>
+      arg.startsWith('--property=') ? '--property=LoadState,ActiveState,MainPID' : arg), signal);
+    // Only explicit absence permits cleanup after a failed stop. A failed probe does not.
+    const missing = manager.kind === 'systemd'
+      ? state.code === 0 && /^LoadState=not-found$/m.test(state.stdout)
+        && /^ActiveState=inactive$/m.test(state.stdout) && /^MainPID=0$/m.test(state.stdout)
+      : state.code === 113;
+    return missing ? { code: 0, stdout: '' } : result;
+  } }, stop.map(step => ({ ...step, optional: false })));
   try {
     if (snapshot.unit === undefined) await rm(manager.unitPath, { force: true });
     else await writeFile(manager.unitPath, snapshot.unit, { mode: 0o600 });
