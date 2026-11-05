@@ -97,3 +97,22 @@ test('restoring a removed route refuses a new owner', async () => {
   await assert.rejects(route.rollback(), /Another application/);
   assert.equal(state.route, 'http://127.0.0.1:9999');
 });
+
+test('a saved route can move to a new local port and roll back', async () => {
+  const oldTarget = 'http://127.0.0.1:8789';
+  const { state, run } = fixture(oldTarget);
+  const route = await prepareTailscale(8790, 443, run, '127.0.0.1', oldTarget);
+  await route.apply();
+  assert.equal(state.route, 'http://127.0.0.1:8790');
+  await route.rollback();
+  assert.equal(state.route, oldTarget);
+});
+
+test('saved route ownership does not authorize a replacement by another owner', async () => {
+  const oldTarget = 'http://127.0.0.1:8789';
+  const { state, run } = fixture(oldTarget);
+  const route = await prepareTailscale(8790, 443, run, '127.0.0.1', oldTarget);
+  state.route = 'http://127.0.0.1:9999';
+  await assert.rejects(route.apply(), /another application/);
+  assert.equal(state.route, 'http://127.0.0.1:9999');
+});
