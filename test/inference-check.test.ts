@@ -198,7 +198,8 @@ test('CI invokes offline tests, never the live validation command', () => {
   assert.throws(() => validate(source.replace('test:inference', 'check:inference')));
   assert.throws(() => validate(source.replace('workflow_call:', 'missing:')));
   const manifest = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
-  assert.equal(manifest.scripts['test:inference'], 'node --test .tools/test/inference-check.test.js');
+  assert.equal(manifest.scripts['test:inference'],
+    'node --test .tools/test/inference-check.test.js test/inference-delta-shape.test.mjs');
 });
 
 test('invalid request values fail before attempting transport', async () => {
