@@ -75,7 +75,7 @@ async function readAccountFile(path: string, allowMissing: boolean,
   const close = (): Promise<void> => file ? closing ??= file.close() : Promise.resolve();
   const abort = (): void => { void close().catch(() => {}); };
   try {
-    try { file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK); }
+    try { file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOCTTY); }
     catch (error) {
       if (allowMissing && (error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
       throw error;
@@ -200,7 +200,7 @@ export async function readAccountSession(reference: AccountSession,
 
 async function readSessionFile(path: string | undefined, signal?: AbortSignal): Promise<string> {
   if (typeof path !== 'string' || !isAbsolute(path) || /[\x00-\x1f\x7f]/.test(path)) throw new Error();
-  const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
+  const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOCTTY);
   let closing: Promise<void> | undefined;
   const close = (): Promise<void> => closing ??= file.close();
   const abort = (): void => { void close().catch(() => {}); };
