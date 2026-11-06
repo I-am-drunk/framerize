@@ -45,7 +45,7 @@ async function readTokenFile(path: string, signal?: AbortSignal): Promise<string
   }
 }
 
-async function cancellableRead(pending: Promise<string>, signal?: AbortSignal): Promise<string> {
+export async function cancellableRead(pending: Promise<string>, signal?: AbortSignal): Promise<string> {
   if (!signal) return pending;
   let abort = (): void => {};
   try {

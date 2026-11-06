@@ -25,7 +25,7 @@ export async function resolveInstance(
     const selectedEnv: NodeJS.ProcessEnv = Object.create(env);
     if (overrides?.host !== undefined) Object.defineProperty(selectedEnv, 'FRM_HOST', { value: undefined });
     if (overrides?.port !== undefined) Object.defineProperty(selectedEnv, 'FRM_PORT', { value: undefined });
-    config = await loadRunConfig(configPath, selectedEnv);
+    config = await loadRunConfig(configPath, selectedEnv, signal);
     signal?.throwIfAborted();
     if (overrides) config = applyListenOverrides(config, overrides);
     endpoint = resolveConfig(config);

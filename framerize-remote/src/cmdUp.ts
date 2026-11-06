@@ -44,10 +44,11 @@ async function connection(input: string | undefined, saved: PersistedConfig | un
   return { remote: link.remote, token: link.token, paired: true };
 }
 
-async function readSaved(path: string): Promise<{ text: string | undefined; config: PersistedConfig | undefined }> {
+async function readSaved(path: string, signal?: AbortSignal): Promise<{ text: string | undefined; config: PersistedConfig | undefined }> {
   let text: string;
-  try { text = await readConfigText(path); }
+  try { text = await readConfigText(path, signal); }
   catch (error) {
+    if (signal?.aborted) throw new RemoteDiagnosticError('aborted');
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { text: undefined, config: undefined };
     throw new RemoteDiagnosticError('profile_invalid');
   }
@@ -118,7 +119,7 @@ export async function setUp(input: string | undefined, io: CliIo, options: UpOpt
   const active = (): void => { if (signal?.aborted) throw new RemoteDiagnosticError('aborted'); };
   active();
   if (signal) options = { ...options, signal, service: { ...options.service, signal } };
-  const before = await readSaved(options.configPath);
+  const before = await readSaved(options.configPath, signal);
   const link = await connection(input, before.config, io, options.env, signal);
   active();
   const profile = nextProfile(before.config, link, options.env);
@@ -127,7 +128,7 @@ export async function setUp(input: string | undefined, io: CliIo, options: UpOpt
   let snapshot: ServiceSnapshot | undefined;
   try {
     await saveConfigFile(options.configPath, profile);
-    const after = await readConfigText(options.configPath);
+    const after = await readConfigText(options.configPath, signal);
     active();
     const notReady = await readiness(options.configPath, options.env, signal);
     active();
