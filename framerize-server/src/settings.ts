@@ -141,11 +141,28 @@ export function captureSettings(config: ServerConfig, env: Environment,
 // serve and check read server.json from serverHome when no --config is given, so a
 // selection saved by accounts or configure applies without flags or exports. An
 // environment without a home variable, as in isolated tests, skips the lookup.
-export async function defaultSettingsPath(env: Environment): Promise<string | undefined> {
+export async function defaultSettingsPath(env: Environment, signal?: AbortSignal): Promise<string | undefined> {
+  signal?.throwIfAborted();
   if (![env.FRAMERIZE_SERVER_HOME, env.HOME, env.USERPROFILE].some(Boolean)) return undefined;
   const path = resolve(serverHome(env), 'server.json');
-  return access(path).then(() => path, (error: NodeJS.ErrnoException) => {
+  const pending = access(path).then(() => path, (error: NodeJS.ErrnoException) => {
+    signal?.throwIfAborted();
     if (error.code === 'ENOENT') return undefined;
     throw new ConfigurationError('Server settings are unavailable or invalid');
   });
+  if (!signal) return pending;
+  let abort!: () => void;
+  try {
+    const cancelled = new Promise<never>((resolveUnused, reject) => {
+      abort = () => reject(signal.reason);
+      signal.addEventListener('abort', abort, { once: true });
+      if (signal.aborted) abort();
+    });
+    const found = await Promise.race([pending, cancelled]);
+    signal.throwIfAborted();
+    return found;
+  } catch (error) {
+    signal.throwIfAborted();
+    throw error;
+  } finally { signal.removeEventListener('abort', abort); }
 }
