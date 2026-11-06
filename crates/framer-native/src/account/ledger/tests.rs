@@ -3,10 +3,15 @@ use std::{path::PathBuf, process::Command};
 use tokio::time::{timeout, Duration};
 
 struct Fixture { root: PathBuf, runtime: PathBuf }
+fn test_python() -> PathBuf {
+    std::env::var_os("FRAMERIZE_TEST_PYTHON").map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/usr/bin/python3"))
+}
+
 impl Fixture {
     async fn start(&self) -> LedgerOwner {
         let store = Arc::new(framer_store::FileSessionStore::new(self.root.join("sessions")).unwrap());
-        LedgerOwner::start(Path::new("/usr/bin/python3"), &self.runtime.join("native.py"),
+        LedgerOwner::start(&test_python(), &self.runtime.join("native.py"),
             &self.root.join("history"), store).await.unwrap()
     }
 
@@ -17,7 +22,7 @@ impl Fixture {
     fn new() -> Self {
         let root = std::env::temp_dir().join(format!("framerize-ledger-{}", Uuid::new_v4()));
         let runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../runtime").canonicalize().unwrap();
-        let output = Command::new("/usr/bin/python3").args(["-I", "-B"])
+        let output = Command::new(test_python()).args(["-I", "-B"])
             .arg(runtime.join("tests_native/seed_ledger.py")).arg(root.join("history"))
             .env_clear().env("PATH", "/usr/bin:/bin").output().unwrap();
         assert!(output.status.success(), "synthetic history setup failed");
@@ -32,7 +37,7 @@ async fn missing_history_refuses_startup_without_creating_a_ledger() {
     let fixture = Fixture::new();
     let missing = fixture.root.join("missing");
     let store = Arc::new(framer_store::FileSessionStore::new(fixture.root.join("sessions")).unwrap());
-    let result = LedgerOwner::start(Path::new("/usr/bin/python3"),
+    let result = LedgerOwner::start(&test_python(),
         &fixture.runtime.join("native.py"), &missing, store).await;
     assert!(matches!(result, Err(DeviceFailure::Rejected)));
     assert!(!missing.exists());

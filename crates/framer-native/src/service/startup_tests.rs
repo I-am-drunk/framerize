@@ -10,6 +10,11 @@ mod migration;
 mod diagnostics;
 
 struct Fixture { root: PathBuf, config: ServeConfig }
+fn test_python() -> PathBuf {
+    std::env::var_os("FRAMERIZE_TEST_PYTHON").map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/usr/bin/python3"))
+}
+
 impl Fixture {
     async fn new() -> Self {
         let root = std::env::temp_dir().join(format!("framerize-native-startup-{}", uuid::Uuid::new_v4()));
@@ -17,7 +22,8 @@ impl Fixture {
         drop(FileSessionStore::new(profiles.join(".sessions")).unwrap());
         let runtime = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../runtime")
             .canonicalize().unwrap();
-        let result = Command::new("/usr/bin/python3").args(["-I", "-B"])
+        let python = test_python();
+        let result = Command::new(&python).args(["-I", "-B"])
             .arg(runtime.join("tests_native/seed_ledger.py")).arg(profiles.join(".sidecar/camoufox"))
             .env_clear().env("PATH", "/usr/bin:/bin").output().unwrap();
         assert!(result.status.success());
@@ -42,7 +48,7 @@ impl Fixture {
                 {"path": node, "sha256": digest}, {"path": entry, "sha256": digest}]
         })).unwrap()).unwrap();
         let config = ServeConfig { database, profiles,
-            python: PathBuf::from("/usr/bin/python3"), runtime_script: runtime.join("native.py"),
+            python, runtime_script: runtime.join("native.py"),
             worker_config: worker_config.to_str().unwrap().into(),
             selected_accounts: vec![id.to_string()], address: "127.0.0.1:0".parse().unwrap(),
             expire_legacy_from: None };
