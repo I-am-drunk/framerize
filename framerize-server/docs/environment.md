@@ -38,11 +38,19 @@ token variable, the upstream credential variable and any account session
 variables, because the service does not inherit the shell environment. Those
 values sit in the file as plain text. Token and session files stay as paths.
 
-`--config FILE` reads saved settings for `serve` or `check`. Environment
-variables and options override saved values for that run.
+`serve` and `check` read this file by default when it exists. `--config FILE`
+selects another settings file. Environment variables and options override
+saved values for that run.
 Rerun `up` after changing a variable the service needs.
 With `--tailscale`, `server.json` also records the Tailscale Serve port.
 `service uninstall` removes that entry and keeps the rest of the file.
+
+`framerize configure` saves an HTTP upstream or selects a Framer account.
+`framerize accounts` opens an account menu on a terminal; use `accounts list`,
+`accounts add`, `accounts select ID`, or `accounts remove ID` for explicit
+commands. Account selection saves the backend and account in `server.json`.
+`framerize config --show` displays effective settings and their sources
+without printing token or session values. Add `--json` for structured output.
 
 ## Precedence
 
