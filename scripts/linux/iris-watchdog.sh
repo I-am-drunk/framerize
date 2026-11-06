@@ -3,7 +3,8 @@
 # Install: systemd unit runs this every 60s.
 # The failure mode it kills: disk 100% or memory exhaustion → daemons die →
 # tunnel + tailscale + sshd all lost → remote lockout (happened 3x in 2 days).
-LOG=/var/log/framerize-watchdog.log
+LOG=${FRAMERIZE_WATCHDOG_LOG:-/var/log/framerize-watchdog.log}
+HEALTH_URL=${FRAMERIZE_WATCHDOG_HEALTH_URL:-http://127.0.0.1:8787/api/ready}
 say() { echo "$(date -u '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"; }
 
 # ---- 1. Disk guard: keep / under 92% by pruning ONLY regenerable caches ----
@@ -25,14 +26,32 @@ if [ "$DISK_PCT" -ge 92 ]; then
   say "DISK after prune: ${DISK_AFTER}%"
 fi
 
-# ---- 2. Memory guard: at <300MB available, restart the heaviest browser tree ----
+# ---- 2. Memory guard: restart only when low memory coincides with failed readiness ----
 AVAIL_MB=$(free -m | awk '/^Mem:/ {print $7}')
 if [ "$AVAIL_MB" -lt 300 ]; then
-  say "MEM ${AVAIL_MB}MB available — restarting framerize (heaviest, self-recovering)"
-  systemctl --user --machine=tjninja@ restart framerize.service 2>/dev/null \
-    || runuser -l tjninja -c 'XDG_RUNTIME_DIR=/run/user/1000 systemctl --user restart framerize.service' 2>/dev/null
-  sleep 20
-  say "MEM after restart: $(free -m | awk '/^Mem:/ {print $7}')MB available"
+  if curl --connect-timeout 2 --max-time 4 -fsS "$HEALTH_URL" >/dev/null 2>&1; then
+    say "MEM ${AVAIL_MB}MB available but Framerize is ready — no restart"
+  else
+    say "MEM ${AVAIL_MB}MB available and Framerize is not ready — requesting graceful restart"
+    if systemctl --user --machine=tjninja@ restart framerize.service 2>/dev/null \
+      || runuser -l tjninja -c 'XDG_RUNTIME_DIR=/run/user/1000 systemctl --user restart framerize.service' 2>/dev/null; then
+      ready=0
+      for _ in $(seq 1 15); do
+        if curl --connect-timeout 2 --max-time 4 -fsS "$HEALTH_URL" >/dev/null 2>&1; then
+          ready=1
+          break
+        fi
+        sleep 2
+      done
+      if [ "$ready" -eq 1 ]; then
+        say "Framerize readiness recovered after restart; memory available $(free -m | awk '/^Mem:/ {print $7}')MB"
+      else
+        say "Framerize remains unready after restart; memory available $(free -m | awk '/^Mem:/ {print $7}')MB"
+      fi
+    else
+      say "Framerize restart command failed; service state was preserved"
+    fi
+  fi
 fi
 
 # ---- 3. sshd liveness: if port 22 stops answering locally, restart it ----
