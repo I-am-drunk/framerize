@@ -128,7 +128,8 @@ export async function fixture(context, protocol, viaRemote, options = {}) {
       serverToken: 'synthetic-client' }, { provider: forwarding });
     origin = `http://127.0.0.1:${(await remote.listen()).port}`;
   }
-  return { origin, payload, observed, counts, serverCalls, entered: entered.promise,
+  return { origin, payload, observed, counts, serverCalls, listener: remote?.server ?? server.server,
+    entered: entered.promise,
     disconnected: disconnected.promise, signals,
     post: (body = protocol.body, headers, signal) =>
       post(origin, protocol.path, body, agent, headers, signal, options.onChunk),
