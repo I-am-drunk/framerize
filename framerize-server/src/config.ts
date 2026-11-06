@@ -135,17 +135,34 @@ export function loadConfig(values: unknown = {}, env: Readonly<Record<string, st
   return Object.freeze(config) as unknown as ServerConfig;
 }
 
-export async function readServerToken(config: ServerConfig): Promise<string> {
+export async function readServerToken(config: ServerConfig, signal?: AbortSignal): Promise<string> {
+  signal?.throwIfAborted();
   if (!config.serverTokenFile) return config.serverToken;
+  const pending = readServerTokenFile(config.serverTokenFile, signal);
+  if (!signal) return pending;
+  let abort = () => {};
+  try {
+    return await Promise.race([pending, new Promise<never>((resolveUnused, reject) => {
+      abort = () => reject(signal.reason);
+      signal.addEventListener('abort', abort, { once: true });
+      if (signal.aborted) abort();
+    })]);
+  } finally { signal.removeEventListener('abort', abort); }
+}
+
+async function readServerTokenFile(path: string, signal?: AbortSignal): Promise<string> {
   let file: FileHandle | undefined;
   try {
-    file = await open(config.serverTokenFile, constants.O_RDONLY | constants.O_NONBLOCK);
+    file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
+    signal?.throwIfAborted();
     const info = await file.stat();
+    signal?.throwIfAborted();
     if (!info.isFile() || info.size > 16_384 || (process.platform !== 'win32' && (info.mode & 0o077))) invalid('server token file');
     const buffer = Buffer.alloc(16_385);
     let length = 0;
     while (length < buffer.length) {
       const { bytesRead } = await file.read(buffer, length, buffer.length - length, null);
+      signal?.throwIfAborted();
       if (!bytesRead) break;
       length += bytesRead;
     }
@@ -153,6 +170,6 @@ export async function readServerToken(config: ServerConfig): Promise<string> {
     const token = buffer.subarray(0, length).toString('utf8').trim();
     if (!token || !/^[A-Za-z0-9._~+/-]+=*$/.test(token)) invalid('server token file');
     return token;
-  } catch { throw new ServerTokenFileError(); }
+  } catch { signal?.throwIfAborted(); throw new ServerTokenFileError(); }
   finally { await file?.close(); }
 }

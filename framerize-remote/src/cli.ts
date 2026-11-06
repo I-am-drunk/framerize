@@ -5,8 +5,8 @@ import { HELP, SETUP_HELP, SERVE_HELP, VERSION } from './present.js';
 import { profilePath } from './profilePaths.js';
 import { ClientCleanupError, diagnostic, diagnosticText, RemoteDiagnosticError } from './diagnostics.js';
 import { LISTEN_SPEC, parseListenOptions, type ListenOverrides } from './listenOptions.js';
-import { isLoopbackHost } from './hostPolicy.js';
 import { offerClientSetup } from './clientCli.js';
+import { withEnvOverrides } from './frmEnv.js';
 
 const GLOBAL_SPEC = { config: 'string', json: 'boolean' } as const;
 
@@ -62,16 +62,18 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
     const stop = (): void => controller.abort();
     process.on('SIGINT', stop);
     process.on('SIGTERM', stop);
+    process.on('SIGHUP', stop);
     try {
       const overrides = await runSetup(passthrough, configPath, process.env, io.ask, controller.signal);
       controller.signal.throwIfAborted();
       io.stdout(json ? `${JSON.stringify({ saved: true })}\n` : 'Profile saved.\n');
       if (passthrough.includes('--start')) return serve(configPath, io, json, overrides, true);
       if (!json) {
-        const clientEnv = { ...process.env };
-        if (overrides.host !== undefined) delete clientEnv.FRM_HOST;
-        if (overrides.port !== undefined) delete clientEnv.FRM_PORT;
-        const offer = await offerClientSetup(configPath, io, clientEnv, undefined, controller.signal);
+        const clientEnv = withEnvOverrides(process.env, {
+          ...(overrides.host !== undefined ? { FRM_HOST: undefined } : {}),
+          ...(overrides.port !== undefined ? { FRM_PORT: undefined } : {}),
+        });
+        const offer = await offerClientSetup(configPath, io, clientEnv, undefined, controller.signal, true);
         if (offer === 'cancelled' || controller.signal.aborted) throw new RemoteDiagnosticError('aborted');
         io.stdout('Next: frm serve\n');
       }
@@ -79,6 +81,7 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
     } finally {
       process.off('SIGINT', stop);
       process.off('SIGTERM', stop);
+      process.off('SIGHUP', stop);
     }
   }
   if (command === 'check') {
@@ -106,7 +109,7 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
 }
 
 export async function serve(configPath: string, io: CliIo, json: boolean,
-  overrides: ListenOverrides = {}, setupClients = false): Promise<number> {
+  overrides: ListenOverrides = {}, afterSetup = false): Promise<number> {
   const controller = new AbortController();
   let handle: ServeHandle | undefined;
   let stoppedCleanly = false;
@@ -116,18 +119,19 @@ export async function serve(configPath: string, io: CliIo, json: boolean,
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
   try {
-    handle = await startServe(configPath, process.env, controller.signal, overrides);
+    handle = await startServe(configPath, process.env, controller.signal, overrides, afterSetup);
     const { host, port } = handle.address;
     const address = host === '0.0.0.0' ? '127.0.0.1' : host === '::' ? '[::1]'
       : host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
-    const exposed = !isLoopbackHost(host);
+    const exposed = !handle.loopback;
     const warning = exposed ? `Non-loopback HTTP enabled on port ${port}.\n` : '';
     io.stdout(json ? `${JSON.stringify({ ready: true, listening: { host, port },
       ...(exposed ? { exposure: 'non-loopback-http' } : {}) })}\n`
       : `Remote readiness passed.\n${warning}Local API: http://${address}:${port}/v1\nStop: Ctrl+C\n`);
-    if (setupClients && !json) {
-      const offer = await offerClientSetup(configPath, io, { ...process.env, FRM_HOST: host, FRM_PORT: String(port) },
-        undefined, controller.signal);
+    if (afterSetup && !json) {
+      const offer = await offerClientSetup(configPath, io, withEnvOverrides(process.env,
+        { FRM_HOST: host, FRM_PORT: String(port) }),
+        undefined, controller.signal, true);
       if (offer === 'cancelled') stop();
     }
     await stopped;

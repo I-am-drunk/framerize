@@ -5,6 +5,7 @@ import { DEFAULT_BACKEND_TIMINGS } from './backendConfig.js';
 import { diagnostic, diagnosticText, RemoteDiagnosticError, type DiagnosticCode } from './diagnostics.js';
 import { readTailscaleStatus } from './tailscale.js';
 import type { ListenOverrides } from './listenOptions.js';
+import { isLoopbackHost } from './hostPolicy.js';
 
 export interface CommandResult {
   readonly exitCode: number;
@@ -18,7 +19,7 @@ export async function runCheck(
   tailscale = false,
   signal: AbortSignal = new AbortController().signal,
 ): Promise<CommandResult> {
-  const { backend } = await resolveInstance(configPath, env);
+  const { backend } = await resolveInstance(configPath, env, undefined, false, signal);
   try {
     let { readiness: result, code } = await backend.diagnose({ signal });
     const local = tailscale ? await readTailscaleStatus({ signal, ...(env ? { env } : {}) }) : undefined;
@@ -42,6 +43,7 @@ export const SERVE_PID_HEADER = 'x-framerize-remote-pid';
 
 export interface ServeHandle {
   readonly address: { host: string; port: number };
+  readonly loopback: boolean;
   close(): Promise<void>;
 }
 
@@ -60,8 +62,9 @@ export async function startServe(
   env?: NodeJS.ProcessEnv,
   signal: AbortSignal = new AbortController().signal,
   overrides: ListenOverrides = {},
+  afterSetup = false,
 ): Promise<ServeHandle> {
-  const { config, localToken, backend } = await resolveInstance(configPath, env, overrides);
+  const { config, localToken, backend } = await resolveInstance(configPath, env, overrides, afterSetup, signal);
   let close = async (): Promise<void> => { await backend.close(); };
   try {
     signal.throwIfAborted();
@@ -92,7 +95,8 @@ export async function startServe(
       throw new RemoteDiagnosticError('listen_failed');
     } finally { signal.removeEventListener('abort', cancelListen); }
     signal.throwIfAborted();
-    return { address: { host: config.host, port: info.port }, close };
+    return { address: { host: config.host, port: info.port },
+      loopback: isLoopbackHost(info.address), close };
   } catch (error) {
     try { await close(); }
     catch { throw new StartupCleanupError(); }

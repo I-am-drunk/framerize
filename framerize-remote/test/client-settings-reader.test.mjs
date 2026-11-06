@@ -70,7 +70,7 @@ test('a settings FIFO cannot hold a cancelled version lookup open',
   { skip: process.platform === 'win32', timeout: 5000 }, async context => {
     const directory = await mkdtemp(join(tmpdir(), 'frm-settings-reader-fifo-'));
     const file = join(directory, 'settings.json');
-    let lookup, settled = false;
+    let lookup, reading, settled = false;
     context.after(async () => {
       try {
         if (lookup && !settled) {
@@ -78,7 +78,10 @@ test('a settings FIFO cannot hold a cancelled version lookup open',
           await release.close();
           await bounded(lookup);
         }
-      } finally { await rm(directory, { recursive: true, force: true }); }
+      } finally {
+        try { if (reading) await bounded(reading); }
+        finally { await rm(directory, { recursive: true, force: true }); }
+      }
     });
     const fifo = spawnSync('mkfifo', ['-m', '600', file], { encoding: 'utf8' });
     assert.equal(fifo.status, 0, fifo.error?.message || fifo.stderr);
@@ -92,9 +95,9 @@ test('a settings FIFO cannot hold a cancelled version lookup open',
       signal: controller.signal,
       read: path => {
         if (path !== file) return Promise.resolve(null);
-        const result = readText(path);
+        reading = readText(path);
         entered.resolve();
-        return result;
+        return reading;
       },
       fetch: async () => { effects.push('fetch'); return null; },
       runner: { capture: async () => { effects.push('command'); return null; } },
@@ -103,6 +106,8 @@ test('a settings FIFO cannot hold a cancelled version lookup open',
     controller.abort(new Error('Synthetic cancellation'));
     assert.equal(await bounded(lookup), null);
     assert.deepEqual(effects, []);
+    // Cancellation may settle before the existing read closes its file handle.
+    await bounded(reading);
     let readerCheck;
     try {
       readerCheck = await open(file, constants.O_WRONLY | constants.O_NONBLOCK);

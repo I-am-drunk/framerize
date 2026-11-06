@@ -69,10 +69,10 @@ async function fixture(context) {
 }
 
 for (const command of ['setup', 'up']) {
-  for (const signal of ['SIGINT', 'SIGTERM']) {
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
     test(`frm ${command} cancels its initial address prompt on ${signal}`, {
       timeout: 10000, skip: process.platform === 'win32'
-        ? 'Windows kill does not deliver catchable POSIX SIGINT/SIGTERM' : false,
+        ? 'Windows kill does not deliver these catchable POSIX signals' : false,
     }, async context => {
       const state = await fixture(context);
       let stdout = '';

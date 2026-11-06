@@ -78,8 +78,8 @@ export async function runAccountsCommand(argv: readonly string[], deps: AccountC
   const { positional, values, flags } = parse(action ? argv.slice(1) : argv);
   if (positional.length > 1) throw new CliUsageError('Invalid option');
   const json = flags.has('json');
-  const store = await resolveStore(values, deps.env);
-  const raw = await readRawAccounts(store.accounts);
+  const store = await resolveStore(values, deps.env, deps.signal);
+  const raw = await readRawAccounts(store.accounts, deps.signal);
   const id = positional[0];
   if (!action && deps.ask && !json) return menu(store, raw, deps);
   if (!action || action === 'list') return list(store, raw.accounts, json, deps.stdout);
@@ -126,6 +126,12 @@ async function sessionInput(values: Record<string, string>, flags: Set<string>,
 // Writes accounts, then settings. A failed settings write restores the prior accounts bytes.
 async function commit(store: StorePaths, previous: RawAccounts, next: readonly RawAccount[],
   settings: Readonly<Record<string, unknown>> | undefined, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  const current = await readRawAccounts(store.accounts, signal);
+  signal?.throwIfAborted();
+  if (current.text !== previous.text) {
+    throw new AccountCommandError('Accounts changed during this command. Retry the command.');
+  }
   await writeAccounts(store.accounts, next, signal);
   if (!settings) return;
   try { await saveSettings(store, settings, {}, signal); }
@@ -218,9 +224,10 @@ async function menu(store: StorePaths, raw: RawAccounts, deps: AccountCliDepende
 }
 
 // Effective settings after flags, environment and saved defaults. Credentials appear only as names.
-async function effective(store: StorePaths, values: Record<string, string>, env: AccountCliDependencies['env']) {
+async function effective(store: StorePaths, values: Record<string, string>,
+  env: AccountCliDependencies['env'], signal?: AbortSignal) {
   const flags = Object.fromEntries(Object.entries(values).filter(([name]) => Object.hasOwn(ENVIRONMENT, name)));
-  const loaded = await configuredSettings(store.saved ? store.settings : undefined, flags, env);
+  const loaded = await configuredSettings(store.saved ? store.settings : undefined, flags, env, signal);
   // A literal token from saved config or the environment never leaves this function.
   const { serverToken: _token, ...config } = { ...loaded.config, serverToken: '' };
   const source = (name: string) => Object.hasOwn(flags, name) ? 'flag'
@@ -235,10 +242,10 @@ async function effective(store: StorePaths, values: Record<string, string>, env:
 export async function runConfigureCommand(argv: readonly string[], deps: AccountCliDependencies): Promise<number> {
   const { positional, values, flags } = parse(argv);
   if (positional.length) throw new CliUsageError('Invalid option');
-  const store = await resolveStore(values, deps.env);
+  const store = await resolveStore(values, deps.env, deps.signal);
   const json = flags.has('json');
   if (flags.has('show')) {
-    const report = await effective(store, values, deps.env);
+    const report = await effective(store, values, deps.env, deps.signal);
     print(deps.stdout, json, report, [`settings: ${report.settingsFile}${report.saved ? '' : ' (not saved)'}`,
       ...Object.entries(report.config).map(([name, value]) => `${name}: ${String(value)} (${report.sources[name]})`),
       `serverToken: ${report.serverToken}`].join('\n'));
@@ -255,7 +262,7 @@ export async function runConfigureCommand(argv: readonly string[], deps: Account
 type Ask = (question: string) => Promise<string> | undefined;
 async function configureFramer(store: StorePaths, values: Record<string, string>, json: boolean,
   deps: AccountCliDependencies, asked: Ask): Promise<number> {
-  const raw = await readRawAccounts(store.accounts);
+  const raw = await readRawAccounts(store.accounts, deps.signal);
   const choices = raw.accounts.filter(usable);
   if (!choices.length && !values.accountId) {
     if (!deps.ask) throw new AccountCommandError('Add an account first with accounts add ID --select');

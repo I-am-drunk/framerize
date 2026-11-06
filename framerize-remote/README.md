@@ -47,7 +47,8 @@ It saves the Server origin and any
 token from the link in `FRM_HOME/framerize-remote.json`, mode 0600. It checks
 Server readiness, then installs and starts the background service. Clients use
 `http://127.0.0.1:8788/v1`. A link without `#token=` is for a Server with no
-API token. `frm up ORIGIN` saves a plain origin and keeps any saved token.
+API token. `frm up ORIGIN` saves a plain origin and keeps a saved Server token
+only when the canonical HTTP(S) origin is unchanged.
 
 Running `frm` with no command and no saved profile does the same in a terminal:
 it asks for a link or address. In a terminal, `connect` then offers to set up
@@ -66,11 +67,29 @@ Rerunning `up` with unchanged settings checks the running service without restar
 it. Where no service manager is available, `up` saves the profile and asks you to
 keep `frm serve` running.
 
+`up` and `setup` allow one writer per profile, including commands in separate
+processes. A concurrent writer reports `profile_busy`; retry after the active
+command finishes or rolls back. Address prompts and validation finish before
+locking; `up` rereads the saved profile after acquiring the lock. Normal
+completion, errors and cancellation release it. SIGINT, SIGTERM and SIGHUP
+cancel `up` and `setup`; lock-release failures report `profile_lock_cleanup`.
+
+After a crash, SIGKILL or failed cleanup, the lock can remain. For profile
+`remote.json`, it is `.remote.json.lock` beside it. It normally contains the
+owning process ID but can be empty if the process died before writing it.
+Confirm that all commands using this profile have stopped before deleting
+the lock and retrying.
+Do not remove a lock while its command is still running.
+
 `FRM_REMOTE`, `FRM_HOST` and `FRM_PORT` apply to `up`. A saved port `0` becomes
 8788, because the service needs a fixed port. `FRM_SERVER_TOKEN` and
 `FRM_LOCAL_TOKEN` also apply: `up` saves their values in the profile before it
 checks readiness, so the service can use them. A token in the link takes
 precedence over `FRM_SERVER_TOKEN`.
+
+Changing the origin also drops an inherited Server token when `FRM_REMOTE`
+overrides a saved profile. Supply a pairing token or `FRM_SERVER_TOKEN` to use
+credentials for the new destination.
 
 ## Run in the foreground
 
@@ -249,6 +268,12 @@ when the directory setting is invalid.
 Saves are atomic and owner-only on POSIX. New file references become absolute
 paths; relative references in existing profiles resolve beside the profile.
 Omit `--start` to save without loading credentials or contacting the server.
+
+When `setup` starts Remote or offers client setup in the same invocation,
+it uses the remote URL and token references just saved. Ambient
+`FRM_SERVER_TOKEN` and `FRM_LOCAL_TOKEN` still apply when the profile has no
+corresponding reference. Later `serve`, `check` and `client` commands use the
+usual `FRM_*` overrides.
 
 Setup errors identify a missing server address, invalid token reference,
 invalid listen setting or time limit, or a profile that could not be saved.

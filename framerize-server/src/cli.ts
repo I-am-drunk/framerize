@@ -187,7 +187,7 @@ export async function run(argv: readonly string[] = process.argv.slice(2),
             readStdin: dependencies.readStdin ?? (() => readStdin(controller.signal)) });
       }
       return await (await import('./setup.js')).runSetupCommand(argv, { stdout: events.stdout,
-        env: { ...(dependencies.env ?? process.env) }, ...dependencies.setup,
+        env: dependencies.env ?? process.env, ...dependencies.setup,
         signal: controller.signal, ...(ask ? { ask } : {}) });
     } finally {
       events.off('SIGINT', stop);
@@ -196,10 +196,6 @@ export async function run(argv: readonly string[] = process.argv.slice(2),
   }
   const { command, values } = parseArgs(argv);
   const { config: explicitPath, ...settings } = values;
-  const path = explicitPath ?? await defaultSettingsPath(dependencies.env ?? process.env);
-  const loaded = await configuredSettings(path, settings, dependencies.env ?? process.env);
-  const { config, env } = loaded;
-  const logger = dependencies.logger ?? createLogger({ stream: events.stderr, level: config.logLevel });
   const controller = new AbortController();
   let provider: ServerProvider | undefined;
   let app: CliInstance | undefined;
@@ -219,8 +215,12 @@ export async function run(argv: readonly string[] = process.argv.slice(2),
   events.on('SIGINT', stop);
   events.on('SIGTERM', stop);
   try {
+    const path = explicitPath ?? await defaultSettingsPath(dependencies.env ?? process.env, controller.signal);
+    const loaded = await configuredSettings(path, settings, dependencies.env ?? process.env, controller.signal);
+    const { config, env } = loaded;
+    const logger = dependencies.logger ?? createLogger({ stream: events.stderr, level: config.logLevel });
     const serverConfig = loadConfig({
-      ...config, serverTokenFile: '', serverToken: await readServerToken(config),
+      ...config, serverTokenFile: '', serverToken: await readServerToken(config, controller.signal),
     }, env);
     const makeProvider: NonNullable<CliDependencies['createProvider']> =
       dependencies.createProvider ?? (await import('./backend.js')).createConfiguredProvider;
