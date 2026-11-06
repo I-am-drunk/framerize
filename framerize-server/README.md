@@ -154,6 +154,16 @@ If startup reports "Account metadata file is unavailable or invalid", check
 [JSON account format](docs/framer-backend.md#select-a-json-account).
 The diagnostic does not print the path or file contents.
 
+Account additions, logins, removals and enable/disable changes allow one writer
+per accounts file, including separate CLI processes. A competing edit fails
+without changing that file. Retry after the active command finishes. The lock
+covers an edit's selection save and rollback; prompts finish before it is acquired.
+For `accounts.json`, the lock is `.accounts.json.lock` in the same directory.
+Normal completion, errors and cancellation release it. After a crash or a
+reported lock-release failure, confirm that all account edits have stopped
+before removing the lock and retrying. Its contents normally identify the
+owning process, but can be empty after a crash. Manual file edits do not use it.
+
 If startup reports "Select one configured Framer account", check `--account-id`
 or `FRAMERIZE_SERVER_ACCOUNT`, and `--accounts-file` or
 `FRAMERIZE_SERVER_ACCOUNTS`. Use the exact `id` of one enabled account with a
