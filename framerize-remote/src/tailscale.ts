@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { isIPv4 } from 'node:net';
 
 const labels = {
   running: 'The local Tailscale daemon is running with a tailnet IPv4 address.',
@@ -109,12 +110,9 @@ export interface TailscaleStatus {
 }
 
 export function isTailscaleIpv4Address(address: string): boolean {
-  const parts = address.split('.');
-  if (parts.length !== 4) return false;
-  const [first, second, third, fourth] = parts.map((part) => Number.parseInt(part, 10));
-  if (first === undefined || second === undefined || third === undefined || fourth === undefined
-    || [first, second, third, fourth].some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
-  return first === 100 && second >= 64 && second <= 127;
+  if (!isIPv4(address)) return false;
+  const [first, second] = address.split('.').map(Number);
+  return first === 100 && second! >= 64 && second! <= 127;
 }
 
 function normalizeMagicDnsName(dnsName: unknown): string | null {
