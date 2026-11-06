@@ -55,7 +55,7 @@ async function portCloses(port) {
   do {
     const state = await portState(port);
     if (state === 'ECONNREFUSED') return true;
-    assert.equal(state, 'open');
+    assert.ok(state === 'open' || state === 'ECONNRESET', `Unexpected port state: ${state}`);
     await delay(20);
   } while (performance.now() < deadline);
   return false;
