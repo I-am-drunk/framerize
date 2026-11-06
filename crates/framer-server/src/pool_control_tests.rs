@@ -765,7 +765,7 @@ fn workspace_credit_exhaustion_can_repick_an_unpinned_account() {
     assert!(crate::should_retry_account(
         "chunk 0 retry died (fallback off): credits-exhausted"));
     for error in [
-        "risk-refused",
+        "retryable 403 on /ai/v3/responses: policy",
         "retryable 403 on /ai/v3/responses: policy",
         "upstream HTTP 404: model blocked by guardrail",
         "sidecar timeout",
@@ -773,6 +773,11 @@ fn workspace_credit_exhaustion_can_repick_an_unpinned_account() {
     ] {
         assert!(!crate::should_retry_account(error), "unexpected replay for {error}");
     }
+    assert!(crate::should_retry_account("risk-refused"));
+    assert!(crate::should_retry_account("account-cooling:60"));
+    assert!(crate::should_wait_for_account_cooldown("risk-refused"));
+    assert!(crate::should_wait_for_account_cooldown("account-cooling:60"));
+    assert!(!crate::should_wait_for_account_cooldown("credits-exhausted"));
 }
 
 #[tokio::test]
@@ -1259,10 +1264,19 @@ async fn handler_response(state: &AppState, route: Route, stream: bool)
 
 async fn handler_response_with_session(state: &AppState, route: Route, stream: bool, session: Option<&str>)
     -> Result<axum::response::Response, ApiError> {
+    handler_response_with_account(state, route, stream, session, None).await
+}
+
+async fn handler_response_with_account(state: &AppState, route: Route, stream: bool,
+    session: Option<&str>, account: Option<AccountId>)
+    -> Result<axum::response::Response, ApiError> {
     let mut headers = HeaderMap::new();
     // These pool tests exercise automatic selection and account rotation.
     // Explicit-account requests have their own no-repick fixtures.
     if let Some(session) = session { headers.insert("x-framerize-session", session.parse().unwrap()); }
+    if let Some(account) = account {
+        headers.insert("x-framerize-account", account.0.to_string().parse().unwrap());
+    }
     match route {
         Route::Free => crate::free_complete(state.clone(), &headers, ClientDialect::AnthropicMessages,
             json!({"model":"claude-opus-5-5","stream":stream,
@@ -1357,7 +1371,8 @@ async fn failure_keeps_original_account_until_unread_body_drops() {
         let (state, ports) = fixture(1, 2);
         ports.fail_first_account.store(true, Ordering::SeqCst);
         let before_chats = [crate::stable_session(&id(1)), crate::stable_session(&id(2))];
-        let response = handler_response_with_session(&state, route, true, requested_session).await.unwrap();
+        let response = handler_response_with_account(&state, route, true, requested_session,
+            Some(id(1))).await.unwrap();
         until(|| ports.request_started.load(Ordering::SeqCst) == 1).await;
         assert_original_chat(&ports, requested_session, &before_chats);
         let snapshot = state.serving_accounts.residents.snapshot().unwrap();
@@ -1653,9 +1668,10 @@ async fn handlers_recheck_account_after_waiting_for_the_model_gate() {
                 };
                 let key = format!("team-1:{model}");
                 let permit = state.gate.acquire(&key).await;
-                let mut request = Box::pin(handler_response(&state, route, stream));
+                let mut request = Box::pin(handler_response_with_account(&state, route, stream,
+                    None, Some(id(1))));
                 let early = if stream && matches!(route, Route::Free) {
-                    let response = request.as_mut().await;
+                    let response = request.as_mut().await.unwrap();
                     until(|| state.serving_accounts.residents.snapshot().unwrap().occupied == 1).await;
                     Some(response)
                 } else {
@@ -1667,11 +1683,13 @@ async fn handlers_recheck_account_after_waiting_for_the_model_gate() {
                 assert!(ports.events.lock().unwrap().iter().all(|event| event.0 == "status"));
                 ports.records.lock().unwrap()[0].cooling_until_ms = Some(framer_core::rotation::now_ms() + 60_000);
                 drop(permit);
-                let response = match early { Some(response) => response, None => request.await };
-                if stream && !matches!(route, Route::Compat) {
-                    assert_waiting_response(response).await;
+                let response = match early { Some(response) => Some(response), None => None };
+                if let Some(response) = response {
+                    drop(response);
                     until(|| slot(&state, id(1)).users == 0).await;
-                } else { assert_cooling_response(response, false).await; }
+                } else {
+                    assert_cooling_response(request.await, false).await;
+                }
                 assert_eq!(ports.request_started.load(Ordering::SeqCst), 0);
                 assert!(ports.events.lock().unwrap().iter().all(|event| event.0 == "status"));
                 assert_eq!(slot(&state, id(1)).users, 0);
@@ -1788,7 +1806,8 @@ async fn failed_requests_never_acquire_another_accounts_gate() {
         let gate_key = format!("team-2:{model}");
         let held = state.gate.acquire(&gate_key).await;
         let response = tokio::time::timeout(Duration::from_secs(2),
-            handler_response(&state, route, stream)).await.unwrap().unwrap();
+            handler_response_with_account(&state, route, stream, None, Some(id(1))))
+            .await.unwrap().unwrap();
         let body = to_bytes(response.into_body(), 65536).await.unwrap();
         assert!(String::from_utf8_lossy(&body).contains("HTTP 403"));
         assert_eq!(ports.request_started.load(Ordering::SeqCst), 1);

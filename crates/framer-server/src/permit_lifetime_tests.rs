@@ -20,7 +20,7 @@ const RESPONSE_MODEL: &str = "gpt-6-astra";
 async fn open_stream_reports_local_capacity_and_releases_its_permit() {
     for messages in [false, true] {
         let mut f = Fixture::new();
-        let response = chain(f.state.clone(), HeaderMap::new(), messages, true).await.unwrap();
+        let response = chain(f.state.clone(), f.headers(0), messages, true).await.unwrap();
         let call = f.next().await;
         call.reply.send(Err("account-cooling:600; device allowance exhausted".into())).ok().unwrap();
         call.dropped.await.unwrap();
@@ -67,18 +67,15 @@ async fn unbound_stream_distinguishes_deferred_selection_from_an_admitted_accoun
         f.accounts[1].cooling_until_ms = None;
         for account in &f.accounts { f.state.state.upsert(account).await.unwrap(); }
         let first = f.state.state.get(f.accounts[0].id).await.unwrap().unwrap();
-        if messages {
-            // Messages opens before selection. No request used the first account.
-            let call = f.next().await;
-            assert_eq!(call.account, f.accounts[1].id);
-            call.reply.send(Ok(success("messages"))).ok().unwrap();
-            delivered(response).await;
-            call.dropped.await.unwrap();
-        } else {
-            let body = tokio::time::timeout(WAIT, to_bytes(response.into_body(), 65536))
-                .await.unwrap().unwrap();
-            assert!(String::from_utf8_lossy(&body).contains("saved account cooldown"));
-        }
+        // Messages defers admission until streaming starts; Responses can cool
+        // after initial selection while waiting for the model gate. Both must
+        // pick the now-healthy peer before sending any content.
+        let call = f.next().await;
+        assert_eq!(call.account, f.accounts[1].id, "messages={messages}");
+        call.reply.send(Ok(success(if messages { "messages" } else { "responses" })))
+            .ok().unwrap();
+        delivered(response).await;
+        call.dropped.await.unwrap();
         assert_eq!(f.state.state.get(first.id).await.unwrap().unwrap().cooling_until_ms,
             first.cooling_until_ms);
         f.no_call();
@@ -297,7 +294,7 @@ async fn failure_keeps_identity(messages: bool, stream: bool, cancel_wait: bool)
     let first_key = f.key(0, model);
     let next_key = f.key(1, model);
     let destination = f.state.gate.acquire(&next_key).await;
-    let mut task = AbortOnDrop(tokio::spawn(chain(f.state.clone(), HeaderMap::new(), messages, stream)));
+    let mut task = AbortOnDrop(tokio::spawn(chain(f.state.clone(), f.headers(0), messages, stream)));
     let first = f.next().await;
     assert_eq!(first.account, f.accounts[0].id);
     f.loaded(0).await;

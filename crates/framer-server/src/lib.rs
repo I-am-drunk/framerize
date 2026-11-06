@@ -942,17 +942,17 @@ fn is_castle_refusal(e: &str) -> bool {
     framer_core::error::is_security_refusal(e)
 }
 
-fn is_server_cooling(error: &str) -> bool {
-    framer_core::error::chain_error_cause(error).strip_prefix("server-cooling:")
-        .and_then(|seconds| seconds.parse::<u64>().ok()).is_some()
+fn should_retry_account(error: &str) -> bool {
+    // Only definitive account-local failures justify moving the request.
+    // Provider policy errors and ambiguous transport failures stay terminal.
+    framer_core::error::is_security_refusal(error)
+        || framer_core::error::AccountCooldown::from_error(error).is_some()
+        || framer_core::error::chain_error_cause(error) == "credits-exhausted"
 }
 
-fn should_retry_account(error: &str) -> bool {
-    // HTTP 402 is a workspace/account capacity signal, not an account refusal.
-    // An unpinned request can safely try another account before any response
-    // content is published. Keep refusals, policy errors and ambiguous
-    // transport failures bound to the original request.
-    framer_core::error::chain_error_cause(error) == "credits-exhausted"
+fn should_wait_for_account_cooldown(error: &str) -> bool {
+    framer_core::error::is_security_refusal(error)
+        || framer_core::error::AccountCooldown::from_error(error).is_some()
 }
 
 /// Pick a serving account excluding the ones already tried for this request.
@@ -1001,6 +1001,54 @@ async fn pick_fresh_account(
         }
     }.await;
     pool_control::AcquisitionOutcome { result, cleanup_confirmed }
+}
+
+/// Walk untried accounts, then wait for the earliest persisted account
+/// cooldown and begin another pass. The caller must have received a retryable
+/// account-local failure and must not have published response content.
+async fn pick_account_after_failure<F>(
+    s: &AppState,
+    tried: &mut Vec<String>,
+    wait_for_cooldown: bool,
+    cancelled: F,
+) -> pool_control::AcquisitionOutcome<(ManagedAccount, framer_core::resident_pool::ResidentLease)>
+where
+    F: Fn() -> bool + Send + Sync,
+{
+    let next = pick_fresh_account(s, tried).await;
+    if !wait_for_cooldown {
+        return next;
+    }
+    if !matches!(&next.result, Err(ApiError::AccountCooling { .. }))
+        || !next.cleanup_confirmed
+    {
+        return next;
+    }
+    if !all_eligible_accounts_cooling(s).await {
+        return next;
+    }
+
+    tried.clear();
+    loop {
+        let mut budget = account_wait::MAX_WAIT;
+        let waited = account_wait::pick_cancellable(
+            s, &[], account_wait::WaitFor::Capacity, &mut budget, &cancelled,
+        ).await;
+        if matches!(&waited.result, Err(ApiError::AccountCooling { .. }))
+            && !cancelled() && all_eligible_accounts_cooling(s).await {
+            continue;
+        }
+        return waited;
+    }
+}
+
+async fn all_eligible_accounts_cooling(s: &AppState) -> bool {
+    let Ok(accounts) = s.state.list().await else { return false; };
+    let now = framer_core::rotation::now_ms();
+    let eligible: Vec<_> = accounts.iter().filter(|account|
+        s.serving_accounts.allows(&account.id) && account.is_eligible()).collect();
+    !eligible.is_empty() && eligible.iter().all(|account|
+        account.cooling_until_ms.is_some_and(|until| until > now))
 }
 
 async fn current_account(s: &AppState, id: AccountId) -> Result<ManagedAccount, ApiError> {
@@ -1241,8 +1289,8 @@ async fn free_complete(
     let requested_account = hdr(headers, "x-framerize-account");
     let allow_account_repick = requested_account.is_none();
     let gate_model = anthro["model"].as_str().unwrap_or("unknown").to_string();
-    // A queued account can cool before its turn. Try at most two peers,
-    // releasing this iteration's lease and permit before selecting another.
+    // A queued account can cool before its turn. Try every available peer;
+    // when none remain, wait for the earliest account cooldown to expire.
     let mut skipped = Vec::new();
     let (account, residency, mut session, mut scope, mut first_permit) = loop {
         let pool = s.state.list().await.map_err(ApiError::Internal)?;
@@ -1250,6 +1298,18 @@ async fn free_complete(
             &s, pool, requested_account.as_deref(), &skipped).await;
         let lease = match acquired.result {
             Ok(lease) => lease,
+            Err(ApiError::AccountCooling { .. }) if allow_account_repick
+                && acquired.cleanup_confirmed => {
+                    let cancelled = operation_ownership::request_cancelled();
+                    let waited = pick_account_after_failure(&s, &mut skipped, true,
+                        || cancelled.as_ref().is_some_and(|check| check())).await;
+                    match waited.result {
+                        Ok((_, lease)) => lease,
+                        Err(error) => return Ok(operation_ownership::completed_response(
+                            axum::response::IntoResponse::into_response(error),
+                            waited.cleanup_confirmed)),
+                    }
+                },
             Err(error) if skipped.is_empty() && acquired.cleanup_confirmed =>
                 return Err(operation_ownership::completed_preflight(error)),
             Err(error) => return Ok(operation_ownership::completed_response(
@@ -1259,7 +1319,7 @@ async fn free_complete(
         let residency = RequestResidency::new(lease);
         let account = match current_account(&s, selected_id).await {
             Ok(account) => account,
-            Err(ApiError::AccountCooling { .. }) if allow_account_repick && skipped.len() < 2 => {
+            Err(ApiError::AccountCooling { .. }) if allow_account_repick => {
                 skipped.push(selected_id.0.to_string());
                 continue;
             },
@@ -1296,7 +1356,7 @@ async fn free_complete(
         });
         match current_account(&s, account.id).await {
             Ok(_) => {},
-            Err(ApiError::AccountCooling { .. }) if allow_account_repick && skipped.len() < 2 => {
+            Err(ApiError::AccountCooling { .. }) if allow_account_repick => {
                 skipped.push(account.id.0.to_string());
                 continue;
             },
@@ -1351,7 +1411,6 @@ async fn free_complete(
     let mut result;
     let mut cleanup_confirmed = true;
     let mut tried_accounts: Vec<String> = Vec::new();
-    let mut acct_attempt = 0u32;
     'account_retry: loop {
     {
         if let Err(error) = cfg.check_cancelled() {
@@ -1374,17 +1433,14 @@ async fn free_complete(
             result = Err(error);
             break 'account_retry;
         }
-        if let Err(error) = current_account(&s, account.id).await {
-            return Ok(operation_ownership::completed_response(
-                axum::response::IntoResponse::into_response(error), cleanup_confirmed));
-        }
+        let admission = current_account(&s, account.id).await;
+        let attempted = admission.is_ok();
         if let Err(error) = cfg.check_cancelled() {
             result = Err(error);
             break 'account_retry;
         }
-        result = s
-            .client
-            .freechat_long(
+        result = match admission {
+            Ok(_) => s.client.freechat_long(
                 &session,
                 s.browser.as_ref(),
                 &account.id,
@@ -1394,24 +1450,36 @@ async fn free_complete(
                 &chat_session,
                 Some(&observe_content),
             )
-            .await;
+            .await,
+            Err(error @ ApiError::AccountCooling { .. }) if allow_account_repick =>
+                Err(chain_admission_error(error)),
+            Err(error) => {
+                drop(permit);
+                return Ok(operation_ownership::completed_response(
+                    axum::response::IntoResponse::into_response(error), cleanup_confirmed));
+            }
+        };
         drop(permit);
         // Later success cannot confirm cleanup lost by an earlier attempt.
         cleanup_confirmed &= !matches!(&result, Err(error) if pool_control::cleanup_unconfirmed(error));
         result = residency.observe_result(account.id, result);
         // The guard retains the last admitted snapshot and records each refusal once.
-        cfg.admission.as_ref().unwrap().finished(result.as_ref().err().map(String::as_str)).await;
+        if attempted {
+            cfg.admission.as_ref().unwrap().finished(result.as_ref().err().map(String::as_str)).await;
+        }
         // The chain owns the bounded rate retry budget. Do not start it again
         // after exhaustion or replay chunks already delivered by that chain.
     }
 
     // Local capacity recovery retains the existing ownership checks.
-    // Security refusals are final for this request.
     if cfg.is_cancelled() { break; }
-    if allow_account_repick && matches!(&result, Err(e) if should_retry_account(e)) && acct_attempt < 2 {
+    if allow_account_repick && matches!(&result, Err(e) if should_retry_account(e)) {
         tried_accounts.push(account.id.0.to_string());
         drop(residency.take());
-        let acquired = pick_fresh_account(&s, &tried_accounts).await;
+        let request_cancelled = operation_ownership::request_cancelled();
+        let wait_for_cooldown = matches!(&result, Err(error) if should_wait_for_account_cooldown(error));
+        let acquired = pick_account_after_failure(&s, &mut tried_accounts, wait_for_cooldown,
+            || request_cancelled.as_ref().is_some_and(|check| check())).await;
         cleanup_confirmed &= acquired.cleanup_confirmed;
         match acquired.result {
             Ok((next, lease)) => {
@@ -1438,7 +1506,6 @@ async fn free_complete(
                 cfg.cancelled = cancelled.clone();
                 chat_session = hdr(headers, "x-framerize-session")
                     .unwrap_or_else(|| stable_session(&account.id));
-                acct_attempt += 1;
                 continue 'account_retry;
             }
             Err(_) => break 'account_retry,
@@ -1600,6 +1667,18 @@ async fn native_complete(
                 return response_output::wait(s, native_payload, client_model, max_tokens,
                     hdr(headers, "x-framerize-session")).await;
             }
+            Err(ApiError::AccountCooling { .. }) if allow_account_repick
+                && acquired.cleanup_confirmed => {
+                    let cancelled = operation_ownership::request_cancelled();
+                    let waited = pick_account_after_failure(&s, &mut skipped, true,
+                        || cancelled.as_ref().is_some_and(|check| check())).await;
+                    match waited.result {
+                        Ok((_, lease)) => lease,
+                        Err(error) => return Ok(operation_ownership::completed_response(
+                            axum::response::IntoResponse::into_response(error),
+                            waited.cleanup_confirmed)),
+                    }
+                },
             Err(error) if skipped.is_empty() && acquired.cleanup_confirmed =>
                 return Err(operation_ownership::completed_preflight(error)),
             Err(error) => return Ok(operation_ownership::completed_response(
@@ -1609,7 +1688,7 @@ async fn native_complete(
         let residency = RequestResidency::new(lease);
         let account = match current_account(&s, selected_id).await {
             Ok(account) => account,
-            Err(ApiError::AccountCooling { .. }) if allow_account_repick && skipped.len() < 2 => {
+            Err(ApiError::AccountCooling { .. }) if allow_account_repick => {
                 skipped.push(selected_id.0.to_string());
                 continue;
             },
@@ -1650,7 +1729,7 @@ async fn native_complete(
         });
         match current_account(&s, account.id).await {
             Ok(_) => {},
-            Err(ApiError::AccountCooling { .. }) if allow_account_repick && skipped.len() < 2 => {
+            Err(ApiError::AccountCooling { .. }) if allow_account_repick => {
                 skipped.push(account.id.0.to_string());
                 continue;
             },
@@ -1705,7 +1784,6 @@ async fn native_complete(
             payload: native_payload, gate_model, gate_key, first_permit,
             chat_session, explicit_session: hdr(headers, "x-framerize-session"),
             allow_repick: allow_account_repick, client_model, logical_id,
-            wait_budget: account_wait::MAX_WAIT,
         }).await;
     }
 
@@ -1742,9 +1820,7 @@ async fn native_complete(
             let mut project = project2;
             let mut cfg2 = cfg;
             let mut tried: Vec<String> = Vec::new();
-            let mut acct_attempt = 0u32;
             let mut cleanup_confirmed = true;
-            let mut cooldown_wait = account_wait::MAX_WAIT;
             let result = loop {
                 if let Err(error) = cfg2.check_cancelled() { break Err(error); }
                 let permit = match first_permit.take() {
@@ -1781,17 +1857,12 @@ async fn native_complete(
                 }
                 if cfg2.is_cancelled() { break r; }
                 let refusal = matches!(&r, Err(e) if should_retry_account(e));
-                if allow_account_repick && refusal && !emitted_content.load(std::sync::atomic::Ordering::Relaxed) && acct_attempt < 2 {
-                    let local = matches!(&r, Err(error) if AccountCooldown::from_error(error).is_some()
-                        || is_server_cooling(error));
-                    if !local { tried.push(account.id.0.to_string()); }
+                if allow_account_repick && refusal && !emitted_content.load(std::sync::atomic::Ordering::Relaxed) {
+                    tried.push(account.id.0.to_string());
                     drop(residency.take());
-                    let acquired = tokio::select! {
-                        _ = disconnected.closed() => break Err("client cancelled".into()),
-                        value = account_wait::pick(&s2, &tried,
-                            account_wait::WaitFor::after_attempt(local, cleanup_confirmed),
-                            &mut cooldown_wait) => value,
-                    };
+                    let wait_for_cooldown = matches!(&r, Err(error) if should_wait_for_account_cooldown(error));
+                    let acquired = pick_account_after_failure(&s2, &mut tried, wait_for_cooldown,
+                        || disconnected.is_closed()).await;
                     cleanup_confirmed &= acquired.cleanup_confirmed;
                     match acquired.result {
                         Ok((next, lease)) => {
@@ -1821,7 +1892,6 @@ async fn native_complete(
                                     rotation.mark_saturated(t, 45_000);
                                 }
                             }));
-                            acct_attempt += 1;
                             continue;
                         }
                         Err(_) => break r,
@@ -1919,7 +1989,6 @@ async fn native_complete(
 
     let t0 = std::time::Instant::now();
     let mut tried_accounts: Vec<String> = Vec::new();
-    let mut acct_attempt = 0u32;
     let mut cleanup_confirmed = true;
     let result = 'account_retry: loop {
         if let Err(error) = cfg.check_cancelled() { break Err(error); }
@@ -1934,13 +2003,17 @@ async fn native_complete(
             },
         };
         if let Err(error) = cfg.check_cancelled() { break Err(error); }
-        if let Err(error) = current_account(&s, account.id).await {
-            return Ok(operation_ownership::completed_response(
-                axum::response::IntoResponse::into_response(error), cleanup_confirmed));
+        let admission = current_account(&s, account.id).await;
+        let admitted = admission.is_ok();
+        if let Err(error) = &admission {
+            if !allow_account_repick || !matches!(error, ApiError::AccountCooling { .. }) {
+                return Ok(operation_ownership::completed_response(
+                    axum::response::IntoResponse::into_response(match admission { Err(e) => e, _ => unreachable!() }),
+                    cleanup_confirmed));
+            }
         }
-        let r = s
-            .client
-            .native_long(
+        let r = match admission {
+            Ok(_) => s.client.native_long(
                 &session,
                 s.browser.as_ref(),
                 &account.id,
@@ -1950,20 +2023,31 @@ async fn native_complete(
                 &chat_session,
                 None,
             )
-            .await;
+            .await,
+            Err(error @ ApiError::AccountCooling { .. }) if allow_account_repick =>
+                Err(chain_admission_error(error)),
+            Err(error) => {
+                drop(permit);
+                return Ok(operation_ownership::completed_response(
+                    axum::response::IntoResponse::into_response(error), cleanup_confirmed));
+            }
+        };
         drop(permit);
         let r = residency.observe_result(account.id, r);
         // A later successful account cannot confirm an earlier lost cleanup.
         cleanup_confirmed &= !matches!(&r, Err(error) if pool_control::cleanup_unconfirmed(error));
-        record_account_health(&s, &account, &r).await;
+        if admitted { record_account_health(&s, &account, &r).await; }
         // Nothing reaches the client on the non-stream path until the chain
         // completes, so an unbound request may retry a Castle refusal on a
         // fresh account (the verdict follows the account, not the request).
         if cfg.is_cancelled() { break r; }
-        if allow_account_repick && matches!(&r, Err(e) if should_retry_account(e)) && acct_attempt < 2 {
+        if allow_account_repick && matches!(&r, Err(e) if should_retry_account(e)) {
             tried_accounts.push(account.id.0.to_string());
             drop(residency.take());
-            let acquired = pick_fresh_account(&s, &tried_accounts).await;
+            let request_cancelled = operation_ownership::request_cancelled();
+            let wait_for_cooldown = matches!(&r, Err(error) if should_wait_for_account_cooldown(error));
+            let acquired = pick_account_after_failure(&s, &mut tried_accounts, wait_for_cooldown,
+                || request_cancelled.as_ref().is_some_and(|check| check())).await;
             cleanup_confirmed &= acquired.cleanup_confirmed;
             match acquired.result {
                 Ok((next, lease)) => {
@@ -1988,7 +2072,6 @@ async fn native_complete(
                     cfg = mk_cfg(&scope_team);
                     chat_session = hdr(headers, "x-framerize-session")
                         .unwrap_or_else(|| stable_session(&account.id));
-                    acct_attempt += 1;
                     continue 'account_retry;
                 }
                 Err(_) => break 'account_retry r,

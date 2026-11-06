@@ -220,7 +220,7 @@ fn three_accounts() -> fixture::Fixture {
 }
 
 #[tokio::test(start_paused = true)]
-async fn refusal_finishes_without_using_another_account() {
+async fn refusal_rotates_to_a_healthy_account_without_global_pause() {
     let mut f = three_accounts();
     let response = open(&f).await;
     let call = f.next().await;
@@ -228,15 +228,22 @@ async fn refusal_finishes_without_using_another_account() {
     f.loaded(0).await;
     call.reply.send(Err("risk-refused".into())).ok().unwrap();
     tokio::time::timeout(WAIT, call.dropped).await.unwrap().unwrap();
+    let peer = f.next().await;
+    assert_ne!(peer.account, call.account);
+    let peer_index = f.accounts.iter().position(|account| account.id == peer.account).unwrap();
+    f.loaded(peer_index).await;
+    peer.reply.send(Ok(fixture::success("responses"))).ok().unwrap();
+    tokio::time::timeout(WAIT, peer.dropped).await.unwrap().unwrap();
     let body = crate::response_output::consume_body(response.into_body(), 65536).await.unwrap();
     let wire = String::from_utf8(body.to_vec()).unwrap();
-    assert!(wire.contains("HTTP 403 during its security checks"));
-    assert!(wire.contains("response.failed"));
-    assert!(!wire.contains("response.completed"));
+    assert!(wire.contains("response.completed"));
+    assert!(wire.contains("fixture"));
     assert!(f.state.wave.check().is_none());
+    let refused = f.state.state.get(call.account).await.unwrap().unwrap();
+    assert!(refused.cooling_until_ms.is_some());
     for account in &f.accounts[1..] {
         let current = f.state.state.get(account.id).await.unwrap().unwrap();
-        assert_eq!(serde_json::to_value(current).unwrap(), serde_json::to_value(account).unwrap());
+        assert!(current.cooling_until_ms.is_none());
     }
     drained(&mut f).await;
 }

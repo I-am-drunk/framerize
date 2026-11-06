@@ -488,7 +488,6 @@ pub(super) struct FreeRequest {
     pub gate_model: String, pub gate_key: String, pub first_permit: Option<OwnedSemaphorePermit>,
     pub chat_session: String, pub explicit_session: Option<String>, pub allow_repick: bool,
     pub client_model: String, pub logical_id: String,
-    pub wait_budget: Duration,
 }
 pub(super) async fn wait(state: AppState, payload: Value, client_model: String,
     max_tokens: Option<u32>, explicit_session: Option<String>)
@@ -497,9 +496,17 @@ pub(super) async fn wait(state: AppState, payload: Value, client_model: String,
     let id = format!("{:08x}{:08x}", rand_u32(), rand_u32());
     serve_initialized(state.clone(), client_model.clone(), id.clone(),
         explicit_session.clone(), residency.clone(), move |cancel| async move {
-            let mut budget = account_wait::MAX_WAIT;
-            let acquired = account_wait::pick_cancellable(&state, &[], account_wait::WaitFor::Capacity, &mut budget,
-                || cancel.is_cancelled()).await;
+            let acquired = loop {
+                let mut budget = account_wait::MAX_WAIT;
+                let outcome = account_wait::pick_cancellable(&state, &[],
+                    account_wait::WaitFor::Capacity, &mut budget,
+                    || cancel.is_cancelled()).await;
+                if matches!(&outcome.result, Err(ApiError::AccountCooling { .. }))
+                    && !cancel.is_cancelled() {
+                    continue;
+                }
+                break outcome;
+            };
             let cleanup_confirmed = acquired.cleanup_confirmed;
             let result = async {
                 let (account, lease) = acquired.result?;
@@ -515,7 +522,7 @@ pub(super) async fn wait(state: AppState, payload: Value, client_model: String,
                 Ok(FreeRequest { state, account, residency, session, project: scope.project,
                     config, payload, gate_key: format!("{}:{gate_model}", scope.team.0),
                     gate_model, first_permit: None, chat_session, explicit_session,
-                    allow_repick: true, client_model, logical_id: id, wait_budget: budget })
+                    allow_repick: true, client_model, logical_id: id })
             }.await;
             pool_control::CleanupOutcome { result, cleanup_confirmed }
         }).await
@@ -629,9 +636,7 @@ impl FreeRequest {
     async fn drive(&mut self, sink: &Sink, cancel: &Cancel,
         published: &std::sync::atomic::AtomicBool) -> (ResponseResult, bool) {
         let mut tried = Vec::new();
-        let mut attempts = 0u32;
         let mut cleanup = true;
-        let mut cooldown = self.wait_budget;
         let result = loop {
             if let Err(error) = self.config.check_cancelled() { break Err(error.into()); }
             let permit = match self.first_permit.take() {
@@ -673,19 +678,16 @@ impl FreeRequest {
             }
             if self.config.is_cancelled() { break result.map_err(Into::into); }
             let refusal = matches!(&result, Err(error) if should_retry_account(error));
-            if !(self.allow_repick && refusal && !published.load(Ordering::SeqCst) && attempts < 2) {
+            if !(self.allow_repick && refusal && !published.load(Ordering::SeqCst)) {
                 break result.map_err(Into::into);
             }
-            let local = matches!(&result, Err(error) if AccountCooldown::from_error(error).is_some()
-                || is_server_cooling(error));
-            if !local { tried.push(self.account.id.0.to_string()); }
+            tried.push(self.account.id.0.to_string());
             drop(self.residency.take());
-            let acquired = tokio::select! {
-                _ = cancel.cancelled() => break Err("client cancelled".into()),
-                value = account_wait::pick(&self.state, &tried,
-                    account_wait::WaitFor::after_attempt(local, cleanup),
-                    &mut cooldown) => value,
-            };
+            let wait_for_cooldown = matches!(&result, Err(error)
+                if super::should_wait_for_account_cooldown(error));
+            let acquired = super::pick_account_after_failure(&self.state, &mut tried,
+                wait_for_cooldown,
+                || cancel.is_cancelled()).await;
             cleanup &= acquired.cleanup_confirmed;
             let (next, lease) = match acquired.result {
                 Ok(value) => value,
@@ -709,7 +711,6 @@ impl FreeRequest {
             let team = scope.team.0.clone();
             let rotation = self.state.serving_accounts.rotation().clone();
             self.config.on_429 = Some(Arc::new(move || rotation.mark_saturated(&team, 45_000)));
-            attempts += 1;
         };
         (result, cleanup)
     }

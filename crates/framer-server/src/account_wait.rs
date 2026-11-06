@@ -104,7 +104,7 @@ pub(super) async fn pick_cancellable(
         // No acquired lease or model permit survives this sleep. Selection
         // rechecks current eligibility and cleanup before any further attempt.
         let started = tokio::time::Instant::now();
-        tokio::time::sleep(delay).await;
+        tokio::time::sleep(delay.min(Duration::from_secs(1))).await;
         *budget = budget.saturating_sub(started.elapsed());
     }
 }

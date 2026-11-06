@@ -21,10 +21,55 @@ async fn explicit_unknown_cleanup_never_starts_peer_or_clears_fence() {
 }
 
 #[tokio::test]
-async fn unbound_risk_refusal_never_starts_peer() { exercise(RISK, false, true).await; }
+async fn unbound_account_refusals_rotate_to_a_peer_before_output() {
+    for (messages, stream) in [(true, true), (true, false), (false, true), (false, false)] {
+        for error in [RISK, COOLING] {
+            let mut f = fixture::Fixture::new();
+            let app = crate::router(f.state.clone(), "/nonexistent-fixture-web");
+            let task = tokio::spawn(app.oneshot(retry_request(&f, messages, stream, false)));
+            let first = f.next().await;
+            assert_eq!(first.account, f.accounts[0].id);
+            first.reply.send(Err(error.to_owned())).ok().unwrap();
+            let second = f.next().await;
+            assert_ne!(second.account, first.account);
+            second.reply.send(Ok(fixture::success(if messages { "messages" } else { "responses" })))
+                .ok().unwrap();
+            let response = tokio::time::timeout(WAIT, task).await.unwrap().unwrap().unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let bytes = to_bytes(response.into_body(), 65536).await.unwrap();
+            let wire = std::str::from_utf8(&bytes).unwrap();
+            assert!(!wire.contains("risk-refused"), "{wire}");
+            assert!(wire.contains("fixture"), "{wire}");
+            f.no_call();
+        }
+    }
+}
 
 #[tokio::test]
-async fn unbound_local_cooldown_never_starts_peer() { exercise(COOLING, false, true).await; }
+async fn all_risk_refused_accounts_are_retested_after_their_cooldown() {
+    for (messages, stream) in [(false, false), (false, true), (true, false), (true, true)] {
+        let mut f = fixture::Fixture::new();
+        let app = crate::router(f.state.clone(), "/nonexistent-fixture-web");
+        let task = tokio::spawn(app.oneshot(retry_request(&f, messages, stream, false)));
+        let mut tried = std::collections::HashSet::new();
+        for _ in 0..f.accounts.len() {
+            let call = tokio::time::timeout(Duration::from_secs(3), f.next()).await
+                .expect("request stopped before trying every eligible account");
+            assert!(tried.insert(call.account.clone()), "account repeated before pool pass ended");
+            call.reply.send(Err(RISK.to_owned())).ok().unwrap();
+        }
+        let retry = tokio::time::timeout(Duration::from_secs(8), f.next()).await
+            .expect("request did not retry when account cooldowns expired");
+        assert!(tried.contains(&retry.account), "retry did not revisit a cooled account");
+        retry.reply.send(Ok(fixture::success(if messages { "messages" } else { "responses" })))
+            .ok().unwrap();
+        let response = tokio::time::timeout(WAIT, task).await.unwrap().unwrap().unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), 65536).await.unwrap();
+        assert!(std::str::from_utf8(&body).unwrap().contains("fixture"));
+        f.no_call();
+    }
+}
 
 #[tokio::test]
 async fn unbound_unknown_cleanup_keeps_identity_and_fence() {

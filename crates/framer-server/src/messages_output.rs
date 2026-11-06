@@ -40,6 +40,7 @@ pub(super) async fn serve(state: AppState, payload: Value, model: String, max_to
             let mut attempt = match admitted {
                 Ok(value) => value,
                 Err(error) => {
+                    let error = chain_admission_error(error);
                     operation_ownership::correlate_chain(framer_core::observability::Event::new("ai.chain"))
                         .field("model", log_model.as_str()).field("dialect", "AnthropicMessages")
                         .duration_ms(started.elapsed().as_millis()).error(&error).emit();
@@ -47,7 +48,6 @@ pub(super) async fn serve(state: AppState, payload: Value, model: String, max_to
                 }
             };
             let mut tried = Vec::new();
-            let mut retries = 0;
             let content_seen = Arc::new(AtomicBool::new(false));
             let result = loop {
                 let chat = explicit_session.clone()
@@ -83,29 +83,42 @@ pub(super) async fn serve(state: AppState, payload: Value, model: String, max_to
                 config.admission.as_ref().unwrap()
                     .finished(result.as_ref().err().map(String::as_str)).await;
 
-                let retry_credit_exhaustion = requested.is_none() && cleanup
+                let retry_account = requested.is_none() && cleanup
                     && !content_seen.load(Ordering::SeqCst)
-                    && !overflow.load(Ordering::SeqCst) && retries < 2
-                    && matches!(&result, Err(error)
-                        if framer_core::error::chain_error_cause(error) == "credits-exhausted");
-                if !retry_credit_exhaustion { break result; }
+                    && !overflow.load(Ordering::SeqCst)
+                    && matches!(&result, Err(error) if should_retry_account(error));
+                if !retry_account { break result; }
 
                 tried.push(attempt.account.id.0.to_string());
                 let original_error = result.unwrap_err();
+                let wait_for_cooldown = should_wait_for_account_cooldown(&original_error);
                 drop(residency.take());
-                let (next, next_cleanup) = admit(&state, None, &log_model, &tried,
+                let (mut next, mut next_cleanup) = admit(&state, None, &log_model, &tried,
                     &residency, cancelled.as_ref()).await;
                 cleanup &= next_cleanup;
+                if wait_for_cooldown && cleanup
+                    && matches!(&next, Err(ApiError::AccountCooling { .. }))
+                    && all_eligible_accounts_cooling(&state).await {
+                    tried.clear();
+                    loop {
+                        if cancelled() { break; }
+                        (next, next_cleanup) = admit(&state, None, &log_model, &[],
+                            &residency, cancelled.as_ref()).await;
+                        cleanup &= next_cleanup;
+                        if next.is_ok() || !matches!(&next, Err(ApiError::AccountCooling { .. })) {
+                            break;
+                        }
+                    }
+                }
                 match next {
                     Ok(next) => {
                         operation_ownership::correlate_chain(
                             framer_core::observability::Event::new("ai.chain.repick"))
                             .account(&attempt.account.id)
                             .field("to", &next.account.id.0.to_string()[..8])
-                            .field("reason", "credits-exhausted")
+                            .field("reason", framer_core::error::chain_error_cause(&original_error))
                             .emit();
                         attempt = next;
-                        retries += 1;
                     }
                     Err(_) => break Err(original_error),
                 }
@@ -205,11 +218,11 @@ mod tests;
 async fn admit(state: &AppState, requested: Option<&str>, model: &str,
     excluded: &[String], residency: &RequestResidency,
     cancelled: &(dyn Fn() -> bool + Send + Sync))
-    -> (Result<Attempt, String>, bool) {
+    -> (Result<Attempt, ApiError>, bool) {
     let mut budget = account_wait::MAX_WAIT;
     let mut cleanup = true;
     loop {
-        if cancelled() { return (Err("client cancelled".into()), cleanup); }
+        if cancelled() { return (Err(ApiError::Internal("client cancelled".into())), cleanup); }
         let result = async {
             let pool = state.state.list().await.map_err(ApiError::Internal)?;
             let acquired = pool_control::select_account_observed(state, pool, requested, excluded).await;
@@ -238,8 +251,15 @@ async fn admit(state: &AppState, requested: Option<&str>, model: &str,
         let error = match result { Ok(attempt) => return (Ok(attempt), cleanup), Err(error) => error };
         drop(residency.take());
         let waitable = matches!(error, ApiError::Cooling { .. } | ApiError::AccountCooling { .. });
-        if !cleanup || !waitable || budget.is_zero() {
-            return (Err(chain_admission_error(error)), cleanup);
+        if !cleanup || !waitable || !excluded.is_empty() {
+            return (Err(error), cleanup);
+        }
+        if budget.is_zero() {
+            if matches!(&error, ApiError::AccountCooling { .. }) {
+                budget = account_wait::MAX_WAIT;
+            } else {
+                return (Err(error), cleanup);
+            }
         }
         let started = tokio::time::Instant::now();
         tokio::time::sleep(budget.min(Duration::from_secs(1))).await;

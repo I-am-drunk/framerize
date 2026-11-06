@@ -40,12 +40,23 @@ not a production account.
 
 The live 402s exposed a separate retry bug: the API translates upstream HTTP
 402 into `credits-exhausted`, but the account retry policy never treated that
-sentinel as retryable. Unpinned requests now retry another account on that
-exact signal, only before response content is published and at most twice;
+sentinel as retryable. Unpinned requests now try each eligible account at most
+once on that exact signal, only before response content is published;
 explicitly pinned accounts and policy/refusal/ambiguous transport errors are
 not replayed. The core pipeline also normalizes the sentinel into its existing
-workspace-rotation path. Regression coverage passes: 504 framer-server tests
-and 164 framer-core tests. This latest source fix is not yet built or deployed.
+workspace-rotation path.
+
+The follow-up audit found the account-scoped 403 path was incomplete too:
+there was a two-peer retry cap, the Anthropic Messages route did not rotate,
+all-cooling pools could fail instead of waiting, and buffered admission could
+return if an account cooled while waiting on its model slot. The new source
+walks every eligible account once per pass for exact risk refusals, preserves
+per-account cooldowns, waits and retests when every eligible account is cooling,
+and stops on disconnect or after output is published. Explicit account pins
+remain fixed. Credit exhaustion still makes one pass without cooldown waits;
+provider policy 403/404 responses remain terminal. Fixture suites pass: 504
+framer-server tests and 164 framer-core tests. The updated source has not yet
+been committed, packaged or activated.
 
 # Refusal-wave inference availability repair, 2026-11-06
 

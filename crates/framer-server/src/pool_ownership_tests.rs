@@ -9,6 +9,11 @@ fn owned(capacity: usize, saved: u128) -> (AppState, Arc<Ports>) {
 }
 
 async fn response(state: &AppState, route: Route, session: Option<&str>) -> axum::response::Response {
+    response_with_account(state, route, session, None).await
+}
+
+async fn response_with_account(state: &AppState, route: Route, session: Option<&str>,
+    account: Option<AccountId>) -> axum::response::Response {
     let (path, payload) = match route {
         Route::Free => ("/anthropic/v1/messages", json!({"model":"claude-opus-5-5",
             "stream":true,"messages":[{"role":"user","content":"fixture"}]})),
@@ -18,6 +23,7 @@ async fn response(state: &AppState, route: Route, session: Option<&str>) -> axum
     let mut req = axum::http::Request::builder().method("POST").uri(path)
         .header("content-type", "application/json");
     if let Some(session) = session { req = req.header("x-framerize-session", session); }
+    if let Some(account) = account { req = req.header("x-framerize-account", account.0.to_string()); }
     let req = req.body(axum::body::Body::from(payload.to_string())).unwrap();
     tokio::time::timeout(Duration::from_secs(2), crate::router(state.clone(), "/fixture-no-web").oneshot(req))
         .await.unwrap().unwrap()
@@ -63,7 +69,7 @@ async fn owned_failure_keeps_original_residency_and_chat() {
         let (state, ports) = owned(1, 2);
         ports.fail_first_account.store(true, Ordering::SeqCst);
         let before = [crate::stable_session(&id(1)), crate::stable_session(&id(2))];
-        let response = response(&state, route, session).await;
+        let response = response_with_account(&state, route, session, Some(id(1))).await;
         until(|| ports.request_started.load(Ordering::SeqCst) == 1).await;
         assert_original_chat(&ports, session, &before);
         assert!(slot(&state, id(1)).users > 0);

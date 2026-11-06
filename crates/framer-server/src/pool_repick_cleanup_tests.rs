@@ -5,11 +5,11 @@ use framer_core::operation_gate::GateError;
 use http_body::Body as _;
 use tower::ServiceExt;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RepickClose { Error, Unconfirmed, BeforeCloseBusy }
 
 #[tokio::test]
-async fn cooldown_refusal_does_not_probe_or_send_on_another_account() {
+async fn cooldown_refusal_skips_an_unconfirmed_peer_and_uses_the_next_account() {
     for stream in [false, true] {
         let (mut state, ports) = fixture(3, 3);
         activated(&state, 1).await;
@@ -24,14 +24,14 @@ async fn cooldown_refusal_does_not_probe_or_send_on_another_account() {
         state.runtime_mut().expect("unique fixture runtime").operation_ownership = Some(scope);
         let app = crate::router(state.clone(), "/fixture-no-web");
         let response = app.clone().oneshot(repick_request(Route::Native, stream)).await.unwrap();
-        assert_eq!(response.status().as_u16(), if stream { 200 } else { 503 });
+        assert_eq!(response.status(), StatusCode::OK);
         let body = to_bytes(response.into_body(), 65536).await.unwrap();
-        assert!(String::from_utf8_lossy(&body).contains("saved account cooldown"));
+        assert!(String::from_utf8_lossy(&body).contains("fixture result"));
         until(|| gate.stats().unwrap().active == 1).await;
         assert!(!gate.stats().unwrap().unconfirmed, "account B must not poison global admission");
-        assert!(!state.serving_accounts.residents.snapshot().unwrap().residents.iter()
-            .any(|resident| resident.account == id(2)));
-        assert_eq!(ports.request_started.load(Ordering::SeqCst), 1);
+        assert!(state.serving_accounts.residents.snapshot().unwrap().residents.iter()
+            .any(|resident| resident.account == id(2) && resident.uncertain));
+        assert_eq!(ports.request_started.load(Ordering::SeqCst), 2);
         assert!(!ports.events.lock().unwrap().iter().any(|e| e.0 == "close_started"));
         let mut unavailable = repick_request(Route::Native, false);
         unavailable.headers_mut().insert("x-framerize-account", id(2).0.to_string().parse().unwrap());
@@ -39,7 +39,7 @@ async fn cooldown_refusal_does_not_probe_or_send_on_another_account() {
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
         to_bytes(response.into_body(), 65536).await.unwrap();
         assert!(slot(&state, id(2)).uncertain);
-        assert_eq!(ports.request_started.load(Ordering::SeqCst), 1);
+        assert_eq!(ports.request_started.load(Ordering::SeqCst), 2);
         assert!(!ports.mint_routes.lock().unwrap().iter().any(|(account, _)| *account == id(2)));
         until(|| gate.stats().unwrap().active == 1).await;
         assert!(!gate.stats().unwrap().unconfirmed);
@@ -72,7 +72,7 @@ async fn repick_exhausts_clean_refusals_but_stops_on_unconfirmed_cleanup() {
 }
 
 #[tokio::test]
-async fn refusal_does_not_start_an_unconfirmed_eviction() {
+async fn refusal_stops_when_peer_eviction_is_unconfirmed() {
     check_repick(RepickClose::Unconfirmed).await;
 }
 
@@ -99,24 +99,33 @@ async fn no_replay_case(mode: RepickClose, route: Route, stream: bool, consume: 
     *ports.close_mode.lock().unwrap() = match mode {
         RepickClose::Error => CloseMode::Error,
         RepickClose::Unconfirmed => CloseMode::Unconfirmed,
-        RepickClose::BeforeCloseBusy => CloseMode::Busy,
+        RepickClose::BeforeCloseBusy => CloseMode::BusyResident,
     };
     ports.fail_first_account.store(true, Ordering::SeqCst);
     ports.gate_close.store(true, Ordering::SeqCst);
     let peer_before = serde_json::to_value(&ports.records.lock().unwrap()[1]).unwrap();
     let app = crate::router(state.clone(), "/fixture-no-web");
-    let response = tokio::time::timeout(Duration::from_secs(2), app.oneshot(repick_request(route, stream))).await.unwrap().unwrap();
+    let task = tokio::spawn(app.oneshot(repick_request(route, stream)));
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if ports.events.lock().unwrap().iter().any(|event| event.0 == "close_started") { break; }
+            tokio::task::yield_now().await;
+        }
+    }).await.expect("peer retry did not start its required bounded eviction");
+    ports.close_gate.add_permits(1);
+    let response = tokio::time::timeout(Duration::from_secs(2), task).await.unwrap().unwrap().unwrap();
     assert_eq!(response.status().as_u16(), if stream { 200 } else { 503 });
     if consume {
         let body = to_bytes(response.into_body(), 65536).await.unwrap();
         assert_original_error(&body, route, stream);
     } else { drop(response); }
     until(|| gate.stats().unwrap().active == 1).await;
-    assert!(!gate.stats().unwrap().unconfirmed);
+    assert_eq!(gate.stats().unwrap().unconfirmed, mode != RepickClose::BeforeCloseBusy);
     assert_eq!(slot(&state, id(1)).users, 0);
     assert_eq!(serde_json::to_value(&ports.records.lock().unwrap()[1]).unwrap(), peer_before);
     assert_single_attempt(&ports);
-    assert!(!ports.events.lock().unwrap().iter().any(|event| event.0 == "close_started"));
+    assert_eq!(ports.events.lock().unwrap().iter()
+        .filter(|event| event.0 == "close_started").count(), 1);
 }
 
 fn assert_single_attempt(ports: &Ports) {

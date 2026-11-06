@@ -318,8 +318,7 @@ fn parked_headers() -> HeaderMap {
 }
 
 #[tokio::test]
-async fn non_waiting_routes_reject_all_cooling_before_external_io() {
-    use axum::response::IntoResponse;
+async fn routes_wait_when_all_accounts_cooling_without_external_io() {
     for dialect in [ClientDialect::AnthropicMessages, ClientDialect::OpenAiResponses, ClientDialect::OpenAiChat] {
         for stream in [false, true] {
             // Waiting streams have separate ping, disconnect and budget checks.
@@ -332,19 +331,23 @@ async fn non_waiting_routes_reject_all_cooling_before_external_io() {
             let before = serde_json::to_value(&*ports.records.lock().unwrap()).unwrap();
             let payload = json!({"model": "gpt-6-astra", "stream": stream, "input": "fixture",
                 "messages": [{"role": "user", "content": "fixture"}]});
-            let response = crate::free_complete(state.clone(), &HeaderMap::new(), dialect, payload)
-                .await.unwrap_err().into_response();
-            assert_eq!(response.status(), 503);
-            assert_eq!(response.headers()["retry-after"], "30");
-            assert_eq!(response.headers()["content-type"], "application/json");
-            let bytes = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
-            let body: Value = serde_json::from_slice(&bytes).unwrap();
-            assert_eq!(body["error"]["code"], "framerize_account_cooling");
-            assert_eq!(body["error"]["retry_after_seconds"], 30);
-            assert!((299..=300).contains(&body["error"]["cooldown_remaining_seconds"].as_u64().unwrap()));
+            let result = tokio::time::timeout(std::time::Duration::from_millis(100),
+                crate::free_complete(state.clone(), &HeaderMap::new(), dialect, payload)).await;
+            match result {
+                Err(_) => {}, // The request stays pending until a cooldown clears.
+                Ok(Ok(response)) => {
+                    assert_eq!(response.status(), 200);
+                    drop(response); // Streaming APIs expose the waiting response immediately.
+                }
+                Ok(Err(error)) => panic!("all-cooling request failed instead of waiting: {error:?}"),
+            }
             assert_eq!(before, serde_json::to_value(&*ports.records.lock().unwrap()).unwrap());
             assert!(state.wave.check().is_none());
-            ports.assert_rejected_before_io(1);
+            assert_eq!(ports.browser_calls.load(Ordering::SeqCst), 0);
+            assert_eq!(ports.client_calls.load(Ordering::SeqCst), 0);
+            assert_eq!(ports.session_calls.load(Ordering::SeqCst), 0);
+            assert_eq!(ports.state_writes.load(Ordering::SeqCst), 0);
+            assert!(ports.state_reads.load(Ordering::SeqCst) >= 1);
         }
     }
 }
