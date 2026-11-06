@@ -51,8 +51,10 @@ function requestAtLimit(protocol) {
 }
 
 for (const protocol of protocols) for (const viaRemote of [false, true]) {
-  for (const [stage, framing] of [['server', 'length'], ['server', 'chunked'], ['backend', 'length']]) {
-    test(`custom request byte limit at ${stage}/${framing}: ${protocol.name}, remote=${viaRemote}`,
+  const stages = [['server', 'length'], ['server', 'chunked'], ['backend', 'length']];
+  if (viaRemote) stages.push(['remoteListener', 'length'], ['remoteListener', 'chunked']);
+  for (const [stage, framing] of stages) {
+    test(`custom request byte limit at ${stage}, client framing=${framing}: ${protocol.name}, remote=${viaRemote}`,
       async context => {
         const headers = framing === 'chunked' ? { 'transfer-encoding': 'chunked' } : {};
         const setup = await fixture(context, protocol, viaRemote,
@@ -66,6 +68,7 @@ for (const protocol of protocols) for (const viaRemote of [false, true]) {
         assert.equal(setup.observed.length, 0);
         assert.equal(setup.counts.auth, 0);
         assert.equal(setup.counts.mints, 0);
+        assert.equal(setup.serverCalls.length, stage === 'remoteListener' ? 0 : 1);
         const accepted = await setup.post(body, headers);
         assert.equal(accepted.status, 200);
         assert.deepEqual(accepted.body, setup.payload);

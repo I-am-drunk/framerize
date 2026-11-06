@@ -124,7 +124,7 @@ export async function fixture(context, protocol, viaRemote, options = {}) {
     const forwarding = createRemoteBackend({ endpoint: { origin, loopback: true },
       serverToken: 'synthetic-server', ...limits, readinessWholeMs: 1000,
       readinessBodyMaxBytes: 65536, ...options.remote });
-    remote = await createServer({ host: '127.0.0.1', port: 0, ...limits,
+    remote = await createServer({ host: '127.0.0.1', port: 0, ...limits, ...options.remoteListener,
       serverToken: 'synthetic-client' }, { provider: forwarding });
     origin = `http://127.0.0.1:${(await remote.listen()).port}`;
   }
