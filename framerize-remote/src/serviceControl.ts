@@ -149,8 +149,8 @@ const servesHome = (unit: string, home: string): boolean => {
 };
 
 /** The service reads only the saved profile, never the installing shell's variables. */
-async function requireServiceProfile(home: string): Promise<void> {
-  const profile = await loadConfigFile(join(home, 'framerize-remote.json'));
+async function requireServiceProfile(home: string, signal?: AbortSignal): Promise<void> {
+  const profile = await loadConfigFile(join(home, 'framerize-remote.json'), signal);
   if (profile.serverToken?.kind === 'env' || profile.localToken?.kind === 'env') {
     throw new RemoteDiagnosticError('service_env_token');
   }
@@ -160,7 +160,7 @@ async function requireServiceProfile(home: string): Promise<void> {
 export async function installService(context: ServiceContext,
   beforeStart: () => Promise<void> = async () => {}): Promise<'installed' | 'updated'> {
   const manager = requireManager(context);
-  await requireServiceProfile(context.home);
+  await requireServiceProfile(context.home, context.signal);
   await requireServicePrerequisites(context);
   const plan = servicePlan(context);
   const unit = await readUnit(manager.unitPath);

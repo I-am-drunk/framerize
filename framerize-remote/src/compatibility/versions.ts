@@ -2,7 +2,7 @@ import { constants } from 'node:fs';
 import { open } from 'node:fs/promises';
 import { StringDecoder } from 'node:string_decoder';
 import type { ReadText } from './conflicts.js';
-import { claudeManagedSettingsPath, parseSettingsObject } from './conflicts.js';
+import { claudeManagedSettingsPath, parseSettingsObject, readSettings } from './conflicts.js';
 
 /** Retains at most 4096 response bytes, or returns null on any failure. */
 export type FetchText = (url: string, timeoutMs: number, signal?: AbortSignal) => Promise<string | null>;
@@ -57,10 +57,10 @@ export const readText: ReadText = async path => {
 
 /** Native release channel lookup adapted from T3 ClaudeMaintenance.readUpdateChannel at 5a906583 (MIT). */
 export async function claudeUpdateChannel(read: ReadText, platform: NodeJS.Platform,
-  env: NodeJS.ProcessEnv, userPath: string): Promise<'latest' | 'stable'> {
+  env: NodeJS.ProcessEnv, userPath: string, signal?: AbortSignal): Promise<'latest' | 'stable'> {
   let channel: 'latest' | 'stable' = 'latest';
   for (const path of [userPath, claudeManagedSettingsPath(platform, env)]) {
-    const value = parseSettingsObject(await read(path))?.autoUpdatesChannel;
+    const value = parseSettingsObject(await readSettings(read, path, signal))?.autoUpdatesChannel;
     if (value === 'latest' || value === 'stable') channel = value;
   }
   return channel;
@@ -95,14 +95,14 @@ export function parseHomebrewCaskVersion(stdout: string | null): string | null {
   try {
     const raw: unknown = (JSON.parse(stdout) as { casks?: { version?: unknown }[] }).casks?.[0]?.version;
     const version = typeof raw === 'string' ? raw.split(',', 1)[0]!.trim() : '';
-    return version && version !== 'latest' ? version : null;
+    return NPM_VERSION.test(version) ? version : null;
   } catch { return null; }
 }
 
 /** First version-shaped token in `--version` output; a malformed candidate is unknown. */
 export function parseInstalledVersion(stdout: string | null): string | null {
   const candidate = /\b\d+\.\d+\.\d+[\w.-]*/.exec(stdout ?? '')?.[0];
-  return candidate && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(candidate) ? candidate : null;
+  return candidate && NPM_VERSION.test(candidate) ? candidate : null;
 }
 
 export const isNativeVersion = (text: string | null): text is string => NATIVE_VERSION.test(text?.trim() ?? '');

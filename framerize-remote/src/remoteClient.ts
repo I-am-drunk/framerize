@@ -80,9 +80,15 @@ export function sendRequest(request: RawRequest): Promise<RawResponse> {
         clearTimeout(connectTimer);
         response.setTimeout(request.idleTimeoutMs, () => fail('idle_timeout'));
         response.once('error', onError);
+        if ((response.statusCode ?? 0) >= 300) {
+          controller.abort();
+          if (!outgoing.writableEnded) outgoing.end();
+        }
         resolve({ message: response, dispose });
       });
-      void pump(outgoing, request.body, controller.signal).catch(onError);
+      void pump(outgoing, request.body, controller.signal).catch(error => {
+        if (!controller.signal.aborted) onError(error);
+      });
     } catch (error) { onError(error); }
   });
 }
@@ -96,6 +102,7 @@ async function pump(
     try {
       while (!signal.aborted) {
         const item = await nextItem(iterator, signal);
+        if (signal.aborted) break;
         if (item.done) { complete = true; break; }
         if (!outgoing.write(item.value)) await once(outgoing, 'drain', { signal });
       }

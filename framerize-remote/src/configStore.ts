@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, open, rename, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { RemoteDiagnosticError } from './diagnostics.js';
-import type { CredentialReference } from './credentials.js';
+import { cancellableRead, type CredentialReference } from './credentials.js';
 import { normalizeHostname } from './hostPolicy.js';
 import { parseRemoteEndpoint, type RemoteEndpoint } from './remoteUrl.js';
 import { frmSettings } from './frmEnv.js';
@@ -15,18 +15,33 @@ function absoluteReference(reference: CredentialReference, base: string): Creden
   return reference.kind === 'file' ? { kind: 'file', path: resolve(base, reference.path) } : { ...reference };
 }
 
-export async function readConfigText(path: string): Promise<string> {
+async function readProfile(path: string, signal?: AbortSignal): Promise<string> {
   const handle = await open(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOCTTY);
+  const closeOnAbort = (): void => { void handle.close().catch(() => {}); };
+  signal?.addEventListener('abort', closeOnAbort, { once: true });
   try {
+    signal?.throwIfAborted();
     if (!(await handle.stat()).isFile()) throw new Error();
-    return await handle.readFile('utf8');
-  } finally { await handle.close(); }
+    signal?.throwIfAborted();
+    return await handle.readFile({ encoding: 'utf8', signal });
+  } finally {
+    signal?.removeEventListener('abort', closeOnAbort);
+    await handle.close();
+  }
 }
 
-export async function loadConfigFile(path: string): Promise<RemoteConfig> {
+export async function readConfigText(path: string, signal?: AbortSignal): Promise<string> {
+  signal?.throwIfAborted();
+  const text = await cancellableRead(readProfile(path, signal), signal);
+  signal?.throwIfAborted();
+  return text;
+}
+
+export async function loadConfigFile(path: string, signal?: AbortSignal): Promise<RemoteConfig> {
   let text: string;
-  try { text = await readConfigText(path); }
+  try { text = await readConfigText(path, signal); }
   catch (error) {
+    signal?.throwIfAborted();
     const code = (error as NodeJS.ErrnoException).code === 'ENOENT' ? 'profile_missing' : 'profile_invalid';
     throw new RemoteDiagnosticError(code, 'no configuration found; run `frm setup` first');
   }
@@ -62,7 +77,7 @@ async function replaceProfile(temporary: string, path: string): Promise<void> {
   }
 }
 
-export async function saveConfigFile(path: string, config: PersistedConfig): Promise<void> {
+export function validateConfigForSave(config: PersistedConfig): RemoteConfig {
   let valid: RemoteConfig;
   try { valid = normalizeConfig(parsePersisted(config), process.cwd()); }
   catch (error) {
@@ -70,6 +85,11 @@ export async function saveConfigFile(path: string, config: PersistedConfig): Pro
     throw error;
   }
   resolveConfig(valid);
+  return valid;
+}
+
+export async function saveConfigFile(path: string, config: PersistedConfig): Promise<void> {
+  const valid = validateConfigForSave(config);
   let staging: string | undefined;
   try {
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
@@ -91,15 +111,30 @@ export function resolveConfig(config: RemoteConfig): RemoteEndpoint {
   return parseRemoteEndpoint(config.remote, config.allowInsecureRemote);
 }
 
-/** Saved profile, then FRM_* variables. FRM_REMOTE alone runs without saving a profile. */
-export async function loadRunConfig(path: string, env: NodeJS.ProcessEnv): Promise<RemoteConfig> {
+export function sameRemoteOrigin(first: string, second: string): boolean {
+  try { return parseRemoteEndpoint(first, true).origin === parseRemoteEndpoint(second, true).origin; }
+  catch { return false; }
+}
+
+/** FRM_* overrides saved values, except setup's just-saved remote and token references. */
+export async function loadRunConfig(path: string, env: NodeJS.ProcessEnv,
+  afterSetup = false, signal?: AbortSignal): Promise<RemoteConfig> {
+  signal?.throwIfAborted();
   const settings = frmSettings(env);
   let saved: RemoteConfig | undefined;
-  try { saved = await loadConfigFile(path); }
+  try { saved = await loadConfigFile(path, signal); }
   catch (error) {
-    if (!(error instanceof RemoteDiagnosticError && error.code === 'profile_missing' && settings.remote)) throw error;
+    signal?.throwIfAborted();
+    if (afterSetup || !(error instanceof RemoteDiagnosticError && error.code === 'profile_missing' && settings.remote)) throw error;
+  }
+  if (afterSetup && saved) {
+    settings.remote = saved.remote;
+    if (saved.serverToken) settings.serverToken = saved.serverToken;
+    if (saved.localToken) settings.localToken = saved.localToken;
   }
   const merged = { ...saved, ...settings };
+  if (saved && settings.remote !== undefined && settings.serverToken === undefined
+    && !sameRemoteOrigin(saved.remote, settings.remote)) delete merged.serverToken;
   if (merged.remote === undefined) throw new RemoteDiagnosticError('profile_missing');
   try { return normalizeConfig(parsePersisted(merged), process.cwd()); }
   catch (error) {

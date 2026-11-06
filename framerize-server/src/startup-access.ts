@@ -36,7 +36,7 @@ export function resolveHeadlessConnectionString(host: string, port: number, opti
     const preferred = options.privateNetworkOnly
       ? ipv4.find(entry => !isSharedAddressSpaceHost(entry.address)) ?? ipv4[0] : ipv4[0];
     const ipv6 = host === '0.0.0.0' ? undefined
-      : entries.find(entry => !entry.internal && entry.family === 'IPv6'
+      : entries.find(entry => !entry.internal && entry.family === 'IPv6' && entry.scopeid === 0
         && (!options.privateNetworkOnly || isPrivateNetworkAddress(entry.address)));
     connectionHost = preferred?.address ?? ipv6?.address ?? 'localhost';
   }

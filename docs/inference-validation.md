@@ -10,8 +10,8 @@ Use the TypeScript checkout with its development dependencies installed and
 `npm run build` completed. This command is repository tooling, not part of the
 Remote npm package or the server executable.
 
-Point it at the local Remote listener or an approved server origin. Provision
-the matching bearer token in a private file first. Never put token values in
+Point it at the local Remote listener or an approved server origin. For an
+authenticated endpoint, provision its bearer token in a private file. Never put token values in
 arguments, profiles, documentation or logs.
 
 ```sh
@@ -23,7 +23,9 @@ node .tools/scripts/check-inference.js \
 ```
 
 For an existing private environment variable, replace `--token-file FILE` with
-`--token-env FRAMERIZE_LOCAL_TOKEN`. Exactly one credential reference is required.
+`--token-env FRAMERIZE_LOCAL_TOKEN`. Use at most one credential reference.
+Omit both token options for an endpoint without authentication. An explicit
+missing or invalid credential still fails before any request is sent.
 Use the local token for Remote or the server token for a direct server request.
 The origin must have no path, query or credentials. Non-loopback origins require
 HTTPS. `--help` makes no request and reads no credentials.

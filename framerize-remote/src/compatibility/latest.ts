@@ -32,7 +32,9 @@ const capture = async (deps: LookupDeps, tool: string, args: readonly string[]):
 export function parseChocolateyVersion(stdout: string | null, id: string): string | null {
   for (const line of (stdout ?? '').split(/\r?\n/)) {
     const [name, version] = line.trim().split('|', 2);
-    if (name?.toLowerCase() === id && version?.trim()) return version.trim();
+    if (name?.toLowerCase() === id && version?.trim()) {
+      return parseNpmViewVersion(JSON.stringify(version.trim()));
+    }
   }
   return null;
 }
@@ -49,7 +51,8 @@ export async function lookupLatestVersion(client: ClientName, plan: UpdatePlan, 
     const npmPackage = CLIENTS[client].npmPackage;
     const owner = plan.owner;
     if (owner.kind === 'native' && client === 'claude') {
-      const channel = await claudeUpdateChannel(deps.read, deps.platform, deps.env, claudeSettingsPath(deps.env, deps.home));
+      const channel = await claudeUpdateChannel(deps.read, deps.platform, deps.env,
+        claudeSettingsPath(deps.env, deps.home), deps.signal);
       if (deps.signal?.aborted) return null;
       const text = (await deps.fetch(claudeReleaseUrl(channel), RELEASE_TIMEOUT_MS, deps.signal))?.trim() ?? null;
       return isNativeVersion(text) ? text : null;

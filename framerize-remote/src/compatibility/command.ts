@@ -170,6 +170,7 @@ export async function runClient(argv: readonly string[], deps: ClientSetupDeps):
     const localPath = await claudeLocalSettingsPath(deps, cwd);
     const settings = await inspectClaudeSettings(deps.read ?? readText, { platform: deps.platform,
       env: deps.env, userPath: claudeSettingsPath(deps.env, deps.home), cwd, localPath,
+      ...(deps.signal ? { signal: deps.signal } : {}),
       expected: launch.env ?? {} });
     deps.signal?.throwIfAborted();
     if (settings.blocking.length > 0) {

@@ -17,7 +17,8 @@ export function unavailableCommand(error: unknown): undefined {
   return undefined;
 }
 
-async function waitForGroup(group: number): Promise<void> {
+/** Resolve only after the owned POSIX group has no running processes. */
+export async function waitForGroup(group: number): Promise<void> {
   const deadline = Date.now() + 1000;
   for (;;) {
     const remaining = deadline - Date.now();
@@ -51,24 +52,28 @@ export function executeServiceCommand(command: string, args: readonly string[], 
     const stop = (): void => {
       if (stopping) return;
       stopping = new Promise<void>((done, rejectStop) => {
-        const fail = (cause: unknown): void => rejectStop(new ServiceCommandCleanupError(cause));
         const send = (kind: NodeJS.Signals): boolean => {
           try {
             if (process.platform !== 'win32' && child.pid) return process.kill(-child.pid, kind);
             return child.kill(kind);
           } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'ESRCH') fail(error);
+            if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
             return false;
           }
         };
         if (!send('SIGTERM')) { done(); return; }
         setTimeout(async () => {
-          if (send('SIGKILL') && process.platform !== 'win32' && child.pid) {
-            try { await waitForGroup(child.pid); }
-            catch (error) { fail(error); return; }
-          }
-          done();
+          try {
+            if (send('SIGKILL') && process.platform !== 'win32' && child.pid) await waitForGroup(child.pid);
+            done();
+          } catch (error) { rejectStop(error); }
         }, 1000);
+      }).catch(async cause => {
+        if (process.platform !== 'win32' && child.pid && (cause as NodeJS.ErrnoException).code === 'EPERM') {
+          // A group containing only exited processes can reject a signal on macOS.
+          try { await waitForGroup(child.pid); return; } catch {}
+        }
+        throw new ServiceCommandCleanupError(cause);
       });
       void stopping.catch(error => {
         clearTimeout(timer);

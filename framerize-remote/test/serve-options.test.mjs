@@ -138,6 +138,13 @@ for (const json of [false, true]) {
     context.mock.method(Server.prototype, 'listen', function(port, host, ...rest) {
       observedHost = host;
       assert.equal(host, '0.0.0.0');
+      const boundAddress = this.address.bind(this);
+      context.mock.method(this, 'address', () => {
+        const address = boundAddress();
+        if (!address || typeof address === 'string') return address;
+        assert.equal(address.address, '127.0.0.1');
+        return { ...address, address: host };
+      });
       return original.call(this, port, '127.0.0.1', ...rest);
     });
     const listeners = ['SIGINT', 'SIGTERM'].map(name => getEventListeners(process, name).length);

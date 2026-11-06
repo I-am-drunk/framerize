@@ -23,9 +23,11 @@ async function exists(path: string): Promise<boolean> {
 }
 
 export async function resolveStore(values: Readonly<Record<string, string>>,
-  env: Environment): Promise<StorePaths> {
+  env: Environment, signal?: AbortSignal): Promise<StorePaths> {
+  signal?.throwIfAborted();
   const settings = resolve(values.config ?? join(serverHome(env), 'server.json'));
-  const saved = await exists(settings) ? await readSettings(settings) : undefined;
+  const saved = await exists(settings) ? await readSettings(settings, signal) : undefined;
+  signal?.throwIfAborted();
   const savedPath = saved?.config.accountsFile;
   const named = values.accountsFile || env.FRAMERIZE_SERVER_ACCOUNTS
     || (typeof savedPath === 'string' && savedPath ? savedPath : undefined);
@@ -39,13 +41,16 @@ export interface RawAccounts {
   readonly text: string | undefined;
 }
 
-export async function readRawAccounts(path: string): Promise<RawAccounts> {
+export async function readRawAccounts(path: string, signal?: AbortSignal): Promise<RawAccounts> {
   let text: string | undefined;
   let value: unknown = [];
   try {
-    text = await readAccountText(path, true);
+    text = await readAccountText(path, true, signal);
     if (text !== undefined) value = JSON.parse(text);
-  } catch { throw new AccountFileError('Account metadata unavailable'); }
+  } catch {
+    signal?.throwIfAborted();
+    throw new AccountFileError('Account metadata unavailable');
+  }
   checkAccounts(value, path);
   return { accounts: value as RawAccount[], text };
 }
