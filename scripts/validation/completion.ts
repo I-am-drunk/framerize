@@ -62,7 +62,7 @@ export function inspectCompletion(bytes: Buffer) {
       throw new Error('Invalid choice');
     }
     const delta = choice.delta as Record<string, unknown>;
-    if (delta.refusal || delta.tool_calls) throw new Error('Unexpected response type');
+    if (delta.refusal || delta.tool_calls || delta.function_call) throw new Error('Unexpected response type');
     if (delta.content !== undefined && delta.content !== null) {
       if (typeof delta.content !== 'string') throw new Error('Invalid content');
       contentBytes += Buffer.byteLength(delta.content);
