@@ -1,62 +1,40 @@
 # Current continuation, 2026-11-06
 
-The current live issue is distinct from the refusal-wave outage. Recent
-structured logs show successful AI chains interleaved with device risk
-refusals; the user's upstream HTTP 404 text says all matching endpoints were
-excluded by model guardrail/data-policy rules and did not appear in recent
-Framerize error events. A source audit also found duplicate token minting on
-concurrent cache misses. Session-scoped single-flight minting now has a passing
-regression test. The full framer-api suite passes (504 passed, 2 ignored).
-The updated Linux x86_64 package was built on the laptop, passed package
-smoke, was published as a GitHub prerelease, and was downloaded and verified
-in Iris's immutable release store. On 2026-11-06, the exact package passed
-four isolated requests on `verification-20261102`: OpenAI GPT-4.1 and Claude
-Opus 5.5, buffered and streaming. Every response completed with expected
-content. The receipt was revalidated on the laptop against the exact archive;
-the account, workspace and profiles were outside production, paid routes and
-the shared token socket were disabled, and the session lock was owned.
+The diagnosed request-stall fix and related retry repairs are committed on
+`cursor/fix-403-cooldown-stall` through `a033f0ae`. Unpinned requests rotate
+through eligible accounts after recognized account-risk refusals; each refused
+account keeps its own persisted cooldown. If all eligible accounts are cooling,
+the request rechecks availability while waiting and stops on client disconnect.
+Explicit account pins remain fixed, provider policy 403/404 errors stay
+terminal, and no request is replayed after response content has been published.
+Workspace credit exhaustion has a separate one-pass rotation path with paid
+routes disabled. Concurrent session-token cache misses share one mint rather
+than triggering a burst of token requests.
 
-Activation first exposed a deployment defect: the safe updater rejected Iris's
-custom user unit and its existing drop-ins even though `ExecStart` used the
-managed `current` release and the lifecycle settings were safe. The updater now
-fingerprints those files and effective settings before draining and confirms
-they remain unchanged after readiness. It preserves the unit and every
-drop-in. The activation suite passes 31 tests and the drain suite passes 8.
+The package also fixes Windows CRLF corruption of browser patch assets. It was
+built on the laptop, passed the browser-package smoke check and was published
+as the GitHub prerelease [framerize-a033f0ae](https://github.com/I-am-drunk/framerize/releases/tag/framerize-a033f0ae2065b0b7b9f452421fd2d2be3da6185b).
+The archive SHA-256 is
+`6e31035532725faaf873d3fc749d8cc214a8d7bc85aabcbc83f6f13b85ac9378`.
+The GitHub download and Iris copy matched that checksum.
 
-The exact package is active on Iris as
-`d85fb89836ec48f98c9f54c2a7851d8bd7889009`. Graceful activation completed,
-the live API reports ready, and all twelve production account aliases remain
-present. Production traffic resumed. In the latest 30-minute log window,
-`ai.post` recorded 93 successful responses, 5 upstream `credits-exhausted`
-responses, and 21 model guardrail/data-policy 404s. The 404s are provider
-policy outcomes, not service downtime or refusal cooldowns.
+The exact package passed four isolated custom-route checks on
+`verification-20261102`: GPT-4.1 and Claude Opus 5.5, buffered and streaming.
+Each returned a completed response with expected content. The account,
+workspace and browser profiles were isolated from production; paid routes and
+the shared token socket were disabled. The verification workspace used 0.4
+credits. Qualification evidence is retained under Iris's private outage cache.
 
-The qualification requests used the ordinary custom routes, including
-buffered (`stream:false`) and streaming requests, with paid metered access
-disabled. They produced zero metered chunks. The first buffered GPT check
-reduced the isolated verification workspace from 500 to 499 credits; the other
-three checks showed no further deduction. This was the verification account,
-not a production account.
-
-The live 402s exposed a separate retry bug: the API translates upstream HTTP
-402 into `credits-exhausted`, but the account retry policy never treated that
-sentinel as retryable. Unpinned requests now try each eligible account at most
-once on that exact signal, only before response content is published;
-explicitly pinned accounts and policy/refusal/ambiguous transport errors are
-not replayed. The core pipeline also normalizes the sentinel into its existing
-workspace-rotation path.
-
-The follow-up audit found the account-scoped 403 path was incomplete too:
-there was a two-peer retry cap, the Anthropic Messages route did not rotate,
-all-cooling pools could fail instead of waiting, and buffered admission could
-return if an account cooled while waiting on its model slot. The new source
-walks every eligible account once per pass for exact risk refusals, preserves
-per-account cooldowns, waits and retests when every eligible account is cooling,
-and stops on disconnect or after output is published. Explicit account pins
-remain fixed. Credit exhaustion still makes one pass without cooldown waits;
-provider policy 403/404 responses remain terminal. Fixture suites pass: 504
-framer-server tests and 164 framer-core tests. The updated source has not yet
-been committed, packaged or activated.
+Graceful activation completed on Iris. The live `current` release is
+`framerize-linux-x86_64-a033f0ae2065b0b7b9f452421fd2d2be3da6185b`; health and
+readiness both return 200 from PID 1273075, and all 12 production accounts
+remain present. Focused cooldown, rotation, queued-account and Messages tests
+passed. Full local suites passed: framer-server 504, framer-core 164, and
+framer-api 504 (2 ignored). Since activation, sanitized logs show startup and
+browser prewarm events but no production AI request yet. The four isolated
+custom-route checks prove the release's route behavior; the next step is to
+inspect the next naturally occurring T3/custom-route request for repick,
+cooldown and completion events without sending another production request.
 
 # Refusal-wave inference availability repair, 2026-11-06
 
