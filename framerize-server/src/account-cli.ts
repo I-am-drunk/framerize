@@ -79,7 +79,7 @@ export async function runAccountsCommand(argv: readonly string[], deps: AccountC
   if (positional.length > 1) throw new CliUsageError('Invalid option');
   const json = flags.has('json');
   const store = await resolveStore(values, deps.env);
-  const raw = await readRawAccounts(store.accounts);
+  const raw = await readRawAccounts(store.accounts, deps.signal);
   const id = positional[0];
   if (!action && deps.ask && !json) return menu(store, raw, deps);
   if (!action || action === 'list') return list(store, raw.accounts, json, deps.stdout);
@@ -126,6 +126,12 @@ async function sessionInput(values: Record<string, string>, flags: Set<string>,
 // Writes accounts, then settings. A failed settings write restores the prior accounts bytes.
 async function commit(store: StorePaths, previous: RawAccounts, next: readonly RawAccount[],
   settings: Readonly<Record<string, unknown>> | undefined, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  const current = await readRawAccounts(store.accounts, signal);
+  signal?.throwIfAborted();
+  if (current.text !== previous.text) {
+    throw new AccountCommandError('Accounts changed during this command. Retry the command.');
+  }
   await writeAccounts(store.accounts, next, signal);
   if (!settings) return;
   try { await saveSettings(store, settings, {}, signal); }
@@ -255,7 +261,7 @@ export async function runConfigureCommand(argv: readonly string[], deps: Account
 type Ask = (question: string) => Promise<string> | undefined;
 async function configureFramer(store: StorePaths, values: Record<string, string>, json: boolean,
   deps: AccountCliDependencies, asked: Ask): Promise<number> {
-  const raw = await readRawAccounts(store.accounts);
+  const raw = await readRawAccounts(store.accounts, deps.signal);
   const choices = raw.accounts.filter(usable);
   if (!choices.length && !values.accountId) {
     if (!deps.ask) throw new AccountCommandError('Add an account first with accounts add ID --select');
