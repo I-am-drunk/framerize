@@ -31,7 +31,10 @@ export function inspectJsonCompletion(protocol: CompletedReplyProtocol, bytes: B
 export function inspectCompletion(bytes: Buffer) {
   const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes).replace(/\r\n|\r/g, '\n');
   const frames = text.split('\n\n');
-  if (frames.pop()?.trim()) throw new Error('Incomplete event');
+  const tail = frames.pop() ?? '';
+  if (tail.split('\n').some(line => line.trim() && !line.startsWith(':'))) {
+    throw new Error('Incomplete event');
+  }
   let done = false;
   let finished = false;
   let events = 0;
@@ -39,10 +42,12 @@ export function inspectCompletion(bytes: Buffer) {
   let textSeen = false;
   for (const frame of frames) {
     const lines = frame.split('\n');
-    if (lines.some(line => /^event: ?error$/.test(line))) throw new Error('Error event');
-    const data = lines.filter(line => line.startsWith('data:'))
+    const dataLines = lines.filter(line => line === 'data' || line.startsWith('data:'));
+    if (!dataLines.length) continue;
+    const event = lines.filter(line => line === 'event' || line.startsWith('event:')).at(-1);
+    if (event?.slice(6).replace(/^ /, '') === 'error') throw new Error('Error event');
+    const data = dataLines
       .map(line => line.slice(5).replace(/^ /, '')).join('\n');
-    if (!data) continue;
     if (done) throw new Error('Data after completion');
     if (data === '[DONE]') { done = true; continue; }
     const value = JSON.parse(data) as Record<string, unknown>;
@@ -52,11 +57,12 @@ export function inspectCompletion(bytes: Buffer) {
     if (value.choices.length === 0) continue;
     if (value.choices.length !== 1 || finished) throw new Error('Unexpected choice');
     const choice = value.choices[0] as Record<string, unknown> | null;
-    if (!choice || choice.index !== 0 || !choice.delta || typeof choice.delta !== 'object') {
+    if (!choice || choice.index !== 0 || !choice.delta || typeof choice.delta !== 'object'
+      || Array.isArray(choice.delta)) {
       throw new Error('Invalid choice');
     }
     const delta = choice.delta as Record<string, unknown>;
-    if (delta.refusal || delta.tool_calls) throw new Error('Unexpected response type');
+    if (delta.refusal || delta.tool_calls || delta.function_call) throw new Error('Unexpected response type');
     if (delta.content !== undefined && delta.content !== null) {
       if (typeof delta.content !== 'string') throw new Error('Invalid content');
       contentBytes += Buffer.byteLength(delta.content);
