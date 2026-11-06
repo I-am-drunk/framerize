@@ -200,8 +200,9 @@ async function startService(status: ServiceStatus, profile: PersistedConfig,
 async function listener(profile: PersistedConfig, options: UpOptions): Promise<void> {
   const host = urlHost(profile.host ?? CONFIG_DEFAULTS.host).replace(/^\[|\]$/g, '');
   await waitForServiceListener({ host, port: profile.port ?? CONFIG_DEFAULTS.port,
-    service: async () => {
-      const [status, pid] = await waitForServiceCommands([serviceStatus(options.service), serviceMainPid(options.service)]);
+    service: async signal => {
+      const context = { ...options.service, signal };
+      const [status, pid] = await waitForServiceCommands([serviceStatus(context), serviceMainPid(context)]);
       return { running: status.running, pid };
     }, ...(options.readyTimeoutMs ? { timeoutMs: options.readyTimeoutMs } : {}),
     ...(options.signal ? { signal: options.signal } : {}) });

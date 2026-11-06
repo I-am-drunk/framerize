@@ -3,7 +3,7 @@
 import { createServer, request, type IncomingMessage } from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
 import { SERVE_PID_HEADER } from './cmdRun.js';
-import { RemoteDiagnosticError } from './diagnostics.js';
+import { RemoteDiagnosticError, ServiceCommandCleanupError } from './diagnostics.js';
 
 /** Fails when another listener holds the port; binds exclusively and closes at once. */
 export async function checkLocalPort(host: string, port: number, signal?: AbortSignal): Promise<void> {
@@ -75,8 +75,8 @@ function readHealth(response: IncomingMessage, finish: (pid: number | undefined)
 export interface ListenerWait {
   readonly host: string;
   readonly port: number;
-  /** What the service manager reports now: whether the unit runs, and its main PID. */
-  readonly service: () => Promise<{ readonly running: boolean; readonly pid: number | undefined }>;
+  /** Report the unit state and PID; on cancellation, settle after owned query work stops. */
+  readonly service: (signal: AbortSignal) => Promise<{ readonly running: boolean; readonly pid: number | undefined }>;
   readonly timeoutMs?: number;
   readonly signal?: AbortSignal;
 }
@@ -89,12 +89,27 @@ export async function waitForServiceListener(wait: ListenerWait): Promise<number
   const deadline = AbortSignal.any([AbortSignal.timeout(wait.timeoutMs ?? 15_000),
     ...(wait.signal ? [wait.signal] : [])]);
   while (!deadline.aborted) {
-    const [listener, service] = await Promise.all([healthPid(wait.host, wait.port, deadline), wait.service()]);
-    if (deadline.aborted) break;
-    // A unit that stopped after a successful start command failed; waiting longer cannot help.
-    if (!service.running) throw new RemoteDiagnosticError('service_failed', 'the service stopped after it started');
-    if (listener !== undefined && listener === service.pid) return listener;
-    await delay(200, undefined, { signal: deadline }).catch(() => {});
+    const controller = new AbortController();
+    const signal = AbortSignal.any([deadline, controller.signal]);
+    const health = healthPid(wait.host, wait.port, signal);
+    const query = Promise.resolve().then(() => wait.service(signal));
+    try {
+      const [listener, service] = await Promise.all([health, query]);
+      if (deadline.aborted) break;
+      // A unit that stopped after a successful start command failed; waiting longer cannot help.
+      if (!service.running) throw new RemoteDiagnosticError('service_failed', 'the service stopped after it started');
+      if (listener !== undefined && listener === service.pid) return listener;
+      await delay(200, undefined, { signal: deadline }).catch(() => {});
+    } catch (error) {
+      if (!deadline.aborted || error instanceof ServiceCommandCleanupError) throw error;
+      break;
+    } finally {
+      controller.abort();
+      const results = await Promise.allSettled([health, query]);
+      for (const result of results) {
+        if (result.status === 'rejected' && result.reason instanceof ServiceCommandCleanupError) throw result.reason;
+      }
+    }
   }
   if (wait.signal?.aborted) throw new RemoteDiagnosticError('aborted');
   throw new RemoteDiagnosticError('service_not_ready');
