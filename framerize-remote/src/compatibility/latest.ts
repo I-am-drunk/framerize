@@ -32,7 +32,9 @@ const capture = async (deps: LookupDeps, tool: string, args: readonly string[]):
 export function parseChocolateyVersion(stdout: string | null, id: string): string | null {
   for (const line of (stdout ?? '').split(/\r?\n/)) {
     const [name, version] = line.trim().split('|', 2);
-    if (name?.toLowerCase() === id && version?.trim()) return version.trim();
+    if (name?.toLowerCase() === id && version?.trim()) {
+      return parseNpmViewVersion(JSON.stringify(version.trim()));
+    }
   }
   return null;
 }
