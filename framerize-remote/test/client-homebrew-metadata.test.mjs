@@ -19,15 +19,16 @@ const { parseHomebrewCaskVersion, offerClients } = await import(
 function fixture(context, version) {
   const home = mkdtempSync(join(tmpdir(), 'frm-homebrew-metadata-'));
   context.after(() => { rmSync(home, { recursive: true, force: true }); assert.equal(existsSync(home), false); });
-  const executable = join(home, 'bin', 'claude');
-  const brew = join(home, 'bin', 'brew');
+  const executable = '/synthetic-homebrew/bin/claude';
+  const brew = '/synthetic-homebrew/bin/brew';
   const captures = [], unexpected = [], output = [];
   const metadata = JSON.stringify({ casks: [{ version }] });
   const deps = {
-    platform: 'darwin', env: { HOME: home, PATH: join(home, 'bin') }, home,
+    platform: 'darwin', env: { HOME: '/synthetic-homebrew', PATH: '/synthetic-homebrew/bin' },
+    home: '/synthetic-homebrew',
     stateDir: join(home, 'state'), target: { origin: 'http://127.0.0.1:8788' },
     probe: path => path === executable || path === brew,
-    realPath: () => join(home, 'Caskroom', 'claude-code', '2.1.1', 'claude'),
+    realPath: () => '/synthetic-homebrew/Caskroom/claude-code/2.1.1/claude',
     io: { stdout: text => output.push(text), stderr: text => unexpected.push(['stderr', text]) },
     fetch: async (...args) => { unexpected.push(['fetch', args]); return null; },
     read: async (...args) => { unexpected.push(['read', args]); return null; },
