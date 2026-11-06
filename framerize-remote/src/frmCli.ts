@@ -51,7 +51,10 @@ async function runUp(input: string | undefined, io: CliIo, env: NodeJS.ProcessEn
  */
 async function start(io: CliIo, env: NodeJS.ProcessEnv, program: readonly string[]): Promise<number> {
   const configPath = profilePath(undefined, env);
-  const saved = await access(configPath).then(() => true, () => false);
+  const saved = await access(configPath).then(() => true, (error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return false;
+    throw new RemoteDiagnosticError('profile_invalid');
+  });
   if (saved || env.FRM_REMOTE) return serve(configPath, io, false);
   if (!io.ask) throw new RemoteDiagnosticError('remote_required');
   const { result, offerCancelled } = await runUp(undefined, io, env, program);
