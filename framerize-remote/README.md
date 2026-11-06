@@ -163,6 +163,10 @@ running Remote. Arguments after `--` pass through unchanged, such as
 - `--persist` saves Claude settings. `--undo` removes unchanged Framerize
   values from any directory and forgets missing files. Both preserve symlinks
   and reject dangling links. Undo before changing `CLAUDE_CONFIG_DIR`.
+  Concurrent saves or undos that share a settings file or Remote undo record
+  fail with a lock diagnostic. Retry after the other command finishes.
+  A crashed command can leave a `.frm-lock` directory at the reported path.
+  Remove it manually only after confirming no command is using it.
 - `--check` prints the OS, client path, version and Remote address.
 - `--config FILE` selects the profile for client commands. Use the same FILE
   to undo. Setup's client offer prints its profile path.

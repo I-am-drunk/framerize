@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, mkdir, mkdtemp, open, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, open, realpath, rename, rm, rmdir, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { claudeEnv, type RemoteTarget } from './configure.js';
 
@@ -71,6 +71,20 @@ async function writeAtomic(path: string, text: string): Promise<void> {
 
 const recordPath = (stateDir: string): string => join(stateDir, 'claude-settings.json');
 
+async function withSettingsLock<Result>(path: string, action: () => Promise<Result>): Promise<Result> {
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  const lock = `${path}.frm-lock`;
+  try { await mkdir(lock, { mode: 0o700 }); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+      throw new SettingsError(`Claude settings are locked at ${lock}. Retry after the other command finishes. Remove the lock only if no command is using it.`);
+    }
+    throw error;
+  }
+  try { return await action(); }
+  finally { await rmdir(lock); }
+}
+
 async function readRecord(stateDir: string): Promise<WriteRecord | undefined> {
   try {
     const value: unknown = JSON.parse(await readRegularText(recordPath(stateDir)));
@@ -88,9 +102,15 @@ function ours(record: WriteRecord | undefined, key: (typeof MANAGED_KEYS)[number
 /** Sets only the managed env keys and keeps every other setting. Values Framerize did not write stay. */
 export async function writeClaudeSettings(settingsPath: string, stateDir: string, target: RemoteTarget): Promise<void> {
   settingsPath = await settingsDestination(settingsPath);
+  stateDir = await settingsDestination(stateDir);
   if (settingsPath === await settingsDestination(recordPath(stateDir))) {
     throw new SettingsError('Claude settings cannot use the Remote undo-record path.');
   }
+  return withSettingsLock(recordPath(stateDir), () => withSettingsLock(settingsPath,
+    () => writeSettings(settingsPath, stateDir, target)));
+}
+
+async function writeSettings(settingsPath: string, stateDir: string, target: RemoteTarget): Promise<void> {
   const settings = await readSettings(settingsPath) ?? {};
   const env = { ...(settings.env ?? {}) };
   const record = await readRecord(stateDir);
@@ -122,9 +142,17 @@ export type UndoResult = 'restored' | 'not_configured' | 'changed_since';
 
 /** Removes only values that still match what Framerize wrote, then forgets the record. */
 export async function undoClaudeSettings(stateDir: string): Promise<UndoResult> {
-  const record = await readRecord(stateDir);
-  if (!record) return 'not_configured';
-  const settingsPath = await settingsDestination(record.settingsPath);
+  if (!await readRecord(stateDir)) return 'not_configured';
+  stateDir = await settingsDestination(stateDir);
+  return withSettingsLock(recordPath(stateDir), async () => {
+    const record = await readRecord(stateDir);
+    if (!record) return 'not_configured';
+    const settingsPath = await settingsDestination(record.settingsPath);
+    return withSettingsLock(settingsPath, () => undoSettings(settingsPath, stateDir, record));
+  });
+}
+
+async function undoSettings(settingsPath: string, stateDir: string, record: WriteRecord): Promise<UndoResult> {
   const settings = await readSettings(settingsPath);
   const env = { ...(settings?.env ?? {}) };
   const changed = MANAGED_KEYS.some(key => env[key] !== undefined && !ours(record, key, env[key]));
