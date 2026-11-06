@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { access, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,10 +19,16 @@ const { withProfileLock, runSetup, setUp, RemoteDiagnosticError, SetupRollbackEr
   `data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
 const args = ['--remote', 'http://127.0.0.1:8789'];
 const missing = path => assert.rejects(access(path), { code: 'ENOENT' });
-async function fixture(context) {
-  const root = await mkdtemp(join(tmpdir(), 'frm-profile-lock-'));
-  context.after(() => rm(root, { recursive: true, force: true }));
-  return { root, profile: join(root, 'remote.json'), lock: join(root, '.remote.json.lock') };
+async function fixture(context, aliased = false) {
+  const temporary = await mkdtemp(join(tmpdir(), 'frm-profile-lock-'));
+  context.after(() => rm(temporary, { recursive: true, force: true }));
+  const root = aliased ? join(temporary, 'alias') : temporary;
+  if (aliased) {
+    const target = join(temporary, 'target');
+    await mkdir(target);
+    await symlink(target, root, 'junction');
+  }
+  return { root, profile: join(root, 'remote.json'), lock: join(await realpath(root), '.remote.json.lock') };
 }
 
 test('directory aliases share a lock while different profiles remain independent', async context => {
@@ -76,13 +82,17 @@ test('an existing lock is preserved until the owner removes it', async context =
   await missing(lock);
 });
 
-test('an invalid parent path reports a write error without replacing it', async context => {
+test('an invalid parent path reports an error without replacing it', async context => {
   const { root } = await fixture(context);
   const parent = join(root, 'not-a-directory');
   await writeFile(parent, 'keep this file\n');
+  // Windows reports this child as missing, so up reaches the guarded write.
+  await assert.rejects(readFile(join(parent, 'remote.json')), {
+    code: process.platform === 'win32' ? 'ENOENT' : 'ENOTDIR',
+  });
   await assert.rejects(runSetup(args, join(parent, 'remote.json'), {}), { code: 'profile_write' });
   await assert.rejects(setUp(args[1], {}, { configPath: join(parent, 'remote.json'),
-    env: {}, service: {} }), { code: 'profile_invalid' });
+    env: {}, service: {} }), { code: process.platform === 'win32' ? 'profile_write' : 'profile_invalid' });
   assert.equal(await readFile(parent, 'utf8'), 'keep this file\n');
 });
 
@@ -121,7 +131,7 @@ test('an address prompt holds no lock and up rereads a completed setup', { timeo
 
 for (const stage of ['close', 'remove']) for (const failed of [false, true]) {
   test(`${stage} failure preserves ${failed ? 'rollback diagnostics' : 'successful operation state'}`, async context => {
-    const { profile, lock } = await fixture(context);
+    const { profile, lock } = await fixture(context, true);
     const cleanupError = new Error('synthetic lock cleanup failure');
     const original = new SetupRollbackError(new RemoteDiagnosticError('aborted'), [new Error('rollback')]);
     const originalOpen = fs.open, originalRm = fs.rm;
