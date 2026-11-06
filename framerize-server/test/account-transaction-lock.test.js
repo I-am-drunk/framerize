@@ -60,7 +60,7 @@ async function fixture(context) {
   });
   const output = [];
   const deps = { env: { FRAMERIZE_SERVER_HOME: home }, stdout: { write: text => output.push(text) } };
-  return { directory, home, accounts, lock: join(home, '.accounts.json.lock'), output, deps };
+  return { directory, home, accounts, lock: join(await files.realpath(home), '.accounts.json.lock'), output, deps };
 }
 
 async function assertReleased(state) {
