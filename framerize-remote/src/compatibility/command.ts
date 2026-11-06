@@ -120,12 +120,12 @@ async function check(options: ClientOptions, deps: ClientSetupDeps): Promise<num
 }
 
 /** Remote launches use their own auth and endpoint, including when the shell selects a cloud provider. */
-function launchEnv(client: ClientName, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+function launchEnv(client: ClientName, env: NodeJS.ProcessEnv, platform: NodeJS.Platform): NodeJS.ProcessEnv {
   if (client !== 'claude') return env;
-  const { ANTHROPIC_API_KEY: _dropped, CLAUDE_CODE_USE_BEDROCK: _bedrock,
-    CLAUDE_CODE_USE_VERTEX: _vertex, CLAUDE_CODE_USE_FOUNDRY: _foundry,
-    CLAUDE_CODE_USE_ANTHROPIC_AWS: _aws, ...rest } = env;
-  return rest;
+  const excluded = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX',
+    'CLAUDE_CODE_USE_FOUNDRY', 'CLAUDE_CODE_USE_ANTHROPIC_AWS'];
+  return Object.fromEntries(Object.entries(env).filter(([key]) =>
+    !excluded.includes(platform === 'win32' ? key.toUpperCase() : key)));
 }
 
 /** Standalone `frm client` handler. The parent resolves the Remote target and wires real deps. */
@@ -179,5 +179,5 @@ export async function runClient(argv: readonly string[], deps: ClientSetupDeps):
     // Command-line settings outrank user and project files, so a foreign base URL cannot win.
     if (settings.overrideBaseUrl) launch = withSettingsOverride(launch, claudeBaseUrl(deps.target.origin));
   }
-  return deps.runner.run(launch, launchEnv(options.client, deps.env));
+  return deps.runner.run(launch, launchEnv(options.client, deps.env, deps.platform));
 }
