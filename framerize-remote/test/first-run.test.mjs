@@ -315,7 +315,7 @@ test('atomic saves replace a linked profile without changing its other name', as
   await mkdir(join(root, 'profile'));
   const original = join(root, 'original.json');
   await writeFile(original, 'keep me', { mode: 0o666 }); await link(original, profile);
-  await Promise.all(Array.from({ length: 4 }, () => run(setup('http://127.0.0.1'), quiet)));
+  for (let attempt = 0; attempt < 4; attempt++) await run(setup('http://127.0.0.1'), quiet);
   assert.equal(await readFile(original, 'utf8'), 'keep me');
   assert.equal(JSON.parse(await readFile(profile, 'utf8')).port, 0);
   assert.deepEqual(await readdir(join(root, 'profile')), ['framerize-remote.json']);

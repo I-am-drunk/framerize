@@ -1,11 +1,12 @@
 import { parseArgs } from './cliArgs.js';
-import { saveConfigFile } from './configStore.js';
+import { saveConfigFile, validateConfigForSave } from './configStore.js';
+import { withProfileLock } from './profileLock.js';
 import { parseRemoteEndpoint } from './remoteUrl.js';
 import type { CredentialReference } from './credentials.js';
 import type { PersistedConfig } from './config.js';
 import { RemoteDiagnosticError } from './diagnostics.js';
 import { parseListenOptions, type ListenOverrides } from './listenOptions.js';
-import { frmSettings } from './frmEnv.js';
+import { frmSettings, withEnvOverrides } from './frmEnv.js';
 
 const SETUP_SPEC = {
   remote: 'string', 'server-token-env': 'string', 'server-token-file': 'string',
@@ -40,7 +41,7 @@ export async function runSetup(argv: readonly string[], configPath: string,
   catch { throw new RemoteDiagnosticError('setup_arguments'); }
   const { options } = parsed;
   const flags = parseListenOptions(options);
-  const frm = frmSettings(flags.port === undefined ? env : { ...env, FRM_PORT: undefined });
+  const frm = frmSettings(flags.port === undefined ? env : withEnvOverrides(env, { FRM_PORT: undefined }));
   const listen = { ...(frm.host ? { host: frm.host } : {}), ...(frm.port !== undefined ? { port: frm.port } : {}),
     ...flags };
   const inferenceTimeout = options['inference-timeout-ms'];
@@ -63,6 +64,10 @@ export async function runSetup(argv: readonly string[], configPath: string,
     allowInsecureRemote: insecure,
     allowNonLoopback: options['allow-non-loopback'] === true,
   };
-  await saveConfigFile(configPath, config);
+  validateConfigForSave(config);
+  await withProfileLock(configPath, async () => {
+    signal?.throwIfAborted();
+    await saveConfigFile(configPath, config);
+  });
   return flags;
 }

@@ -37,10 +37,20 @@ export async function claudeLocalSettingsPath(deps: ClientSetupDeps, cwd: string
   const realPath = deps.realPath ?? defaultRealPath;
   if (realPath(root) === realPath(deps.home)) return local;
   const owner = deps.fileOwner ?? fileOwner;
-  const [directory, git, settings] = await Promise.all([
-    owner(root), owner(join(root, '.git')), owner(join(root, '.claude')),
-  ]);
-  deps.signal?.throwIfAborted();
-  return directory === uid && git === uid && (settings === null || settings === uid)
-    ? join(root, '.claude', 'settings.local.json') : local;
+  let abort = (): void => {};
+  try {
+    const [directory, git, settings] = await new Promise<readonly (number | null)[]>((resolve, reject) => {
+      abort = () => reject(deps.signal?.reason);
+      deps.signal?.addEventListener('abort', abort, { once: true });
+      if (deps.signal?.aborted) { abort(); return; }
+      Promise.all([
+        owner(root), owner(join(root, '.git')), owner(join(root, '.claude')),
+      ]).then(resolve, reject);
+    });
+    deps.signal?.throwIfAborted();
+    return directory === uid && git === uid && (settings === null || settings === uid)
+      ? join(root, '.claude', 'settings.local.json') : local;
+  } finally {
+    deps.signal?.removeEventListener('abort', abort);
+  }
 }

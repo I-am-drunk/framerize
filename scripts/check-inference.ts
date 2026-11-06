@@ -10,12 +10,13 @@ const failure = (code: 'configuration' | 'credential') => ({ ok: false as const,
 export async function runInferenceCheck(argv: readonly string[], env: NodeJS.ProcessEnv,
   signal?: AbortSignal) {
   let request;
-  let reference: CredentialReference;
+  let reference: CredentialReference | undefined;
   try {
     const { options } = parseArgs(argv, { endpoint: 'string', model: 'string',
       'token-env': 'string', 'token-file': 'string', 'timeout-ms': 'string',
       protocol: 'string', 'send-one-request': 'boolean' });
-    if (options['send-one-request'] !== true || Boolean(options['token-env']) === Boolean(options['token-file'])) {
+    if (options['send-one-request'] !== true
+      || (options['token-env'] !== undefined && options['token-file'] !== undefined)) {
       throw new Error();
     }
     if (options['timeout-ms'] !== undefined && !/^\d+$/.test(String(options['timeout-ms']))) throw new Error();
@@ -23,22 +24,23 @@ export async function runInferenceCheck(argv: readonly string[], env: NodeJS.Pro
       timeoutMs: Number(options['timeout-ms'] ?? 30000),
       protocol: (options.protocol ?? 'chat') as NonNullable<InferenceCheckOptions['protocol']>,
       ...(signal ? { signal } : {}) };
-    validateInferenceOptions({ ...request, token: 'preflight' });
+    validateInferenceOptions(request);
     if (options['token-env'] && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(String(options['token-env']))) throw new Error();
     reference = options['token-env'] ? { kind: 'env', name: String(options['token-env']) }
-      : { kind: 'file', path: String(options['token-file']) };
+      : options['token-file'] ? { kind: 'file', path: String(options['token-file']) } : undefined;
   } catch { return failure('configuration'); }
-  if (signal?.aborted) return checkInference({ ...request, token: 'preflight' });
-  let token: string;
-  try { token = await loadCredential(reference, env); }
+  if (signal?.aborted) return checkInference(request);
+  let token: string | null = null;
+  try { if (reference) token = await loadCredential(reference, env); }
   catch { return failure('credential'); }
   return checkInference({ ...request, token });
 }
 
 const help = `Usage: check-inference --endpoint ORIGIN --model MODEL
-  (--token-env NAME | --token-file FILE) --send-one-request [--timeout-ms N]
+  [--token-env NAME | --token-file FILE] --send-one-request [--timeout-ms N]
   [--protocol chat|responses|messages]
 The default chat check streams. Responses and Messages request completed JSON.
+Omit token options for an endpoint without authentication.
 Sends one text inference request. Provider usage may be charged. No retries.
 Reports counts and fixed errors only, never credentials or response text.
 This checks the selected endpoint, not provider identity or release readiness.
