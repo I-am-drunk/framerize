@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
-import { lstat, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { constants } from 'node:fs';
+import { lstat, mkdir, mkdtemp, open, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { basename, dirname, join, resolve } from 'node:path';
 import { claudeEnv, type RemoteTarget } from './configure.js';
 
 /** Claude Code reads user settings from CLAUDE_CONFIG_DIR, else ~/.claude. */
@@ -17,6 +18,14 @@ const digest = (value: string): string => createHash('sha256').update(value).dig
 
 export class SettingsError extends Error {}
 
+async function readRegularText(path: string): Promise<string> {
+  const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOCTTY);
+  try {
+    if (!(await file.stat()).isFile()) throw new SettingsError('Claude settings must be a regular file.');
+    return await file.readFile('utf8');
+  } finally { await file.close(); }
+}
+
 async function settingsDestination(path: string): Promise<string> {
   try { return await realpath(path); }
   catch (error) {
@@ -28,13 +37,14 @@ async function settingsDestination(path: string): Promise<string> {
       return undefined;
     });
     if (entry?.isSymbolicLink()) throw new SettingsError('Claude settings link has no target.');
-    return path;
+    if (dirname(path) === path) throw new SettingsError('Claude settings could not be resolved.');
+    return resolve(await settingsDestination(dirname(path)), basename(path));
   }
 }
 
 async function readSettings(path: string): Promise<Settings | undefined> {
   let text: string;
-  try { text = await readFile(path, 'utf8'); }
+  try { text = await readRegularText(path); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
     throw new SettingsError('Claude settings could not be read.');
@@ -53,16 +63,17 @@ async function readSettings(path: string): Promise<Settings | undefined> {
 
 async function writeAtomic(path: string, text: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  const temporary = `${path}.frm-${process.pid}-${Date.now()}`;
+  const directory = await mkdtemp(`${path}.frm-`);
+  const temporary = join(directory, 'settings');
   try { await writeFile(temporary, text, { mode: 0o600, flag: 'wx' }); await rename(temporary, path); }
-  finally { await rm(temporary, { force: true }); }
+  finally { await rm(directory, { recursive: true, force: true }); }
 }
 
 const recordPath = (stateDir: string): string => join(stateDir, 'claude-settings.json');
 
 async function readRecord(stateDir: string): Promise<WriteRecord | undefined> {
   try {
-    const value: unknown = JSON.parse(await readFile(recordPath(stateDir), 'utf8'));
+    const value: unknown = JSON.parse(await readRegularText(recordPath(stateDir)));
     const record = value as Partial<WriteRecord> | null;
     return typeof record?.settingsPath === 'string' && record.written && typeof record.written === 'object'
       ? record as WriteRecord : undefined;
@@ -77,9 +88,15 @@ function ours(record: WriteRecord | undefined, key: (typeof MANAGED_KEYS)[number
 /** Sets only the managed env keys and keeps every other setting. Values Framerize did not write stay. */
 export async function writeClaudeSettings(settingsPath: string, stateDir: string, target: RemoteTarget): Promise<void> {
   settingsPath = await settingsDestination(settingsPath);
+  if (settingsPath === await settingsDestination(recordPath(stateDir))) {
+    throw new SettingsError('Claude settings cannot use the Remote undo-record path.');
+  }
   const settings = await readSettings(settingsPath) ?? {};
   const env = { ...(settings.env ?? {}) };
   const record = await readRecord(stateDir);
+  if (record && await settingsDestination(record.settingsPath) !== settingsPath) {
+    throw new SettingsError('Claude settings are already managed at another path. Run frm client claude --undo with the same Remote profile before changing CLAUDE_CONFIG_DIR.');
+  }
   const values = claudeEnv(target);
   const foreign = MANAGED_KEYS.filter(key => env[key] !== undefined && !ours(record, key, env[key]));
   if (foreign.length > 0) {

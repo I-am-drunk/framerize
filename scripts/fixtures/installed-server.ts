@@ -6,6 +6,17 @@ import { upstreamToken } from './transport-scenario.js';
 
 export const serverToken = 'synthetic-server-credential';
 
+export async function startInstalledSavedServer(consumer: string, env: NodeJS.ProcessEnv) {
+  return startInstalledCli(consumer, env,
+    [join(consumer, 'node_modules/framerize/bin/framerize-server.js'),
+      'serve', '--host', '127.0.0.1', '--port', '0'], 'server');
+}
+
+export async function startInstalledSavedRemote(consumer: string, env: NodeJS.ProcessEnv) {
+  return startInstalledCli(consumer, env,
+    [join(consumer, 'node_modules/framerize-remote/bin/frm.js'), 'serve', '--json'], 'remote');
+}
+
 async function bounded<Value>(promise: Promise<Value>, milliseconds = 5000): Promise<Value> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try { return await Promise.race([promise, new Promise<never>((resolveUnused, reject) => {
