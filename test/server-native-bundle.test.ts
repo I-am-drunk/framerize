@@ -69,7 +69,7 @@ function fixture(overrides = {}, body = "console.log('verified archive');"): Buf
     const payload = Buffer.from(content);
     const header = Buffer.alloc(512);
     header.write(name); header.write(payload.length.toString(8).padStart(11, '0'), 124);
-    header.fill(32, 148, 156); header.write('0', 156); header.write('ustar\0', 257);
+    header.fill(32, 148, 156); header.write('0', 156); header.write('ustar\0' + '00', 257);
     header.write(header.reduce((sum, byte) => sum + byte, 0).toString(8).padStart(6, '0') + '\0 ', 148);
     chunks.push(header, payload, Buffer.alloc((512 - payload.length % 512) % 512));
   }

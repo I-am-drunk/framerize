@@ -37,6 +37,8 @@ try {
     'Installed package metadata differs');
   const files = ['README.md', 'LICENSE', 'T3-LICENSE', 'NAYUKI-LICENSE', 'T3-ATTRIBUTION.md',
     'bin/framerize-server.js', ...['core.js', 'core.d.ts', 'accounts.js', 'accounts.d.ts',
+      'account-cli.js', 'account-cli.d.ts', 'account-store.js', 'account-store.d.ts',
+      'browser-login.js', 'browser-login.d.ts',
       ...['startup-access', 'private-network', 'qr-code', 'settings', 'setup', 'service-units',
         'service-control', 'tailscale'].flatMap(name => [`${name}.js`, `${name}.d.ts`]),
       'backend.js', 'backend.d.ts', 'castle.js', 'castle-loader.js', 'castle-loader.d.ts',
