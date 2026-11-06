@@ -1,4 +1,5 @@
 import { isIP } from 'node:net';
+import { domainToASCII } from 'node:url';
 
 export function normalizeHostname(host: string): string {
   const bare = host.replace(/^\[|\]$/g, '');
@@ -10,8 +11,9 @@ export function normalizeHostname(host: string): string {
 }
 
 function parseIpv4(host: string): readonly number[] | null {
-  if (isIP(host) !== 4) return null;
-  const parts = host.split('.').map(Number);
+  const address = /^[\da-fx.]+$/i.test(host) ? domainToASCII(host) : host;
+  if (isIP(address) !== 4) return null;
+  const parts = address.split('.').map(Number);
   return parts.length === 4 && parts.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)
     ? parts : null;
 }
@@ -19,5 +21,11 @@ function parseIpv4(host: string): readonly number[] | null {
 export function isLoopbackHost(host: string): boolean {
   const normalized = normalizeHostname(host);
   if (normalized === 'localhost' || normalized === '::1') return true;
+  if (isIP(normalized) === 6) {
+    try {
+      const canonical = new URL(`http://[${normalized}]`).hostname;
+      return canonical === '[::1]' || /^\[::ffff:7f[\da-f]{2}:[\da-f]{1,4}\]$/.test(canonical);
+    } catch { return false; }
+  }
   return parseIpv4(normalized)?.[0] === 127;
 }
