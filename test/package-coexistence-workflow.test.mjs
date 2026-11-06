@@ -24,7 +24,8 @@ test('ci.yml selects the source and package gates from changed files', () => {
   for (const source of [core, readFileSync(workflowPath, 'utf8')]) validateEvents(source);
   assert.match(ci, /^  pull_request:\n  push:\n    branches: \[main, 'restart\/\*\*'\]$/m);
   assert.match(ci, /if: needs\.changes\.outputs\.source != 'false'\n    uses: \.\/\.github\/workflows\/core-ci\.yml/);
-  assert.match(ci, /if: needs\.changes\.outputs\.packages != 'false'\n    uses: \.\/\.github\/workflows\/package-coexistence\.yml/);
+  assert.match(section(ci, 'packages', 2), /needs\.changes\.outputs\.packages != 'false'/);
+  assert.match(ci, /packages: \$\{\{ github\.event_name == 'pull_request' && 'true'/);
 });
 const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
@@ -55,7 +56,8 @@ function evidenceFixture(platform = 'linux', arch = 'x64') {
     runId: '1234', runAttempt: '1' };
   const tooling = ['package.json', 'scripts/package-coexistence.js', 'scripts/package-archive.js',
     'scripts/core-package-check.js', 'scripts/fixtures/core-installed.js',
-    'scripts/fixtures/installed-server.js', 'scripts/fixtures/transport-scenario.js',
+    'scripts/fixtures/installed-server.js', 'scripts/fixtures/installed-accounts.js',
+    'scripts/fixtures/transport-scenario.js',
     'test/installed-remote-flow.test.js', 'test/package-coexistence.test.js', 'test/package-archive.test.js']
     .map((file) => {
       const bytes = Buffer.from(file === 'package.json' ? '{"type":"module"}\n' : 'synthetic compiled tool');
@@ -141,6 +143,32 @@ function evidenceFixture(platform = 'linux', arch = 'x64') {
 const producerStep = 'Write producer manifest beside exactly two tarballs';
 const verifyStep = 'Verify producer manifest, source and input hashes';
 const reportStep = 'Match checker identities to producer manifest';
+
+test('producer artifact includes every local runtime import of its tooling', () => {
+  const fixture = evidenceFixture();
+  fixture.files.delete(fixture.manifestFile);
+  for (const file of fixture.files.keys()) {
+    if (file.startsWith(path.join(fixture.input, 'tooling') + path.sep)) fixture.files.delete(file);
+  }
+  fixture.execute(producerStep);
+  const files = new Set(JSON.parse(fixture.files.get(fixture.manifestFile)).tooling.map(entry => entry.file));
+  const ts = requireBuiltin('typescript');
+  for (const file of files) {
+    if (file === 'package.json') continue;
+    const source = readFileSync(new URL('../' + file.replace(/\.js$/, '.ts'), import.meta.url), 'utf8');
+    const javascript = ts.transpileModule(source, {
+      compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
+    }).outputText;
+    const parsed = ts.createSourceFile(file, javascript, ts.ScriptTarget.ES2022, true);
+    for (const statement of parsed.statements) {
+      if (!ts.isImportDeclaration(statement) && !ts.isExportDeclaration(statement)) continue;
+      const specifier = statement.moduleSpecifier;
+      if (!specifier || !ts.isStringLiteral(specifier) || !specifier.text.startsWith('.')) continue;
+      const dependency = path.posix.normalize(path.posix.join(path.posix.dirname(file), specifier.text));
+      assert.ok(files.has(dependency), `${file} imports ${dependency}, missing from the producer artifact`);
+    }
+  }
+});
 
 test('actual workflow reuses attempt-one producer bytes on attempt-two consumers', () => {
   const producer = evidenceFixture();
@@ -288,7 +316,14 @@ function validatePermissions(source) {
 }
 
 function validateUploads(source) {
-  const uploads = source.split(/^      - /m).filter((step) => /uses: actions\/upload-artifact@/.test(step));
+  const allUploads = source.split(/^      - /m).filter((step) => /uses: actions\/upload-artifact@/.test(step));
+  const previews = allUploads.filter(step => /name: pr-preview-\$\{\{ github.run_id \}\}/.test(step));
+  assert.ok(previews.length <= 1);
+  for (const step of previews) {
+    assert.match(step, /if: github.event_name == 'pull_request'/);
+    assert.match(step, /retention-days: 7/);
+  }
+  const uploads = allUploads.filter(step => !previews.includes(step));
   assert.equal(uploads.length, 2, 'retain producer and matrix consumer evidence');
   const names = [];
   for (const step of uploads) {
@@ -353,8 +388,8 @@ function validateExecution(source) {
   for (const [, version] of versions) {
     assert.match(version.trim(), /^(?:['"]22\.23\.4['"]|\$\{\{ matrix\.node \}\})$/, 'qualify pinned Node');
   }
-  const build = 'npm ci --ignore-scripts --no-audit --no-fund && npm run build';
-  const withoutBuild = source.replace(build, '').replace('npm ci --ignore-scripts --no-audit --no-fund', '');
+  const withoutBuild = source.replace('npm run build', '')
+    .replaceAll('npm ci --ignore-scripts --no-audit --no-fund', '');
   assert.doesNotMatch(withoutBuild, /\bnpm (?:ci|install|publish)\b|\bnpm run (?:binary|build)\b/);
   assert.doesNotMatch(source, /(?:echo|printf)[^\r\n]*NODE_OPTIONS/,
     'GitHub blocks NODE_OPTIONS writes through GITHUB_ENV');
@@ -408,10 +443,11 @@ test('workflow declares pinned actions, all three runners, and root cwd', () => 
 test('only the producer builds the shared core before packaging', () => {
   const source = readFileSync(workflowPath, 'utf8');
   const producer = section(source, 'produce', 2);
-  const build = 'npm ci --ignore-scripts --no-audit --no-fund && npm run build';
+  const build = 'npm run build';
   assert.equal(source.split(build).length - 1, 1);
   assert.ok(producer.includes(build));
   assert.ok(producer.indexOf(build) < producer.indexOf('Pack each package once'));
+  assert.ok(producer.indexOf('preview-version.cjs stamp') < producer.indexOf(build));
 });
 
 function validateProducerDownload(input) {

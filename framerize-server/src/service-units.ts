@@ -1,6 +1,6 @@
 // Adapted from T3 Code apps/server/src/cloud/bootService.ts at
 // 5a906583fed3fa41dc806f2a19bd9d095537ed3e. MIT, T3 Tools Inc.
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 
 export const SERVICE_UNIT = 'framerize-server.service';
 export const SERVICE_LABEL = 'dev.framerize.server';
@@ -81,8 +81,10 @@ export function selectServiceManager(plan: ServicePlan): ServiceManager | undefi
   const systemctl = (...args: string[]): ServiceStep => ({ command: 'systemctl', args: ['--user', ...args] });
   if (plan.platform === 'linux') {
     const reload = systemctl('daemon-reload');
+    const configHome = plan.xdgConfigHome && isAbsolute(plan.xdgConfigHome)
+      ? plan.xdgConfigHome : join(plan.homeDir, '.config');
     return {
-      path: join(plan.xdgConfigHome ?? join(plan.homeDir, '.config'), 'systemd', 'user', SERVICE_UNIT),
+      path: join(configHome, 'systemd', 'user', SERVICE_UNIT),
       contents: renderServiceUnit(plan),
       activate: [reload, systemctl('enable', SERVICE_UNIT), systemctl('restart', SERVICE_UNIT)],
       stop: [systemctl('stop', SERVICE_UNIT)], restart: [systemctl('restart', SERVICE_UNIT)],
