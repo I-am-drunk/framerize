@@ -1,4 +1,5 @@
-import { access, readFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { access, open, type FileHandle } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { ConfigurationError } from './errors.js';
@@ -24,10 +25,45 @@ function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-export async function readSettings(path: string): Promise<SavedSettings> {
+async function settingsText(path: string, signal?: AbortSignal): Promise<string> {
+  signal?.throwIfAborted();
+  let file: FileHandle | undefined;
+  let closing: Promise<void> | undefined;
+  const close = () => file && (closing ??= file.close());
+  const pending = (async () => {
+    try {
+      file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOCTTY);
+      signal?.throwIfAborted();
+      const info = await file.stat();
+      signal?.throwIfAborted();
+      if (!info.isFile()) throw new Error('Settings must be a regular file');
+      const text = await file.readFile({ encoding: 'utf8', ...(signal ? { signal } : {}) });
+      signal?.throwIfAborted();
+      return text;
+    } finally { await close(); }
+  })();
+  if (!signal) return pending;
+  let abort!: () => void;
+  const cancelled = new Promise<never>((resolveUnused, reject) => {
+    abort = () => {
+      void close()?.catch(() => {});
+      reject(signal.reason);
+    };
+    signal.addEventListener('abort', abort, { once: true });
+    if (signal.aborted) abort();
+  });
+  try { return await Promise.race([pending, cancelled]); }
+  finally { signal.removeEventListener('abort', abort); }
+}
+
+export async function readSettings(path: string, signal?: AbortSignal): Promise<SavedSettings> {
   let value: unknown;
-  try { value = JSON.parse(await readFile(path, 'utf8')); }
-  catch { throw new ConfigurationError('Server settings are unavailable or invalid'); }
+  try { value = JSON.parse(await settingsText(path, signal)); }
+  catch {
+    signal?.throwIfAborted();
+    throw new ConfigurationError('Server settings are unavailable or invalid');
+  }
+  signal?.throwIfAborted();
   if (!record(value) || value.version !== 1 || !record(value.config) || !record(value.environment)) {
     throw new ConfigurationError('Invalid Server settings');
   }
@@ -46,8 +82,10 @@ export async function readSettings(path: string): Promise<SavedSettings> {
 }
 
 export async function configuredSettings(path: string | undefined,
-  values: Readonly<Record<string, unknown>>, env: Environment) {
-  const saved = path ? await readSettings(path) : undefined;
+  values: Readonly<Record<string, unknown>>, env: Environment, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  const saved = path ? await readSettings(path, signal) : undefined;
+  signal?.throwIfAborted();
   const combinedEnv = new Proxy({ ...saved?.environment, ...env }, {
     get(target, name, receiver) {
       if (typeof name === 'string') {
