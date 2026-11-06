@@ -94,7 +94,7 @@ export function prepareRemotePromotion(candidate: string, approvalFile: string,
   for (const entry of evidence) {
     assert.match(entry.sha256, hashPattern);
     const data = bytes(join(candidate, entry.file),
-      entry.file.endsWith('/installed.log') ? 16 * 1024 * 1024 : undefined);
+      entry.file === tarball || entry.file.endsWith('/installed.log') ? 16 * 1024 * 1024 : undefined);
     assert.equal(data.length, entry.bytes); assert.equal(digest(data), entry.sha256);
     snapshots.set(entry.file, data);
   }
