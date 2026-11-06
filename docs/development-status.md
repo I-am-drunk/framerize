@@ -6,18 +6,29 @@ refusals; the user's upstream HTTP 404 text says all matching endpoints were
 excluded by model guardrail/data-policy rules and did not appear in recent
 Framerize error events. A source audit also found duplicate token minting on
 concurrent cache misses. Session-scoped single-flight minting now has a passing
-regression test. Release activation uses the verified graceful drain, checks
-the service cgroup is empty, and requires account-history readiness. The
-activation and drain suites pass (9 and 8 tests); the full framer-api suite
-passes (504 passed, 2 ignored). The updated Linux x86_64 package was rebuilt
-locally, passed package smoke, was uploaded to a GitHub prerelease, and was
-downloaded and verified in Iris's releases directory without switching the
-live symlink. No qualification receipt exists for this exact package. The
-activation gate requires isolated OpenAI and Claude buffered/streaming checks
-on a dedicated non-production account/workspace; there is no evidence of one
-configured, so the old service remains active and healthy on alpha.31.
-Next: obtain/identify an exclusive non-production qualification account and
-workspace, then run the exact-package checks and activate via graceful drain.
+regression test. The full framer-api suite passes (504 passed, 2 ignored).
+The updated Linux x86_64 package was built on the laptop, passed package
+smoke, was published as a GitHub prerelease, and was downloaded and verified
+in Iris's immutable release store. On 2026-11-06, the exact package passed
+four isolated requests on `verification-20261102`: OpenAI GPT-4.1 and Claude
+Opus 5.5, buffered and streaming. Every response completed with expected
+content. The receipt was revalidated on the laptop against the exact archive;
+the account, workspace and profiles were outside production, paid routes and
+the shared token socket were disabled, and the session lock was owned.
+
+Activation first exposed a deployment defect: the safe updater rejected Iris's
+custom user unit and its existing drop-ins even though `ExecStart` used the
+managed `current` release and the lifecycle settings were safe. The updater now
+fingerprints those files and effective settings before draining and confirms
+they remain unchanged after readiness. It preserves the unit and every
+drop-in. The activation suite passes 31 tests and the drain suite passes 8.
+
+The exact package is active on Iris as
+`d85fb89836ec48f98c9f54c2a7851d8bd7889009`. Graceful activation completed,
+the live API reports ready, and all twelve production account aliases remain
+present. Two production accounts prewarmed successfully. No AI inference
+request from T3 or another production client was observed after restart yet;
+the four exact-package inference checks ran only on the isolated test profile.
 
 # Refusal-wave inference availability repair, 2026-11-06
 
