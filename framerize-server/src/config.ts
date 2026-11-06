@@ -157,7 +157,7 @@ async function readServerTokenFile(path: string, signal?: AbortSignal): Promise<
   const abort = () => { void close()?.catch(() => {}); };
   signal?.addEventListener('abort', abort, { once: true });
   try {
-    file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
+    file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOCTTY);
     signal?.throwIfAborted();
     const info = await file.stat();
     signal?.throwIfAborted();
