@@ -46,7 +46,7 @@ test('Windows canonical settings remain updateable, launchable and undoable', as
   const inspection = await inspectClaudeSettings(async path => path === files.file ? text : null,
     { platform: 'win32', env: {}, userPath: files.file, cwd: files.root, expected: saved.env });
   assert.deepEqual(inspection, { overrideBaseUrl: false, blocking: [] });
-  assert.equal(await undoClaudeSettings(files.state), 'restored');
+  assert.equal(await undoClaudeSettings(files.state, 'win32'), 'restored');
   assert.deepEqual(JSON.parse(await readFile(files.file, 'utf8')), files.original);
   assert.deepEqual(await readdir(files.state), []);
   assert.deepEqual((await readdir(files.root)).sort(), ['settings.json', 'state']);

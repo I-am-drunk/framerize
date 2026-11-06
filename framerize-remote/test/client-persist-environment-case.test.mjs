@@ -88,7 +88,7 @@ test('POSIX persist preserves distinct lowercase keys and remains undoable', { t
   assert.equal(saved.model, 'synthetic-model');
   assert.match(files.stdout.join(''), /Claude settings now use/);
   assert.equal(files.stderr.join(''), '');
-  assert.equal(await undoClaudeSettings(files.stateDir), 'restored');
+  assert.equal(await undoClaudeSettings(files.stateDir, files.deps.platform), 'restored');
   assert.deepEqual(JSON.parse(await readFile(files.settingsPath, 'utf8')), JSON.parse(files.original));
   assert.equal(await optionalFile(join(files.stateDir, 'claude-settings.json')), null);
   assert.deepEqual(files.effects, []);
