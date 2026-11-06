@@ -63,6 +63,7 @@ export async function createCustomScenario() {
       assert.equal(incoming.headers.cookie, undefined);
       const payload = JSON.parse(Buffer.concat(chunks).toString());
       assert.equal(payload.projectId, 'selected-project');
+      assert.equal(payload.model, payload.request.model);
       assert.match(payload.castleToken, /^cNz8rPYH\|[A-Za-z0-9+/]+={0,2}$/);
       response.setHeader('content-type', 'application/json');
       if (isDeepStrictEqual(payload.request, entry.initial)) response.end(entry.first);
