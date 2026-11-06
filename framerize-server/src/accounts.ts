@@ -51,7 +51,10 @@ async function readAccounts(path?: string, signal?: AbortSignal): Promise<readon
 export async function readAccountText(path: string, allowMissing = false,
   signal?: AbortSignal): Promise<string | undefined> {
   signal?.throwIfAborted();
-  const pending = readAccountFile(path, allowMissing, signal);
+  return cancellableRead(readAccountFile(path, allowMissing, signal), signal);
+}
+
+async function cancellableRead<Value>(pending: Promise<Value>, signal?: AbortSignal): Promise<Value> {
   if (!signal) return pending;
   let abort = (): void => {};
   try {
@@ -187,7 +190,8 @@ export async function readAccountSession(reference: AccountSession,
     if (!reference || Object.keys(reference).length !== 1) throw new Error();
     const variable = reference.env;
     const value = typeof variable === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(variable)
-      ? env[variable] : variable === undefined ? await readSessionFile(reference.file, signal) : undefined;
+      ? env[variable] : variable === undefined
+        ? await cancellableRead(readSessionFile(reference.file, signal), signal) : undefined;
     signal?.throwIfAborted();
     if (!validSession(value)) throw new Error();
     return value;
@@ -197,8 +201,14 @@ export async function readAccountSession(reference: AccountSession,
 async function readSessionFile(path: string | undefined, signal?: AbortSignal): Promise<string> {
   if (typeof path !== 'string' || !isAbsolute(path) || /[\x00-\x1f\x7f]/.test(path)) throw new Error();
   const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
+  let closing: Promise<void> | undefined;
+  const close = (): Promise<void> => closing ??= file.close();
+  const abort = (): void => { void close().catch(() => {}); };
+  signal?.addEventListener('abort', abort, { once: true });
   try {
+    signal?.throwIfAborted();
     const info = await file.stat();
+    signal?.throwIfAborted();
     if (!info.isFile() || info.size > 16_384 || (process.platform !== 'win32' && (info.mode & 0o077))) {
       throw new Error();
     }
@@ -207,11 +217,15 @@ async function readSessionFile(path: string | undefined, signal?: AbortSignal): 
     while (length < buffer.length) {
       signal?.throwIfAborted();
       const { bytesRead } = await file.read(buffer, length, buffer.length - length, null);
+      signal?.throwIfAborted();
       if (!bytesRead) break;
       length += bytesRead;
     }
     if (length > 16_384) throw new Error();
     return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
       .decode(buffer.subarray(0, length)).replace(/\r?\n$/, '');
-  } finally { await file.close(); }
+  } finally {
+    signal?.removeEventListener('abort', abort);
+    await close();
+  }
 }
