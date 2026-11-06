@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import { npmCli, privateEnvironment } from '../scripts/core-package-check.js';
+import { verifyAccountManagement } from '../scripts/fixtures/installed-accounts.js';
 import { startInstalledServer, startInstalledRemote, startInstalledTrustedServer,
   startInstalledTrustedRemote, localToken, serverToken } from '../scripts/fixtures/installed-server.js';
 import { assertTransportClosed, createScenario, exchange, exerciseDelayedJson, exerciseFlow,
@@ -99,6 +100,7 @@ test('installed Remote forwards through the installed server with isolated crede
         '--no-audit', '--no-fund', ...archives], consumer);
       verifyStandaloneTypes(repository, consumer, env);
       context.diagnostic(verifyServerNodeApi(consumer, env).trim());
+      await verifyAccountManagement(consumer, env);
       context.diagnostic(verifyRemoteNodeApi(consumer, env).trim());
       scenario = await createScenario();
       server = await startInstalledServer(consumer, env, scenario.url);
@@ -492,7 +494,7 @@ function verifyStandaloneTypes(repository: string, consumer: string, env: NodeJS
   const cli = (args: string[]) => execFileSync(process.execPath,
     [join(packageRoot, manifest.bin.frm), ...args],
     { cwd: consumer, env, encoding: 'utf8', timeout: 10000 });
-  assert.equal(cli(['version']).trim(), '0.2.0');
+  assert.equal(cli(['version']).trim(), manifest.version);
   assert.match(cli(['setup', '--help']), /--server-token-env/);
   const serveHelp = cli(['serve', '--help']);
   assert.match(serveHelp, /FRM_REMOTE/);
@@ -534,7 +536,7 @@ try {
 
 `], { cwd: consumer, env, stdio: 'pipe', timeout: 5000 });
   assert.ok(existsSync(join(packageRoot, manifest.bin.frm)));
-  assert.match(cli(['--help']), /^frm 0\.2\.0\n/);
+  assert.equal(cli(['--help']).split(/\r?\n/, 1)[0], `frm ${manifest.version}`);
   for (const key of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
     assert.deepEqual(Object.keys(manifest[key] ?? {}), []);
   }
