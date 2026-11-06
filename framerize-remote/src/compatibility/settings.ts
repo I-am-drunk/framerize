@@ -100,17 +100,19 @@ function ours(record: WriteRecord | undefined, key: (typeof MANAGED_KEYS)[number
 }
 
 /** Sets only the managed env keys and keeps every other setting. Values Framerize did not write stay. */
-export async function writeClaudeSettings(settingsPath: string, stateDir: string, target: RemoteTarget): Promise<void> {
+export async function writeClaudeSettings(settingsPath: string, stateDir: string, target: RemoteTarget,
+  platform: NodeJS.Platform = process.platform): Promise<void> {
   settingsPath = await settingsDestination(settingsPath);
   stateDir = await settingsDestination(stateDir);
   if (settingsPath === await settingsDestination(recordPath(stateDir))) {
     throw new SettingsError('Claude settings cannot use the Remote undo-record path.');
   }
   return withSettingsLock(recordPath(stateDir), () => withSettingsLock(settingsPath,
-    () => writeSettings(settingsPath, stateDir, target)));
+    () => writeSettings(settingsPath, stateDir, target, platform)));
 }
 
-async function writeSettings(settingsPath: string, stateDir: string, target: RemoteTarget): Promise<void> {
+async function writeSettings(settingsPath: string, stateDir: string, target: RemoteTarget,
+  platform: NodeJS.Platform): Promise<void> {
   const settings = await readSettings(settingsPath) ?? {};
   const env = { ...(settings.env ?? {}) };
   const record = await readRecord(stateDir);
@@ -118,7 +120,11 @@ async function writeSettings(settingsPath: string, stateDir: string, target: Rem
     throw new SettingsError('Claude settings are already managed at another path. Run frm client claude --undo with the same Remote profile before changing CLAUDE_CONFIG_DIR.');
   }
   const values = claudeEnv(target);
-  const foreign = MANAGED_KEYS.filter(key => env[key] !== undefined && !ours(record, key, env[key]));
+  const names = Object.keys(env);
+  // Framerize only writes canonical keys; aliases remain externally managed.
+  const foreign = MANAGED_KEYS.flatMap(managed => names.filter(key =>
+    (platform === 'win32' ? key.toUpperCase() : key) === managed && env[key] !== undefined
+      && (key !== managed || !ours(record, managed, env[key]))));
   if (foreign.length > 0) {
     throw new SettingsError(`Claude settings already set ${foreign.join(' and ')}. Remove them or use frm client claude without --persist.`);
   }

@@ -145,7 +145,7 @@ export async function runClient(argv: readonly string[], deps: ClientSetupDeps):
     }
     if (options.persist) {
       const path = claudeSettingsPath(deps.env, deps.home);
-      await writeClaudeSettings(path, deps.stateDir, deps.target);
+      await writeClaudeSettings(path, deps.stateDir, deps.target, deps.platform);
       const undo = options.config === undefined ? 'frm client claude --undo'
         : 'use --undo instead of --persist, keeping the same --config';
       deps.io.stdout(`Claude settings now use ${claudeBaseUrl(deps.target.origin)}: ${path}\nUndo: ${undo}\n`);
