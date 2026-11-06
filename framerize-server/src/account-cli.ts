@@ -8,7 +8,7 @@ import { configuredSettings } from './settings.js';
 import { ENVIRONMENT } from './config.js';
 import { rollbackError } from './service-control.js';
 import { findAccount, readRawAccounts, resolveStore, restoreAccounts, saveSettings, selectedAccount,
-  writeAccounts, type RawAccount, type RawAccounts, type StorePaths } from './account-store.js';
+  withAccountLock, writeAccounts, type RawAccount, type RawAccounts, type StorePaths } from './account-store.js';
 
 type Environment = Readonly<Record<string, string | undefined>>;
 export interface AccountCliDependencies {
@@ -126,20 +126,21 @@ async function sessionInput(values: Record<string, string>, flags: Set<string>,
 // Writes accounts, then settings. A failed settings write restores the prior accounts bytes.
 async function commit(store: StorePaths, previous: RawAccounts, next: readonly RawAccount[],
   settings: Readonly<Record<string, unknown>> | undefined, signal?: AbortSignal): Promise<void> {
-  signal?.throwIfAborted();
-  const current = await readRawAccounts(store.accounts, signal);
-  signal?.throwIfAborted();
-  if (current.text !== previous.text) {
-    throw new AccountCommandError('Accounts changed during this command. Retry the command.');
-  }
-  await writeAccounts(store.accounts, next, signal);
-  if (!settings) return;
-  try { await saveSettings(store, settings, {}, signal); }
-  catch (error) {
-    try { await restoreAccounts(store.accounts, previous); }
-    catch (failure) { throw rollbackError(error, [failure]); }
-    throw error;
-  }
+  return withAccountLock(store.accounts, async () => {
+    const current = await readRawAccounts(store.accounts, signal);
+    signal?.throwIfAborted();
+    if (current.text !== previous.text) {
+      throw new AccountCommandError('Accounts changed during this command. Retry the command.');
+    }
+    await writeAccounts(store.accounts, next, signal);
+    if (!settings) return;
+    try { await saveSettings(store, settings, {}, signal); }
+    catch (error) {
+      try { await restoreAccounts(store.accounts, previous); }
+      catch (failure) { throw rollbackError(error, [failure]); }
+      throw error;
+    }
+  }, signal);
 }
 
 async function add(store: StorePaths, raw: RawAccounts, id: string | undefined,
