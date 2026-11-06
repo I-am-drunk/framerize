@@ -20,9 +20,13 @@ export async function runCheck(
 ): Promise<CommandResult> {
   const { backend } = await resolveInstance(configPath, env);
   try {
-    const { readiness: result, code } = await backend.diagnose({ signal });
-    const line = readinessLine(result);
+    let { readiness: result, code } = await backend.diagnose({ signal });
     const local = tailscale ? await readTailscaleStatus({ signal, ...(env ? { env } : {}) }) : undefined;
+    if (signal.aborted) {
+      result = { ready: false, reason: 'upstream_unavailable' };
+      code = 'aborted';
+    }
+    const line = readinessLine(result);
     const details = result === true ? { ready: true } : { ...result, diagnostic: diagnostic(code ?? result.reason) };
     const text = json
       ? JSON.stringify({ ...details, ...(local ? { tailscale: local } : {}) })
