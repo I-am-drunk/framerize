@@ -218,7 +218,7 @@ async function startBrowser(spawn: SpawnBrowser, signal: SignalProcess, executab
   const groupAlive = () => {
     if (child.pid === undefined) return false;
     try { signal(-child.pid, 0); return true; }
-    catch (error) { return (error as NodeJS.ErrnoException).code === 'EPERM'; }
+    catch (error) { return (error as NodeJS.ErrnoException).code !== 'ESRCH'; }
   };
   // Signals the process group this call started, never a process found by name.
   const killGroup = () => {
@@ -240,7 +240,9 @@ async function startBrowser(spawn: SpawnBrowser, signal: SignalProcess, executab
     }
     commands?.destroy();
     replies?.destroy();
-    return !running && !groupAlive();
+    const stopped = !running && !groupAlive();
+    if (!stopped) child.unref();
+    return stopped;
   };
   const pipe = commands && replies ? devtoolsPipe(commands, replies, onFailure) : undefined;
   if (!pipe) {
