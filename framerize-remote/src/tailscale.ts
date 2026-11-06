@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
 import { isIPv4 } from 'node:net';
+import { ServiceCommandCleanupError } from './diagnostics.js';
+import { waitForGroup } from './serviceCommand.js';
 
 const labels = {
   running: 'The local Tailscale daemon is running with a tailnet IPv4 address.',
@@ -56,23 +58,49 @@ export async function readTailscaleStatus(options: TailscaleOptions = {}) {
   for (const [name, value] of Object.entries(options.env ?? process.env)) {
     if (/^(PATH|SYSTEMROOT|WINDIR|LANG|LC_ALL)$/i.test(name)) env[name] = value;
   }
-  const command = (options.platform ?? process.platform) === 'win32' ? 'tailscale.exe' : 'tailscale';
+  const platform = options.platform ?? process.platform;
+  const command = platform === 'win32' ? 'tailscale.exe' : 'tailscale';
   let child: ReturnType<typeof spawn>;
   try { child = (options.launch ?? spawn)(command, ['status', '--json'], {
     env, shell: false, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+    detached: platform !== 'win32',
   }); }
   catch (error) { return report(processError(error)); }
-  return new Promise<ReturnType<typeof report>>(resolve => {
+  return new Promise<ReturnType<typeof report>>((resolve, reject) => {
     let failure: TailscaleState | undefined;
+    let stopping: Promise<void> | undefined;
     let total = 0;
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     const stop = (state: TailscaleState): void => {
       if (failure) return;
       failure = state;
-      child.kill('SIGKILL');
-      child.stdout?.destroy();
-      child.stderr?.destroy();
+      stopping = Promise.resolve().then(async () => {
+        try {
+          if (platform !== 'win32' && child.pid) {
+            try { process.kill(-child.pid, 'SIGKILL'); }
+            catch (error) {
+              const code = (error as NodeJS.ErrnoException).code;
+              if (code === 'ESRCH') return;
+              if (code !== 'EPERM') throw error;
+              try { await waitForGroup(child.pid); return; } catch { throw error; }
+            }
+            await waitForGroup(child.pid);
+          } else if (!child.kill('SIGKILL') && child.pid
+            && child.exitCode === null && child.signalCode === null) {
+            throw new Error('The Tailscale status command could not be stopped.');
+          }
+        } finally {
+          child.stdout?.destroy();
+          child.stderr?.destroy();
+        }
+      }).catch(cause => { throw new ServiceCommandCleanupError(cause); });
+      void stopping.catch(error => {
+        clearTimeout(timer);
+        options.signal?.removeEventListener('abort', abort);
+        child.unref();
+        reject(error);
+      });
     };
     const abort = (): void => stop('cancelled');
     const timer = setTimeout(() => stop('timeout'), TAILSCALE_STATUS_TIMEOUT_MS);
@@ -90,8 +118,10 @@ export async function readTailscaleStatus(options: TailscaleOptions = {}) {
     child.once('close', (code) => {
       clearTimeout(timer);
       options.signal?.removeEventListener('abort', abort);
-      resolve(report(failure ?? (code === 0 ? parseStatus(Buffer.concat(stdout).toString('utf8'))
-        : stderrState(Buffer.concat(stderr).toString('utf8')))));
+      void Promise.resolve(stopping).then(() => {
+        resolve(report(failure ?? (code === 0 ? parseStatus(Buffer.concat(stdout).toString('utf8'))
+          : stderrState(Buffer.concat(stderr).toString('utf8')))));
+      }, reject);
     });
     options.signal?.addEventListener('abort', abort, { once: true });
     if (options.signal?.aborted) abort();
