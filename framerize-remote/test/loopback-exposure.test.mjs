@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, get } from 'node:http';
+import dns from 'node:dns';
 import { connect } from 'node:net';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -61,8 +62,18 @@ test('wildcards, remote addresses and malformed hosts stay non-loopback', () => 
   }
 });
 
-for (const host of ['0:0:0:0:0:0:0:1', '::ffff:127.0.0.1']) {
+for (const host of ['0:0:0:0:0:0:0:1', '::ffff:127.0.0.1', 'fixture.invalid', '0177.0.0.1']) {
   test(`serve reports ${host} without a false exposure warning`, { timeout: 5000 }, async context => {
+    const peerHost = host === '0:0:0:0:0:0:0:1' ? '::1' : '127.0.0.1';
+    let lookups = 0;
+    const syntheticLookup = host === 'fixture.invalid' || host === '0177.0.0.1';
+    if (syntheticLookup) context.mock.method(dns, 'lookup', (name, options, callback) => {
+      assert.equal(name, host);
+      lookups++;
+      queueMicrotask(() => options.all
+        ? callback(null, [{ address: peerHost, family: 4 }])
+        : callback(null, peerHost, 4));
+    });
     const root = await mkdtemp(join(tmpdir(), 'frm-loopback-report-'));
     const keys = ['HOME', 'FRM_REMOTE', 'FRM_HOST', 'FRM_PORT', 'FRM_SERVER_TOKEN', 'FRM_LOCAL_TOKEN'];
     const original = Object.fromEntries(keys.map(key => [key, process.env[key]]));
@@ -84,7 +95,7 @@ for (const host of ['0:0:0:0:0:0:0:1', '::ffff:127.0.0.1']) {
         for (const socket of sockets) socket.destroy();
         await new Promise(resolve => upstream.close(resolve));
         if (upstreamPort) await refused('127.0.0.1', upstreamPort);
-        if (localPort) await refused(host, localPort);
+        if (localPort) await refused(peerHost, localPort);
       } finally {
         for (const key of keys) original[key] === undefined ? delete process.env[key] : process.env[key] = original[key];
         await rm(root, { recursive: true, force: true });
@@ -114,10 +125,12 @@ for (const host of ['0:0:0:0:0:0:0:1', '::ffff:127.0.0.1']) {
       throw new Error('serve stopped before reporting a listener');
     })]));
     localPort = announcement.listening.port;
+    assert.equal(announcement.listening.host, host);
     assert.equal(await health(host, localPort), 200);
     process.emit('SIGTERM');
     assert.equal(await bounded(service), 0);
-    await refused(host, localPort);
+    await refused(peerHost, localPort);
+    if (syntheticLookup) assert.ok(lookups > 0);
     assert.deepEqual(['SIGINT', 'SIGTERM'].map(name => process.listenerCount(name)), beforeSignals);
     assert.equal(announcement.exposure, undefined, 'A numeric loopback listener is not exposed');
     assert.doesNotMatch(output.join(''), /non-loopback|Non-loopback/);

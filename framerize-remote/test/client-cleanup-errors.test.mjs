@@ -19,7 +19,7 @@ const fixtures = {
     export class StartupCleanupError extends Error {}
     export class StartupReadinessError extends Error {}
     export function runCheck() { throw new Error('Unexpected readiness command'); }
-    export async function startServe() { return { address: { host: '127.0.0.1', port: 8788 },
+    export async function startServe() { return { address: { host: '127.0.0.1', port: 8788 }, loopback: true,
       close: async () => { closed.push(true); } }; }`,
 };
 const built = await build({ stdin: { resolveDir: fileURLToPath(new URL('../', import.meta.url)),

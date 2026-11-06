@@ -5,7 +5,6 @@ import { HELP, SETUP_HELP, SERVE_HELP, VERSION } from './present.js';
 import { profilePath } from './profilePaths.js';
 import { ClientCleanupError, diagnostic, diagnosticText, RemoteDiagnosticError } from './diagnostics.js';
 import { LISTEN_SPEC, parseListenOptions, type ListenOverrides } from './listenOptions.js';
-import { isLoopbackHost } from './hostPolicy.js';
 import { offerClientSetup } from './clientCli.js';
 
 const GLOBAL_SPEC = { config: 'string', json: 'boolean' } as const;
@@ -120,7 +119,7 @@ export async function serve(configPath: string, io: CliIo, json: boolean,
     const { host, port } = handle.address;
     const address = host === '0.0.0.0' ? '127.0.0.1' : host === '::' ? '[::1]'
       : host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
-    const exposed = !isLoopbackHost(host);
+    const exposed = !handle.loopback;
     const warning = exposed ? `Non-loopback HTTP enabled on port ${port}.\n` : '';
     io.stdout(json ? `${JSON.stringify({ ready: true, listening: { host, port },
       ...(exposed ? { exposure: 'non-loopback-http' } : {}) })}\n`

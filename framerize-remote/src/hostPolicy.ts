@@ -1,5 +1,4 @@
 import { isIP } from 'node:net';
-import { domainToASCII } from 'node:url';
 
 export function normalizeHostname(host: string): string {
   const bare = host.replace(/^\[|\]$/g, '');
@@ -11,9 +10,8 @@ export function normalizeHostname(host: string): string {
 }
 
 function parseIpv4(host: string): readonly number[] | null {
-  const address = /^[\da-fx.]+$/i.test(host) ? domainToASCII(host) : host;
-  if (isIP(address) !== 4) return null;
-  const parts = address.split('.').map(Number);
+  if (isIP(host) !== 4) return null;
+  const parts = host.split('.').map(Number);
   return parts.length === 4 && parts.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)
     ? parts : null;
 }
