@@ -7,7 +7,7 @@ import { inspectCompletion, inspectJsonCompletion } from './completion.js';
 
 export interface InferenceCheckOptions {
   readonly endpoint: string;
-  readonly token: string;
+  readonly token?: string | null;
   readonly model: string;
   readonly timeoutMs?: number;
   readonly signal?: AbortSignal;
@@ -15,9 +15,9 @@ export interface InferenceCheckOptions {
 }
 
 export function validateInferenceOptions(input: InferenceCheckOptions) {
-  const { endpoint, token, model, signal, timeoutMs = 30000, protocol = 'chat' } = input;
+  const { endpoint, token = null, model, signal, timeoutMs = 30000, protocol = 'chat' } = input;
   const origin = parseRemoteEndpoint(endpoint, false).origin;
-  if (typeof token !== 'string' || token.length > 8192 || !/^[A-Za-z0-9._~+/-]+=*$/.test(token)
+  if ((token !== null && (typeof token !== 'string' || token.length > 8192 || !/^[A-Za-z0-9._~+/-]+=*$/.test(token)))
     || typeof model !== 'string' || !model.trim() || model.length > 128 || /[\x00-\x1f\x7f]/.test(model)
     || !Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60000
     || !['chat', 'responses', 'messages'].includes(protocol)) throw new Error();
@@ -66,7 +66,7 @@ export async function checkInference(input: InferenceCheckOptions) {
     if ((headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase() !== contentType) {
       return fail(invalidReply);
     }
-    if (headers['content-encoding'] && headers['content-encoding'] !== 'identity') return fail('unsupported_encoding');
+    if (headers['content-encoding'] && headers['content-encoding'].toLowerCase() !== 'identity') return fail('unsupported_encoding');
     const { bytes } = await readBounded(raw.message, 65536, 5000, controller.signal);
     let completion: ReturnType<typeof inspectCompletion> | ReturnType<typeof inspectJsonCompletion>;
     try { completion = config.protocol === 'chat' ? inspectCompletion(bytes)

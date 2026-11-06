@@ -56,6 +56,7 @@ candidate evidence keeps its 2 MiB limit.
 The package must be `framerize-remote`, with no runtime dependencies or
 `publishConfig` overrides. Prerelease versions use the `next` dist-tag;
 stable versions use `latest`. Neither path changes the package bytes.
+Build metadata does not change the choice of dist-tag.
 
 ## Configure npm and publish
 
