@@ -31,9 +31,30 @@ Use the PR template and a plain-language conventional title. Name the model and
 harness if an agent did the work. Review the contribution, not its author's style.
 Only maintainers decide whether to merge or close a PR.
 
-## Codex code review
+## Merge requirements
 
-Codex reads the `Code Review Rules` in the root `AGENTS.md`. Use the existing
-review integration when available; this guide does not configure it.
-An automated review supplements source review and required tests. It does not
-grant merge permission. Confirm findings against the reviewed source.
+The `main` ruleset requires a pull request and a successful `Check` from GitHub
+Actions. Confirm that result belongs to the reviewed head. The ruleset requires
+zero approvals, so independent source review remains the maintainer's job.
+When agents share the author's GitHub account, record that review as a
+`COMMENTED` review naming the exact commit, findings, evidence and limits.
+The author's own verification is not independent review.
+
+Before merging, read review bodies, inline threads and PR comments. Resolve
+blocking findings and recheck the head. Use
+`gh pr merge --merge --match-head-commit <reviewed-head>` to reject a changed head.
+See [the maintenance workflow](docs/pr-maintenance.md) for ownership, retries
+and handling PRs that should be fixed or closed.
+
+## Automated review
+
+CodeRabbit reads `.coderabbit.yaml`; Codex uses the root Code Review Rules.
+Both supplement independent source review and required checks. Inspect the
+actual review, its commit and all findings. A green, neutral or skipped bot
+check can represent a review that never ran.
+
+CodeRabbit currently requires manual requests for public repositories with
+fewer than 10 stars. Use `@coderabbitai review` when the PR is ready. After a
+rate-limit response, request `@coderabbitai rate limit` and wait for confirmed
+capacity before requesting another review. Do not repeat a pending request.
+Provider errors, skipped reviews and bot silence grant no approval.
