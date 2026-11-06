@@ -166,6 +166,8 @@ export function checkPackageCoexistence(tarballs: readonly string[]) {
       const title = manifest.name === 'framerize-remote' ? /^frm\b/m : /^Server\b/m;
       const help = runNode([executable, '--help']);
       assert.match(help, title);
+      assert.equal(runNode([executable, '--version']).trim(), manifest.version,
+        `${manifest.name} CLI version differs from its package`);
       assert.match(exec([command, '--help']), title);
       assert.match(npx([command, '--help']), title);
       for (const [alias, relative] of Object.entries(executables)) {
