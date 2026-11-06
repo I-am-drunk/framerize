@@ -10,6 +10,9 @@ to the repository.
 1. Read all open PRs, including every API page. Honor explicit holds and current
    ownership before acting. Do not change another owner's branch or disposition.
    Reconcile the saved head with GitHub before using earlier evidence.
+   The maintenance worker owns new unclaimed PRs until another coordinator
+   accepts a handoff. Link each newly claimed PR and handle its current events
+   before adding its single watch at the end of the cycle.
 2. Read the complete diff and affected callers at that head. Read PR comments,
    submitted review bodies and inline threads, including later replies. A review
    can contain a blocking finding even when it has zero inline comments.
@@ -64,10 +67,12 @@ Use one recurring T3 task as a recovery scan, separate from event notifications.
 Create it disabled and bind it to one active maintenance thread before enabling
 recurrence. An unbound task creates a fresh thread and checkout each time it
 dispatches. A bound task queues into its existing thread. A cycle handles a
-bounded set of actionable changes and then ends. Coalesce duplicate queued
-recovery messages; do not discard user messages or PR notifications. Do not bind
-recovery to an archived coordinator, restore disabled tasks without authority,
-add a polling daemon or repeat unchanged status messages.
+bounded set of actionable changes and then ends. Save a private cursor of PR
+heads, `updatedAt` values, outstanding checks and reviews, and pending delivery
+receipts. Recheck pending work even when its head and `updatedAt` are unchanged.
+If the cursor and pending work are unchanged, end in one line. Never delete
+queue entries. Do not bind recovery to an archived coordinator, restore disabled
+tasks without authority, add a polling daemon or repeat unchanged status.
 
 Send a new actionable review to its owner with `t3_thread_send` in `auto` mode.
 It can steer a running turn, queue the message or start an idle owner. Record the
@@ -75,7 +80,10 @@ returned delivery state and message ID. A `queued` receipt is pending work, not
 successful handling.
 Confirm the owner consumed the evidence through its response or the resulting
 GitHub action. Recovery scans must revisit pending deliveries without duplicating
-requests already in progress.
+requests already in progress. Count completed recovery cycles without consumption
+for each receipt. After two such cycles, or if the owner is archived or failed,
+report the unconsumed delivery to the user once and stop resending it. Preserve
+the receipt and next action until the owner resumes or accepts a handoff.
 
 Configure the requested model, reasoning effort and speed in the runtime, then
 verify the effective settings before enabling recurring work. The schedule
@@ -93,6 +101,14 @@ keep a distinct group for each run. GitHub compares group names without regard
 to case, so a branch name cannot distinguish `restart/Fix` from `restart/fix`.
 Never cancel the only current qualification run just to reduce the backlog.
 A cancellation is not a passing `Check`; wait for the current head's result.
+
+If `gh run view <run-id> --log-failed` returns no failure details, fetch the
+failed job directly with `gh api repos/<owner>/<repo>/actions/jobs/<job-id>/logs`.
+First inspect `gh api repos/<owner>/<repo>/actions/jobs/<job-id>` and confirm
+its `run_id`, `head_sha` and failed step match the PR and run under review.
+Record the relevant failure lines and job URL. Empty log output does not
+establish a cause or justify rerunning the job. If neither route returns the
+logs, report that evidence gap separately from the observed failed check.
 
 ## Verify maintenance before relying on it
 
