@@ -6,7 +6,7 @@
 // The server runtime never imports this module.
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { constants } from 'node:fs';
-import { access, mkdtemp, rm } from 'node:fs/promises';
+import { access, mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 import { delimiter, join } from 'node:path';
@@ -86,7 +86,11 @@ export async function findBrowser(input: Pick<BrowserLoginOptions, 'browser' | '
   const candidates = explicit ? [explicit] : (input.platform ?? process.platform) === 'darwin' ? MAC_BROWSERS
     : (env.PATH ?? '').split(delimiter).filter(Boolean).flatMap(dir => LINUX_BROWSERS.map(name => join(dir, name)));
   for (const candidate of candidates) {
-    try { await access(candidate, constants.X_OK); return candidate; } catch { /* try the next one */ }
+    try {
+      if (!(await stat(candidate)).isFile()) continue;
+      await access(candidate, constants.X_OK);
+      return candidate;
+    } catch { /* try the next one */ }
   }
   return undefined;
 }
