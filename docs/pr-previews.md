@@ -142,9 +142,9 @@ default-branch publication code after successful `Check`. It accepts four bounde
 regular files from the artifact: two tarballs and two manifests. It verifies the
 current PR, merge commit, source tree, run and file hashes before publication.
 Before downloading candidate bytes, it requires the tested merge's complete
-`.github` tree to match its own default-branch checkout. A PR cannot replace the
-CI definitions and use that run to publish a preview. Application code and
-package scripts remain unreviewed; this check does not establish their safety.
+`.github` tree to match its own default-branch checkout. This checks committed
+CI definitions. PR build and test code still runs inside CI and can change its
+workspace or results. This check does not establish that code's safety.
 Fork runs resolve their PR before entering the same per-PR publication queue as
 close events. Downloaded code and tools are never executed by that workflow.
 
