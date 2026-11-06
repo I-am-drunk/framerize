@@ -16,7 +16,11 @@ if (mode === 'orphan' || mode === 'orphan-exit') {
   writeFileSync(process.env.FAKE_BROWSER_STATE, JSON.stringify({ pid: process.pid, helper: helper.pid, args }));
   if (mode === 'orphan-exit') process.exit(0);
 }
-if (mode === 'stubborn') process.on('SIGTERM', () => {});
+if (mode === 'stubborn') {
+  process.on('SIGTERM', () => {});
+  // Keep this mode alive after its pipes close, until the test kills it.
+  setInterval(() => {}, 1000);
+}
 const input = new Socket({ fd: 3, readable: true, writable: false });
 const output = new Socket({ fd: 4, readable: false, writable: true });
 const reply = message => output.write(`${JSON.stringify(message)}\0`);
