@@ -187,7 +187,7 @@ export async function run(argv: readonly string[] = process.argv.slice(2),
             readStdin: dependencies.readStdin ?? (() => readStdin(controller.signal)) });
       }
       return await (await import('./setup.js')).runSetupCommand(argv, { stdout: events.stdout,
-        env: { ...(dependencies.env ?? process.env) }, ...dependencies.setup,
+        env: dependencies.env ?? process.env, ...dependencies.setup,
         signal: controller.signal, ...(ask ? { ask } : {}) });
     } finally {
       events.off('SIGINT', stop);
@@ -220,7 +220,7 @@ export async function run(argv: readonly string[] = process.argv.slice(2),
   events.on('SIGTERM', stop);
   try {
     const serverConfig = loadConfig({
-      ...config, serverTokenFile: '', serverToken: await readServerToken(config),
+      ...config, serverTokenFile: '', serverToken: await readServerToken(config, controller.signal),
     }, env);
     const makeProvider: NonNullable<CliDependencies['createProvider']> =
       dependencies.createProvider ?? (await import('./backend.js')).createConfiguredProvider;
