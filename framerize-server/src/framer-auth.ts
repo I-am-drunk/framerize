@@ -174,8 +174,9 @@ function acquire(config: ReturnType<typeof options>, signal: AbortSignal): Promi
         response.destroy();
         return;
       }
+      const encoding = response.headers['content-encoding']?.toLowerCase();
       if (!/^application\/json(?:\s*;|$)/i.test(response.headers['content-type'] ?? '') ||
-          response.headers['content-encoding'] && response.headers['content-encoding'] !== 'identity') {
+          encoding && encoding !== 'identity') {
         fail('auth_unavailable'); response.destroy(); return;
       }
       const chunks: Buffer[] = [];
