@@ -14,8 +14,9 @@ function escapeSystemdSpecifiers(value: string): string {
   return value.replaceAll('%', '%%');
 }
 
-function quoteSystemdValue(value: string): string {
-  const escaped = escapeSystemdSpecifiers(value);
+function quoteSystemdValue(value: string, command = false): string {
+  const specifiers = escapeSystemdSpecifiers(value);
+  const escaped = command ? specifiers.replaceAll('$', () => '$$') : specifiers;
   return /[\s"'\\]/.test(escaped)
     ? `"${escaped.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"` : escaped;
 }
@@ -41,7 +42,7 @@ export function renderServiceUnit(plan: ServicePlan): string {
   return ['[Unit]', 'Description=Framerize Remote', 'StartLimitIntervalSec=300', 'StartLimitBurst=5', '',
     '[Service]', 'Type=simple', 'WorkingDirectory=%h',
     `Environment=FRM_HOME=${quoteSystemdValue(plan.home)}`,
-    `ExecStart=${plan.program.map(quoteSystemdValue).join(' ')}`,
+    `ExecStart=${plan.program.map((value, index) => quoteSystemdValue(value, index > 0)).join(' ')}`,
     'Restart=always', 'RestartSec=5',
     `StandardOutput=append:${escapeSystemdSpecifiers(plan.logPath)}`,
     `StandardError=append:${escapeSystemdSpecifiers(plan.logPath)}`, '',
