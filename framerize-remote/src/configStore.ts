@@ -91,6 +91,11 @@ export function resolveConfig(config: RemoteConfig): RemoteEndpoint {
   return parseRemoteEndpoint(config.remote, config.allowInsecureRemote);
 }
 
+export function sameRemoteOrigin(first: string, second: string): boolean {
+  try { return parseRemoteEndpoint(first, true).origin === parseRemoteEndpoint(second, true).origin; }
+  catch { return false; }
+}
+
 /** Saved profile, then FRM_* variables. FRM_REMOTE alone runs without saving a profile. */
 export async function loadRunConfig(path: string, env: NodeJS.ProcessEnv): Promise<RemoteConfig> {
   const settings = frmSettings(env);
@@ -100,6 +105,8 @@ export async function loadRunConfig(path: string, env: NodeJS.ProcessEnv): Promi
     if (!(error instanceof RemoteDiagnosticError && error.code === 'profile_missing' && settings.remote)) throw error;
   }
   const merged = { ...saved, ...settings };
+  if (saved && settings.remote !== undefined && settings.serverToken === undefined
+    && !sameRemoteOrigin(saved.remote, settings.remote)) delete merged.serverToken;
   if (merged.remote === undefined) throw new RemoteDiagnosticError('profile_missing');
   try { return normalizeConfig(parsePersisted(merged), process.cwd()); }
   catch (error) {
