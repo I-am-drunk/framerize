@@ -38,7 +38,7 @@ export const fetchText: FetchText = async (url, timeoutMs, signal) => {
 
 export const readText: ReadText = async path => {
   try {
-    const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
+    const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOCTTY);
     try {
       if (!(await file.stat()).isFile()) return null;
       const decoder = new StringDecoder('utf8');
