@@ -23,7 +23,8 @@ async function readProfile(path: string, signal?: AbortSignal): Promise<string> 
     signal?.throwIfAborted();
     if (!(await handle.stat()).isFile()) throw new Error();
     signal?.throwIfAborted();
-    return await handle.readFile({ encoding: 'utf8', signal });
+    const bytes = await handle.readFile({ signal });
+    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
   } finally {
     signal?.removeEventListener('abort', closeOnAbort);
     await handle.close();

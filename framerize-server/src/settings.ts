@@ -37,9 +37,9 @@ async function settingsText(path: string, signal?: AbortSignal): Promise<string>
       const info = await file.stat();
       signal?.throwIfAborted();
       if (!info.isFile()) throw new Error('Settings must be a regular file');
-      const text = await file.readFile({ encoding: 'utf8', ...(signal ? { signal } : {}) });
+      const bytes = await file.readFile(signal ? { signal } : {});
       signal?.throwIfAborted();
-      return text;
+      return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
     } finally { await close(); }
   })();
   if (!signal) return pending;
