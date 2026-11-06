@@ -7,6 +7,7 @@ import { ClientCleanupError, diagnostic, diagnosticText, RemoteDiagnosticError }
 import { LISTEN_SPEC, parseListenOptions, type ListenOverrides } from './listenOptions.js';
 import { isLoopbackHost } from './hostPolicy.js';
 import { offerClientSetup } from './clientCli.js';
+import { withEnvOverrides } from './frmEnv.js';
 
 const GLOBAL_SPEC = { config: 'string', json: 'boolean' } as const;
 
@@ -68,9 +69,10 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
       io.stdout(json ? `${JSON.stringify({ saved: true })}\n` : 'Profile saved.\n');
       if (passthrough.includes('--start')) return serve(configPath, io, json, overrides, true);
       if (!json) {
-        const clientEnv = { ...process.env };
-        if (overrides.host !== undefined) delete clientEnv.FRM_HOST;
-        if (overrides.port !== undefined) delete clientEnv.FRM_PORT;
+        const clientEnv = withEnvOverrides(process.env, {
+          ...(overrides.host !== undefined ? { FRM_HOST: undefined } : {}),
+          ...(overrides.port !== undefined ? { FRM_PORT: undefined } : {}),
+        });
         const offer = await offerClientSetup(configPath, io, clientEnv, undefined, controller.signal, true);
         if (offer === 'cancelled' || controller.signal.aborted) throw new RemoteDiagnosticError('aborted');
         io.stdout('Next: frm serve\n');
@@ -126,7 +128,8 @@ export async function serve(configPath: string, io: CliIo, json: boolean,
       ...(exposed ? { exposure: 'non-loopback-http' } : {}) })}\n`
       : `Remote readiness passed.\n${warning}Local API: http://${address}:${port}/v1\nStop: Ctrl+C\n`);
     if (afterSetup && !json) {
-      const offer = await offerClientSetup(configPath, io, { ...process.env, FRM_HOST: host, FRM_PORT: String(port) },
+      const offer = await offerClientSetup(configPath, io, withEnvOverrides(process.env,
+        { FRM_HOST: host, FRM_PORT: String(port) }),
         undefined, controller.signal, true);
       if (offer === 'cancelled') stop();
     }

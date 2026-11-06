@@ -187,7 +187,7 @@ export async function run(argv: readonly string[] = process.argv.slice(2),
             readStdin: dependencies.readStdin ?? (() => readStdin(controller.signal)) });
       }
       return await (await import('./setup.js')).runSetupCommand(argv, { stdout: events.stdout,
-        env: { ...(dependencies.env ?? process.env) }, ...dependencies.setup,
+        env: dependencies.env ?? process.env, ...dependencies.setup,
         signal: controller.signal, ...(ask ? { ask } : {}) });
     } finally {
       events.off('SIGINT', stop);
