@@ -121,7 +121,7 @@ async function credential(config: ProviderConfig, signal: AbortSignal): Promise<
 
 async function fileCredential(path: string, signal: AbortSignal): Promise<string> {
   signal.throwIfAborted();
-  const file = await openFile(path, constants.O_RDONLY | constants.O_NONBLOCK);
+  const file = await openFile(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOCTTY);
   let closing: Promise<void> | undefined;
   const close = () => closing ??= file.close();
   const abort = () => { void close().catch(() => {}); };
