@@ -254,8 +254,10 @@ async function open(state: Exchange, url: URL, method: string, headers: Record<s
     state.response = response;
     response.on('error', () => state.dispose(failure('Upstream response failed')));
     response.once('aborted', () => state.dispose(failure('Upstream response failed')));
-    state.upload.abort(cancelled());
-    if (!request.writableEnded) request.end();
+    if ((response.statusCode ?? 0) >= 300) {
+      state.upload.abort(cancelled());
+      if (!request.writableEnded) request.end();
+    }
     resolve(response);
   }));
   if (body) void sendBody(state, body, config.idleTimeoutMs);
