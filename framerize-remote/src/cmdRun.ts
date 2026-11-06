@@ -18,11 +18,15 @@ export async function runCheck(
   tailscale = false,
   signal: AbortSignal = new AbortController().signal,
 ): Promise<CommandResult> {
-  const { backend } = await resolveInstance(configPath, env, undefined, signal);
+  const { backend } = await resolveInstance(configPath, env, undefined, false, signal);
   try {
-    const { readiness: result, code } = await backend.diagnose({ signal });
-    const line = readinessLine(result);
+    let { readiness: result, code } = await backend.diagnose({ signal });
     const local = tailscale ? await readTailscaleStatus({ signal, ...(env ? { env } : {}) }) : undefined;
+    if (signal.aborted) {
+      result = { ready: false, reason: 'upstream_unavailable' };
+      code = 'aborted';
+    }
+    const line = readinessLine(result);
     const details = result === true ? { ready: true } : { ...result, diagnostic: diagnostic(code ?? result.reason) };
     const text = json
       ? JSON.stringify({ ...details, ...(local ? { tailscale: local } : {}) })
@@ -56,8 +60,9 @@ export async function startServe(
   env?: NodeJS.ProcessEnv,
   signal: AbortSignal = new AbortController().signal,
   overrides: ListenOverrides = {},
+  afterSetup = false,
 ): Promise<ServeHandle> {
-  const { config, localToken, backend } = await resolveInstance(configPath, env, overrides, signal);
+  const { config, localToken, backend } = await resolveInstance(configPath, env, overrides, afterSetup, signal);
   let close = async (): Promise<void> => { await backend.close(); };
   try {
     signal.throwIfAborted();

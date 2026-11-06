@@ -13,10 +13,11 @@ const bundled = await build({ stdin: { contents: `
 export { loadRunConfig } from './framerize-remote/src/configStore.ts';
 export { setUp } from './framerize-remote/src/cmdUp.ts';
 export { clientDependencies } from './framerize-remote/src/clientCli.ts';
+export { resolveInstance } from './framerize-remote/src/resolveInstance.ts';
 export { installService } from './framerize-remote/src/serviceControl.ts';
 `, resolveDir: root }, bundle: true, write: false, platform: 'node', format: 'esm',
   alias: { '@framerize/core': join(root, 'framerize-core/src/index.ts') } });
-const { loadRunConfig, setUp, clientDependencies, installService } = await import(
+const { loadRunConfig, setUp, clientDependencies, resolveInstance, installService } = await import(
   `data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].contents).toString('base64')}`);
 
 async function bounded(pending) {
@@ -64,7 +65,8 @@ async function fixture(context, sample) {
     };
     handle.readFile = async options => {
       state.reads++;
-      if (sample !== 'open' && state.reads === (sample === 'up-after-save' ? 2 : 1)) {
+      const heldRead = sample === 'up-after-save' ? 3 : sample === 'up-locked' ? 2 : 1;
+      if (sample !== 'open' && state.reads === heldRead) {
         isHeld = true; state.held = true; enter(); await gate;
       }
       return read(options);
@@ -78,7 +80,8 @@ async function fixture(context, sample) {
   return { home, profile, before, controller, state, entered, release, heldClosed, handles, service };
 }
 
-for (const sample of ['open', 'up-initial', 'up-after-save', 'client', 'service']) {
+for (const sample of ['open', 'up-initial', 'up-locked', 'up-after-save', 'client',
+  'client-after-setup', 'resolve-after-setup', 'service']) {
   test(`profile cancellation during ${sample} preserves state and releases handles`,
     { timeout: 5000 }, async context => {
       const current = await fixture(context, sample);
@@ -86,21 +89,24 @@ for (const sample of ['open', 'up-initial', 'up-after-save', 'client', 'service'
       const io = { stdout: assert.fail, stderr: assert.fail };
       const operation = sample.startsWith('up-')
         ? setUp('http://127.0.0.1:1', io, { configPath: profile, env: {}, service, signal: controller.signal })
-        : sample === 'client' ? clientDependencies(profile, io, {}, undefined, controller.signal)
+        : sample.startsWith('client') ? clientDependencies(profile, io, {}, undefined,
+          sample === 'client-after-setup', controller.signal)
+          : sample === 'resolve-after-setup' ? resolveInstance(profile, {}, undefined, true, controller.signal)
           : sample === 'service' ? installService(service)
-            : loadRunConfig(profile, {}, controller.signal);
+            : loadRunConfig(profile, {}, false, controller.signal);
       state.pending = operation.then(value => ({ value }), error => ({ error }));
       await bounded(current.entered);
       if (sample === 'up-after-save') assert.notEqual(await fs.readFile(profile, 'utf8'), current.before);
       const reason = new Error('synthetic profile cancellation');
       controller.abort(reason);
       const result = await bounded(state.pending);
-      if (sample.startsWith('up-')) assert.equal(result.error?.code, 'aborted');
+      if (sample.startsWith('up-') || sample === 'resolve-after-setup') assert.equal(result.error?.code, 'aborted');
       else assert.equal(result.error, reason);
       assert.equal(await fs.readFile(profile, 'utf8'), current.before);
       current.release();
       await bounded(current.heldClosed);
       assert.equal(current.handles.size, 0);
+      assert.deepEqual(await fs.readdir(current.home), ['framerize-remote.json']);
       assert.equal(state.commands, 0);
       assert.equal(state.requests, 0);
     });
@@ -117,5 +123,5 @@ test('responsive, missing and malformed profiles keep their existing results', a
   await fs.writeFile(path, '{');
   await assert.rejects(loadRunConfig(path, env), error => error.code === 'profile_invalid');
   const reason = new Error('synthetic pre-cancellation');
-  await assert.rejects(loadRunConfig(path, env, AbortSignal.abort(reason)), error => error === reason);
+  await assert.rejects(loadRunConfig(path, env, false, AbortSignal.abort(reason)), error => error === reason);
 });

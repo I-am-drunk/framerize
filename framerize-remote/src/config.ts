@@ -11,7 +11,7 @@ export class ConfigValidationError extends Error {
 function isListenHost(host: string): boolean {
   const bare = host.replace(/^\[([^\]]+)\]$/, '$1');
   if (isIP(bare)) return true;
-  if (/[\\/:@?#\[\]]/.test(host)) return false;
+  if (/[\\/:@?#%\[\]]/.test(host)) return false;
   const ascii = domainToASCII(host).replace(/\.$/, '');
   return ascii.length > 0 && ascii.length <= 253 && ascii.split('.').every((label) =>
     /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(label));
