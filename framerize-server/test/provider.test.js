@@ -259,20 +259,21 @@ for (const operation of ['forward', 'ready']) {
 test('slow consumers bound response buffering and can pause past the idle interval', async (context) => {
   const total = 512;
   const chunk = Buffer.alloc(65_536, 7);
+  const idleTimeoutMs = 250;
   let writes = 0;
   const { provider } = await fixture(context, async (request, response) => {
     request.resume();
     for (; writes < total; writes += 1) if (!response.write(chunk)) await once(response, 'drain');
     response.end();
-  }, { idleTimeoutMs: 40 });
+  }, { idleTimeoutMs });
   const result = await provider.forward({ path: '/v1/responses', body: body() });
-  await delay(120);
+  await delay(idleTimeoutMs * 3);
   assert.ok(writes < total, `upstream was eagerly drained: ${writes}`);
   let bytes = 0;
   for await (const received of result.body) {
     assert.ok(received.every((value) => value === 7));
     bytes += received.length;
-    if (bytes === received.length) await delay(120);
+    if (bytes === received.length) await delay(idleTimeoutMs * 3);
   }
   assert.equal(bytes, total * chunk.length);
 });
