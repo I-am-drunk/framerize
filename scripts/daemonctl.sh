@@ -36,10 +36,26 @@ case "${1:-}" in
         rm -f "$PIDFILE"
       fi
     fi
-    setsid bash -c "exec '$BIN' daemon --listen 127.0.0.1:$PORT --db '$DB' --chrome '$CHROME' --profiles '$PROFILES'" \
-      < /dev/null > "$LOG" 2>&1 &
-    echo $! > "$PIDFILE"
-    echo "started pid $(cat $PIDFILE)"
+    setsid bash -c '
+      pidfile=$1; shift
+      temporary="$pidfile.$$"
+      printf "%s\n" "$$" > "$temporary"
+      mv "$temporary" "$pidfile"
+      exec "$@"
+    ' _ "$PIDFILE" "$BIN" daemon --listen "127.0.0.1:$PORT" --db "$DB" \
+      --chrome "$CHROME" --profiles "$PROFILES" < /dev/null > "$LOG" 2>&1 &
+    for _ in {1..50}; do
+      [ -s "$PIDFILE" ] && break
+      sleep 0.02
+    done
+    if [ ! -s "$PIDFILE" ]; then
+      echo "daemon did not publish its process identity"; exit 1
+    fi
+    PID=$(cat "$PIDFILE")
+    if ! is_our_daemon "$PID"; then
+      echo "started process identity could not be verified; pid file retained"; exit 1
+    fi
+    echo "started pid $PID"
     ;;
   stop)
     [ -f "$PIDFILE" ] || { echo "not running"; exit 0; }
