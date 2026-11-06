@@ -9,11 +9,15 @@ concurrent cache misses. Session-scoped single-flight minting now has a passing
 regression test. Release activation uses the verified graceful drain, checks
 the service cgroup is empty, and requires account-history readiness. The
 activation and drain suites pass (9 and 8 tests); the full framer-api suite
-passes (504 passed, 2 ignored). The original Linux package is stale. GitHub
-authentication is now available and the branch is pushed; Iris still runs
-alpha.31.
-Next: commit the follow-up fixes, build and smoke-test the updated Linux
-package locally, upload it to GitHub, and qualify deployment.
+passes (504 passed, 2 ignored). The updated Linux x86_64 package was rebuilt
+locally, passed package smoke, was uploaded to a GitHub prerelease, and was
+downloaded and verified in Iris's releases directory without switching the
+live symlink. No qualification receipt exists for this exact package. The
+activation gate requires isolated OpenAI and Claude buffered/streaming checks
+on a dedicated non-production account/workspace; there is no evidence of one
+configured, so the old service remains active and healthy on alpha.31.
+Next: obtain/identify an exclusive non-production qualification account and
+workspace, then run the exact-package checks and activate via graceful drain.
 
 # Refusal-wave inference availability repair, 2026-11-06
 
