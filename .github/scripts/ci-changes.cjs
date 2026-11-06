@@ -7,6 +7,13 @@ const root = path.resolve(__dirname, "../..");
 
 // Root and docs Markdown ship in no package. Package READMEs stay owned.
 const INERT = [/^docs\//, /^\.agents\//, /^[^/]+\.md$/, /^LICENSE$/];
+// Listed CLI files skip performance but retain source checks.
+// The dependency test checks request entry points, not every bundled module.
+const PERFORMANCE_INERT = [...INERT,
+  /^framerize-(?:core|remote|server)\/(?:test\/|.*\.md$)/,
+  /^framerize-server\/src\/(?:cli|setup|service-control|service-units)\.ts$/,
+  /^framerize-remote\/src\/(?:clientCli|serviceCli|serviceUnits|cliArgs|cmdSetup)\.ts$/,
+];
 // The server bundles core during its build without declaring it.
 const BUILD_ONLY_DEPS = { framerize: ["@framerize/core"] };
 const GATES = { source: null, packages: ["framerize-remote", "framerize"], server: ["framerize"] };
@@ -54,6 +61,8 @@ function decide(files, packages, full) {
   }
   const outputs = Object.fromEntries(Object.entries(GATES).map(([gate, names]) =>
     [gate, names === null ? affected.size > 0 : names.some((name) => affected.has(name))]));
+  outputs.performance = everything || (files ?? []).some((file) =>
+    !PERFORMANCE_INERT.some((pattern) => pattern.test(file)));
   return { affected: [...affected].sort(), outputs };
 }
 

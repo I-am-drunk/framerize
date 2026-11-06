@@ -58,3 +58,12 @@ The preview workflows and scripts adapt T3 Code at commit
 Framerize retains its own package consumer checks, separate PR-head and merge
 identities, immutable asset hashes and foreground isolation instructions.
 No T3 desktop updater, signing, Electron packaging or npm publication is added.
+
+## Request performance tests
+
+`test/request-performance.test.mjs` adapts the deterministic byte-budget
+approach from `apps/server/src/orchestration-v2/ThreadTransportPerformance.test.ts`
+at T3 Code commit `fbe5df2d4b630d13adc8fe2d38cab354e6d66d67`, under the same
+MIT License. Framerize uses its own synthetic HTTP requests, loopback listeners,
+request-envelope budget and concurrency checks. It does not copy T3's RPC
+transport, thread snapshots or application-specific byte limits.

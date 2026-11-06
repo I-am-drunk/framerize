@@ -59,11 +59,12 @@ export async function fixture(context, protocol, viaRemote, options = {}) {
   const upstream = httpServer(async (incoming, response) => {
     const chunks = [];
     for await (const chunk of incoming) chunks.push(chunk);
+    const bytes = Buffer.concat(chunks);
     observed.push({ path: incoming.url, headers: incoming.headers,
-      body: JSON.parse(Buffer.concat(chunks)) });
+      body: JSON.parse(bytes), requestBytes: bytes.length });
     response.once('close', disconnected.resolve);
     entered.resolve();
-    if (options.respond) { options.respond(response, observed.length); return; }
+    if (options.respond) { options.respond(response, observed.length, observed.at(-1)); return; }
     response.writeHead(options.status ?? 200, {
       'content-type': 'application/json', ...options.headers,
       ...(options.mode === 'length' ? { 'content-length': payload.length + 100 } : {}),
@@ -124,11 +125,12 @@ export async function fixture(context, protocol, viaRemote, options = {}) {
     const forwarding = createRemoteBackend({ endpoint: { origin, loopback: true },
       serverToken: 'synthetic-server', ...limits, readinessWholeMs: 1000,
       readinessBodyMaxBytes: 65536, ...options.remote });
-    remote = await createServer({ host: '127.0.0.1', port: 0, ...limits,
+    remote = await createServer({ host: '127.0.0.1', port: 0, ...limits, ...options.remoteListener,
       serverToken: 'synthetic-client' }, { provider: forwarding });
     origin = `http://127.0.0.1:${(await remote.listen()).port}`;
   }
-  return { origin, payload, observed, counts, serverCalls, entered: entered.promise,
+  return { origin, payload, observed, counts, serverCalls, listener: remote?.server ?? server.server,
+    entered: entered.promise,
     disconnected: disconnected.promise, signals,
     post: (body = protocol.body, headers, signal) =>
       post(origin, protocol.path, body, agent, headers, signal, options.onChunk),

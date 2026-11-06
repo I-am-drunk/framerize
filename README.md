@@ -115,6 +115,8 @@ Readiness and synthetic tests do not prove live provider compatibility.
 [Current status](docs/wip-status.md) separates those checks from release gates.
 The [single-request validator](docs/inference-validation.md) documents the
 separate procedure for an authorized live check.
+The [request performance checks](docs/request-performance.md) measure synthetic
+server and Remote workloads and gate request and byte-count regressions in CI.
 
 Contributor rules are in [AGENTS.md](AGENTS.md) and
 [CONTRIBUTING.md](CONTRIBUTING.md). See the
