@@ -79,7 +79,7 @@ export function parseHomebrewCaskVersion(stdout: string | null): string | null {
   try {
     const raw: unknown = (JSON.parse(stdout) as { casks?: { version?: unknown }[] }).casks?.[0]?.version;
     const version = typeof raw === 'string' ? raw.split(',', 1)[0]!.trim() : '';
-    return version && version !== 'latest' ? version : null;
+    return NPM_VERSION.test(version) ? version : null;
   } catch { return null; }
 }
 
