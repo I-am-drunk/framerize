@@ -72,7 +72,8 @@ async function portCloses(port) {
   do {
     const state = await portState(port);
     if (state === 'ECONNREFUSED') return true;
-    assert.equal(state, 'open');
+    // A reset during shutdown is not proof that the listener has closed.
+    assert.ok(state === 'open' || state === 'ECONNRESET', `Unexpected listener state: ${state}`);
     await delay(20);
   } while (performance.now() < deadline);
   return false;
