@@ -92,7 +92,8 @@ reports that command processes may still be running.
 A pending hostname lookup does not delay rollback.
 A second signal can interrupt rollback before restoration is complete.
 When a restore step also fails, the error reports both failures, and the
-earlier state may be only partly restored.
+earlier state may be only partly restored. If the service cannot stop,
+rollback keeps its unit and settings rather than removing files it still uses.
 
 ### Service limits
 

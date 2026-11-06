@@ -64,3 +64,11 @@ export class ServerListenError extends Error {
     this.name = 'ServerListenError';
   }
 }
+
+// Fixed, secret-free messages from account and configure commands, printed as written.
+export class AccountCommandError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AccountCommandError';
+  }
+}

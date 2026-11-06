@@ -8,12 +8,16 @@ function parse(value: string) {
   const segments = main.split('.').map(part => part.trim()).filter(Boolean);
   while (segments.length > 0 && segments.length < 3) segments.push('0');
   if (segments.length !== 3 || !segments.every(part => NUMBER.test(part))) return null;
-  const [major, minor, patch] = segments.map(Number) as [number, number, number];
+  const [major, minor, patch] = segments.map(BigInt) as [bigint, bigint, bigint];
   return { major, minor, patch, prerelease: pre.join('-').split('.').map(part => part.trim()).filter(Boolean) };
 }
 
+function compareInteger(left: bigint, right: bigint): number {
+  return left === right ? 0 : left < right ? -1 : 1;
+}
+
 function compareIdentifier(left: string, right: string): number {
-  if (NUMBER.test(left) && NUMBER.test(right)) return Number(left) - Number(right);
+  if (NUMBER.test(left) && NUMBER.test(right)) return compareInteger(BigInt(left), BigInt(right));
   if (NUMBER.test(left)) return -1;
   if (NUMBER.test(right)) return 1;
   return left === right ? 0 : left < right ? -1 : 1;
@@ -23,9 +27,9 @@ export function compareSemverVersions(left: string, right: string): number {
   const a = parse(left);
   const b = parse(right);
   if (!a || !b) return left.localeCompare(right);
-  if (a.major !== b.major) return a.major - b.major;
-  if (a.minor !== b.minor) return a.minor - b.minor;
-  if (a.patch !== b.patch) return a.patch - b.patch;
+  if (a.major !== b.major) return compareInteger(a.major, b.major);
+  if (a.minor !== b.minor) return compareInteger(a.minor, b.minor);
+  if (a.patch !== b.patch) return compareInteger(a.patch, b.patch);
   if (a.prerelease.length === 0 || b.prerelease.length === 0) return b.prerelease.length - a.prerelease.length;
   for (let index = 0; index < Math.max(a.prerelease.length, b.prerelease.length); index += 1) {
     const [l, r] = [a.prerelease[index], b.prerelease[index]];

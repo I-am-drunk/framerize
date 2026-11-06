@@ -47,7 +47,6 @@ export const runStep: StepRunner = (command, args, signal) => new Promise((resol
     detached: process.platform !== 'win32',
   });
   const stop = (): void => {
-    forced = true;
     if (stopping) return;
     stopping = new Promise<void>((done, rejectStop) => {
       const fail = (cause: unknown): void => rejectStop(new ServerSetupError(
@@ -81,21 +80,22 @@ export const runStep: StepRunner = (command, args, signal) => new Promise((resol
       reject(error);
     });
   };
+  const interrupt = (): void => { forced = true; stop(); };
   child.stdout.on('data', (chunk: Buffer) => {
     const remaining = Math.max(0, 256 * 1024 - stdoutBytes);
     if (remaining) output.push(chunk.subarray(0, remaining));
     stdoutBytes += chunk.length;
-    if (stdoutBytes > 256 * 1024) stop();
+    if (stdoutBytes > 256 * 1024) interrupt();
   });
   child.stderr.on('data', (chunk: Buffer) => {
     stderrBytes += chunk.length;
-    if (stderrBytes > 256 * 1024) stop();
+    if (stderrBytes > 256 * 1024) interrupt();
   });
-  child.stdout.once('error', stop);
-  child.stderr.once('error', stop);
-  child.once('error', stop);
-  const timer = setTimeout(stop, 120_000).unref();
-  const abort = stop;
+  child.stdout.once('error', interrupt);
+  child.stderr.once('error', interrupt);
+  child.once('error', interrupt);
+  const timer = setTimeout(interrupt, 120_000).unref();
+  const abort = interrupt;
   signal?.addEventListener('abort', abort, { once: true });
   if (signal?.aborted) abort();
   child.once('exit', (code, exitSignal) => {
@@ -105,7 +105,7 @@ export const runStep: StepRunner = (command, args, signal) => new Promise((resol
     clearTimeout(timer);
     signal?.removeEventListener('abort', abort);
     void (stopping ?? Promise.resolve()).then(() => {
-      resolve({ code: forced || code !== 0 ? 1 : 0, stdout: Buffer.concat(output).toString('utf8') });
+      resolve({ code: forced ? 1 : code ?? 1, stdout: Buffer.concat(output).toString('utf8') });
     }, reject);
   });
 });
@@ -229,7 +229,19 @@ export async function reconcileService(plan: ServicePlan, settings: string,
   }
 
   async function restoreService(): Promise<void> {
-    await steps(run, manager.remove.map(step => ({ ...step, optional: true })));
+    await steps(async (command, args) => {
+      const result = await run(command, args);
+      if (result.code === 0) return result;
+      const probe = manager.active;
+      const state = await run(probe.command, probe.args.map(arg =>
+        arg.startsWith('--property=') ? '--property=LoadState,ActiveState,MainPID' : arg));
+      // Only explicit absence permits cleanup after a failed stop. A failed probe does not.
+      const missing = plan.platform === 'linux'
+        ? state.code === 0 && /^LoadState=not-found$/m.test(state.stdout)
+          && /^ActiveState=inactive$/m.test(state.stdout) && /^MainPID=0$/m.test(state.stdout)
+        : state.code === 113;
+      return missing ? { code: 0, stdout: '' } : result;
+    }, manager.remove.map(step => ({ ...step, optional: false })));
     if (oldSettings === undefined) await rm(settingsPath, { force: true });
     else await writeAtomic(settingsPath, oldSettings);
     if (oldUnit === undefined) await rm(manager.path, { force: true });

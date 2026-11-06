@@ -59,7 +59,8 @@ command. A pending hostname lookup does not delay rollback.
 If setup fails or is cancelled, `up` attempts to restore the previous
 profile and service state. A previously stopped service stays stopped. If
 restoration fails, the error includes the original failure and reports that
-restoration is incomplete. If the profile cannot be restored, `up` does not restart
+restoration is incomplete. If stopping fails, rollback keeps the unit.
+If the profile cannot be restored, `up` does not restart
 the service with changed settings.
 Rerunning `up` with unchanged settings checks the running service without restarting
 it. Where no service manager is available, `up` saves the profile and asks you to
@@ -148,39 +149,29 @@ running Remote. Arguments after `--` pass through unchanged, such as
   the file if a settings file sets a different auth token, an API key, a cloud
   provider flag or `apiKeyHelper`, or if managed settings set a base URL or
   force a login method.
-  The working directory's `.claude/settings.local.json` is always checked.
-  On Linux and macOS with Git 2.36 or newer, Remote also checks that file at
-  the main checkout's root, including when launched inside a linked Git
-  worktree. That root, its `.git` entry and any `.claude` entry must belong
-  to your user, and the root must not be your home directory. Both files are
-  checked independently; a conflicting value in either can block launch
-  even if the other overrides it.
+  Remote checks `.claude/settings.local.json` in the working directory.
+  Linux and macOS with Git 2.36 or newer also check the main checkout's copy,
+  including from linked worktrees. That root must not be your home directory.
+  It, its `.git` entry and any `.claude` entry must belong to your user.
+  Either file can block launch, regardless of override order.
   Windows, Git older than 2.36, an unavailable or failed Git worktree lookup,
   bare repositories and custom Git layouts without a detectable main
   checkout use only the working-directory local file. Shared `settings.json`
   still comes from the working directory.
 - Codex gets `-c` overrides for a `framerize` provider at
   `<Remote>/openai/v1`. The local token stays in `FRM_LOCAL_TOKEN`.
-- `--persist` writes the Claude values to Claude's user settings.
-  `--undo` removes them only if they are unchanged since then.
-  If `settings.json` is a symlink, both edit its target and keep the link.
-  A link with no target fails before anything is written. If the settings
-  file is gone, `--undo` reports that Framerize has not written Claude
-  settings and forgets its record.
+- `--persist` saves Claude settings. `--undo` removes unchanged Framerize
+  values from any directory and forgets missing files. Both preserve symlinks
+  and reject dangling links. Undo before changing `CLAUDE_CONFIG_DIR`.
 - `--check` prints the OS, client path, version and Remote address.
-- `--config FILE` uses that profile for a launch, `--check`, `--persist` and
-  `--undo`. `--persist` keeps its undo record beside FILE, so pass the same
-  `--config` to `--undo`. If you accept the client offer after setup with a
-  non-default `--config`, it ends by printing that profile path for later
-  `frm client` commands.
+- `--config FILE` selects the profile for client commands. Use the same FILE
+  to undo. Setup's client offer prints its profile path.
 
 ### Install and update
 
-If the client is not on `PATH`, a launch shows the official installer
-command: `curl ... | sh` on Linux and macOS, PowerShell on Windows. It runs
-only after you type `install`, or with `--install` or `FRM_CLIENT_INSTALL=1`.
-Without consent, or with `--no-input` or `FRM_NO_INPUT=1`, it exits with code 3.
-Other platforms get the client's download page instead.
+Installing a client needs typed `install`, `--install` or `FRM_CLIENT_INSTALL=1`.
+Without consent it exits 3. Linux and macOS download the full script before
+running it. Windows uses PowerShell.
 
 `--update` finds the updater that owns the installed client from its path.
 The options are the client's own `update` for native installs, `npm install -g`
@@ -254,6 +245,12 @@ when the directory setting is invalid.
 Saves are atomic and owner-only on POSIX. New file references become absolute
 paths; relative references in existing profiles resolve beside the profile.
 Omit `--start` to save without loading credentials or contacting the server.
+
+When `setup` starts Remote or offers client setup in the same invocation,
+it uses the remote URL and token references just saved. Ambient
+`FRM_SERVER_TOKEN` and `FRM_LOCAL_TOKEN` still apply when the profile has no
+corresponding reference. Later `serve`, `check` and `client` commands use the
+usual `FRM_*` overrides.
 
 Setup errors identify a missing server address, invalid token reference,
 invalid listen setting or time limit, or a profile that could not be saved.

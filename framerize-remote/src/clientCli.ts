@@ -41,22 +41,31 @@ export async function runClientCommand(argv: readonly string[], io: CliIo,
   }
   const path = profilePath(options.config, env);
   const target = options.undo ? { origin: 'http://127.0.0.1:8788' } : undefined;
-  if (!options.check && !options.update) {
-    return runClient(argv, await clientDependencies(path, io, env, target));
-  }
   const controller = new AbortController();
   const stop = (): void => controller.abort();
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
+  const detach = (): void => {
+    process.off('SIGINT', stop);
+    process.off('SIGTERM', stop);
+  };
   try {
     const deps = await clientDependencies(path, io, env, target);
     controller.signal.throwIfAborted();
-    const result = await runClient(argv, { ...deps, signal: controller.signal });
+    const result = await runClient(argv, { ...deps, signal: controller.signal,
+      runner: { ...deps.runner, run(command, environment, signal) {
+        if (!signal) {
+          controller.signal.throwIfAborted();
+          // The launched client owns interactive signal handling.
+          detach();
+        }
+        return deps.runner.run(command, environment, signal);
+      } },
+    });
     controller.signal.throwIfAborted();
     return result;
   } finally {
-    process.off('SIGINT', stop);
-    process.off('SIGTERM', stop);
+    detach();
   }
 }
 
