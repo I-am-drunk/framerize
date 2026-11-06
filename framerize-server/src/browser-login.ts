@@ -251,7 +251,10 @@ async function startBrowser(spawn: SpawnBrowser, signal: SignalProcess, executab
 }
 
 function raced<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) return Promise.reject(signal.reason);
+  if (signal.aborted) {
+    void promise.catch(() => {});
+    return Promise.reject(signal.reason);
+  }
   return new Promise((resolve, reject) => {
     const abort = () => reject(signal.reason);
     signal.addEventListener('abort', abort, { once: true });
