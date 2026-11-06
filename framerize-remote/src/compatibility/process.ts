@@ -3,6 +3,7 @@ import { closeSync, openSync } from 'node:fs';
 import type { Readable, Writable } from 'node:stream';
 import type { ClientCommand } from './clients.js';
 import { ClientCleanupError, RemoteDiagnosticError } from '../diagnostics.js';
+import { waitForGroup } from '../serviceCommand.js';
 
 // Windows quoting and shim dispatch adapted from T3 Code packages/shared/src/shell.ts
 // escapeWindowsShellArg and resolveSpawnCommand at 5a906583 (MIT).
@@ -68,6 +69,10 @@ async function stopCommandGroup(group: number): Promise<void> {
   send('SIGTERM');
   await new Promise(resolve => setTimeout(resolve, COMMAND_STOP_GRACE_MS));
   send('SIGKILL');
+  if (failures.length && failures.every(error => (error as NodeJS.ErrnoException).code === 'EPERM')) {
+    // macOS can deny signals to a group containing only exited processes.
+    try { await waitForGroup(group); return; } catch {}
+  }
   if (failures.length) throw new ClientCleanupError(failures);
 }
 
