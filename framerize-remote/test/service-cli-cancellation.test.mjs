@@ -57,7 +57,12 @@ for (const signal of failure ? ['SIGTERM'] : ['SIGINT', 'SIGTERM']) {
         if (closed) await bounded(closed);
         for (const worker of workers) {
           const deadline = Date.now() + 1000;
-          while (await listening(worker.port) && Date.now() < deadline) {
+          while (Date.now() < deadline) {
+            try { if (!await listening(worker.port)) break; }
+            catch (error) {
+              // A reset during teardown is not evidence that the port closed.
+              if (error.code !== 'ECONNRESET') throw error;
+            }
             await new Promise(resolve => setTimeout(resolve, 10));
           }
           assert.equal(await listening(worker.port), false);

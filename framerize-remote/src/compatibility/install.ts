@@ -1,9 +1,9 @@
 import type { ClientCommand, ClientName } from './clients.js';
 
 /** Official native installers: code.claude.com/docs/en/setup, developers.openai.com/codex/cli. */
-const SCRIPTS: Readonly<Record<ClientName, { readonly posix: string; readonly windows: string }>> = {
-  claude: { posix: 'curl -fsSL https://claude.ai/install.sh | bash', windows: 'irm https://claude.ai/install.ps1 | iex' },
-  codex: { posix: 'curl -fsSL https://chatgpt.com/codex/install.sh | sh', windows: 'irm https://chatgpt.com/codex/install.ps1 | iex' },
+const SCRIPTS: Readonly<Record<ClientName, { readonly url: string; readonly shell: string; readonly windows: string }>> = {
+  claude: { url: 'https://claude.ai/install.sh', shell: 'bash', windows: 'irm https://claude.ai/install.ps1 | iex' },
+  codex: { url: 'https://chatgpt.com/codex/install.sh', shell: 'sh', windows: 'irm https://chatgpt.com/codex/install.ps1 | iex' },
 };
 
 export function installCommand(client: ClientName, platform: NodeJS.Platform): ClientCommand | null {
@@ -13,7 +13,15 @@ export function installCommand(client: ClientName, platform: NodeJS.Platform): C
       display: `powershell -ExecutionPolicy ByPass -c "${script.windows}"` };
   }
   if (platform === 'darwin' || platform === 'linux') {
-    return { command: '/bin/sh', args: ['-c', script.posix], display: script.posix };
+    const command = [
+      'installer=$(mktemp "${TMPDIR:-/tmp}/framerize-install.XXXXXX") || exit "$?"',
+      'trap \'rm -f "$installer"\' 0',
+      'trap \'exit 1\' HUP INT TERM',
+      `curl -fsSL ${script.url} > "$installer" || exit "$?"`,
+      `${script.shell} < "$installer"`,
+    ].join('\n');
+    return { command: '/bin/sh', args: ['-c', command],
+      display: `Download ${script.url}, then run ${script.shell}` };
   }
   return null;
 }

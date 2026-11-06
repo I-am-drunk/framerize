@@ -13,6 +13,14 @@ const { runClient, EXIT } = setup;
 const token = 'synthetic-local-token';
 const origin = 'http://127.0.0.1:8788';
 
+const installerScript = (url, shell) => [
+  'installer=$(mktemp "${TMPDIR:-/tmp}/framerize-install.XXXXXX") || exit "$?"',
+  'trap \'rm -f "$installer"\' 0',
+  'trap \'exit 1\' HUP INT TERM',
+  `curl -fsSL ${url} > "$installer" || exit "$?"`,
+  `${shell} < "$installer"`,
+].join('\n');
+
 /** Stub boundaries only: no real PATH lookup, prompt or process ever runs. */
 function harness({ platform = 'linux', installed = [], afterInstall = [], answers = [], exit = 0,
   localToken = token, env = {}, home = '/synthetic/home', stateDir = '/synthetic/state',
@@ -107,7 +115,7 @@ test('a missing client without consent and without a terminal installs nothing',
   const h = harness({ answers: null });
   assert.equal(await runClient(['claude'], h.deps), EXIT.needsConsent);
   assert.equal(h.calls.length, 0);
-  assert.match(h.text(), /curl -fsSL https:\/\/claude\.ai\/install\.sh \| bash/);
+  assert.match(h.text(), /Download https:\/\/claude\.ai\/install\.sh, then run bash/);
   assert.match(h.errors(), /--install or FRM_CLIENT_INSTALL=1/);
 });
 
@@ -129,13 +137,13 @@ test('typing install runs the official installer, then launches the new client',
   const h = harness({ answers: ['install'], afterInstall: ['/bin/claude'] });
   assert.equal(await runClient(['claude'], h.deps), 0);
   assert.deepEqual(h.calls.map(call => call.command), ['/bin/sh', '/bin/claude']);
-  assert.deepEqual(h.calls[0].args, ['-c', 'curl -fsSL https://claude.ai/install.sh | bash']);
+  assert.deepEqual(h.calls[0].args, ['-c', installerScript('https://claude.ai/install.sh', 'bash')]);
 });
 
 test('agent install consent comes from FRM_CLIENT_INSTALL without a prompt', async () => {
   const h = harness({ answers: null, env: { FRM_CLIENT_INSTALL: '1' }, afterInstall: ['/bin/codex'] });
   assert.equal(await runClient(['codex'], h.deps), 0);
-  assert.deepEqual(h.calls[0].args, ['-c', 'curl -fsSL https://chatgpt.com/codex/install.sh | sh']);
+  assert.deepEqual(h.calls[0].args, ['-c', installerScript('https://chatgpt.com/codex/install.sh', 'sh')]);
   assert.equal(h.calls[1].command, '/bin/codex');
 });
 
@@ -218,7 +226,7 @@ test('the setup offer installs a missing client only after the typed word and st
   const results = await setup.offerClients(h.deps);
   assert.deepEqual(results, [{ client: 'claude', state: 'present', version: 'behind' },
     { client: 'codex', state: 'installed' }]);
-  assert.deepEqual(h.calls.map(call => call.args.at(-1)), ['curl -fsSL https://chatgpt.com/codex/install.sh | sh']);
+  assert.deepEqual(h.calls.map(call => call.args.at(-1)), [installerScript('https://chatgpt.com/codex/install.sh', 'sh')]);
   assert.match(h.questions[0], /Update Claude Code with \/home\/me\/\.local\/bin\/claude update\? Type update/);
   assert.match(h.questions[1], /Install Codex\? Type install/);
 });

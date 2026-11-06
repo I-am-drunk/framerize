@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { readPackageArchive } from '../scripts/package-archive.js';
 
-type Entry = { name: string; body?: string; kind?: string };
+type Entry = { name: string; body?: string; kind?: string; signature?: string; prefix?: string };
 for (const kind of ['1', '2', '3', '4', '6', 'x', 'g', 'L']) {
   test(`rejects link, special or extended archive entry ${kind}`, context => {
     assert.throws(read(context, tar([manifest, { name: 'package/member', kind }])));
@@ -27,6 +27,20 @@ test('rejects corrupt headers, missing end blocks and trailing data', context =>
   assert.throws(read(context, Buffer.concat([valid, Buffer.alloc(512, 1)])), /archive end/);
 });
 const manifest = { name: 'package/package.json', body: '{"name":"fixture"}' };
+for (const [name, signature] of [
+  ['GNU', 'ustar  \0'], ['versionless', 'ustar\0\0\0'], ['unknown version', 'ustar\0' + '01'],
+] as const) {
+  test(`rejects ${name} signatures before using the POSIX prefix`, context => {
+    const bytes = tar([{ name: 'package.json', body: manifest.body, signature, prefix: 'package' }]);
+    assert.throws(read(context, bytes), /Unsupported archive format/);
+  });
+}
+
+test('reads the POSIX prefix with its exact magic and version', context => {
+  const result = read(context, tar([{ name: 'package.json', body: manifest.body, prefix: 'package' }]))();
+  assert.deepEqual([...result], [[manifest.name, Buffer.from(manifest.body)]]);
+});
+
 test('rejects file/directory conflicts and excessive decompression', context => {
   assert.throws(read(context, tar([manifest, { name: 'package/path' }, { name: 'package/path/child' }])), /directory/);
   assert.throws(read(context, tar([manifest, { name: 'package/path/child' }, { name: 'package/path' }])), /directory/);
@@ -53,11 +67,12 @@ for (const name of ['/outside', 'package/../outside', 'package/./file', 'package
 }
 function tar(entries: Entry[]): Buffer {
   const chunks: Buffer[] = [];
-  for (const { name, body = '', kind = '0' } of entries) {
+  for (const { name, body = '', kind = '0', signature = 'ustar\0' + '00', prefix = '' } of entries) {
     const data = Buffer.from(body);
     const header = Buffer.alloc(512);
     header.write(name); header.write(data.length.toString(8).padStart(11, '0'), 124);
-    header.fill(32, 148, 156); header.write(kind, 156); header.write('ustar\0', 257);
+    header.fill(32, 148, 156); header.write(kind, 156); header.write(signature, 257);
+    header.write(prefix, 345);
     header.write(header.reduce((total, byte) => total + byte, 0).toString(8).padStart(6, '0') + '\0 ', 148);
     chunks.push(header, data, Buffer.alloc((512 - data.length % 512) % 512));
   }
