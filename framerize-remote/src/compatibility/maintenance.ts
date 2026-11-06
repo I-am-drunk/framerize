@@ -10,12 +10,12 @@ export function normalizeCommandPath(commandPath: string): string {
 
 export function npmGlobalPrefixFromCommandPath(realPath: string, packageName: string): string | null {
   const slashPath = realPath.replaceAll('\\', '/');
-  const normalized = slashPath.toLowerCase();
-  const index = normalized.lastIndexOf(`/lib/node_modules/${packageName.toLowerCase()}/`);
-  if (index < 0 || normalized.slice(0, index).includes('/node_modules/')) return null;
-  const miseTool = /\/mise\/installs\/([^/]+)\/[^/]+$/.exec(normalized.slice(0, index))?.[1];
+  const packagePath = packageName.replace(/[.*+?^$()|[\]{}\\]/g, '\\$&');
+  const prefix = new RegExp('^(.*)/lib/node_modules/' + packagePath + '/', 'is').exec(slashPath)?.[1];
+  if (prefix === undefined || prefix.toLowerCase().includes('/node_modules/')) return null;
+  const miseTool = /\/mise\/installs\/([^/]+)\/[^/]+$/i.exec(prefix)?.[1]?.toLowerCase();
   if (miseTool && miseTool !== 'node') return null;
-  return index === 0 ? '/' : slashPath.slice(0, index);
+  return prefix.length === 0 ? '/' : realPath.slice(0, prefix.length);
 }
 
 export function homebrewCaskFromCommandPath(realPath: string): string | null {
