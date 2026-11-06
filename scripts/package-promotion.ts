@@ -62,7 +62,7 @@ export function prepareRemotePromotion(candidate: string, approvalFile: string,
   assert.equal(digest(releaseBytes), expected.releaseSha256);
   const release = JSON.parse(releaseBytes.toString('utf8')) as Candidate;
   assert.equal(release.name, 'framerize-remote');
-  assert.match(release.version, /^\d+\.\d+\.\d+(?:-[\w.-]+)?$/);
+  assert.match(release.version, /^\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?$/);
   assert.equal(release.tag, `framerize-remote-v${release.version}`);
   assert.equal(release.source.repository, expected.repository);
   assert.equal(release.source.sha, run.head_sha);
@@ -110,7 +110,7 @@ export function prepareRemotePromotion(candidate: string, approvalFile: string,
   }
   const result = { tarball: join(resolve(output), tarball), version: release.version,
     integrity: 'sha512-' + createHash('sha512').update(archive).digest('base64'),
-    distTag: release.version.includes('-') ? 'next' : 'latest', sha256: digest(archive),
+    distTag: release.version.split('+', 1)[0]!.includes('-') ? 'next' : 'latest', sha256: digest(archive),
     sourceSha: run.head_sha, candidateRunId: expected.runId, candidateManifestSha256: digest(releaseBytes),
     approvalCommit: expected.approvalCommit, approvalSha256: digest(approvalBytes),
     evidenceSha256: approval.evidenceSha256, reviewedBy: approval.reviewedBy };
