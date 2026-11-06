@@ -246,7 +246,8 @@ export function nodeRunner(platform: NodeJS.Platform = process.platform, launch:
         child.on('error', fail);
         child.stdout?.on('error', fail);
         child.once('close', code => {
-          finish(code !== 0 ? null : Buffer.concat(chunks).toString('utf8'));
+          if (code !== 0) fail();
+          else finish(Buffer.concat(chunks).toString('utf8'));
         });
         signal?.addEventListener('abort', fail, { once: true });
         if (signal?.aborted) fail();
