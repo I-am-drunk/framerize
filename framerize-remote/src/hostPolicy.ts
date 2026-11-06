@@ -19,5 +19,11 @@ function parseIpv4(host: string): readonly number[] | null {
 export function isLoopbackHost(host: string): boolean {
   const normalized = normalizeHostname(host);
   if (normalized === 'localhost' || normalized === '::1') return true;
+  if (isIP(normalized) === 6) {
+    try {
+      const canonical = new URL(`http://[${normalized}]`).hostname;
+      return canonical === '[::1]' || /^\[::ffff:7f[\da-f]{2}:[\da-f]{1,4}\]$/.test(canonical);
+    } catch { return false; }
+  }
   return parseIpv4(normalized)?.[0] === 127;
 }
