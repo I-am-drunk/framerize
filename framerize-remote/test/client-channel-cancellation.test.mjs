@@ -52,18 +52,22 @@ async function fixture(context, blockedIndex) {
   })();
   context.after(state.finish);
   state.directory = await mkdtemp(join(tmpdir(), 'frm-channel-cancellation-'));
+  const platform = process.platform;
   const home = join(state.directory, 'home');
   const bin = join(home, '.local', 'bin');
   const config = join(home, '.claude');
   await mkdir(bin, { recursive: true, mode: 0o700 });
   await mkdir(config, { recursive: true, mode: 0o700 });
-  const executable = join(bin, 'claude');
+  const executable = join(bin, platform === 'win32' ? 'claude.exe' : 'claude');
   state.files = [join(config, 'settings.json'), join(state.directory, 'managed-settings.json')];
   state.originals = ['{"autoUpdatesChannel":"latest","fixture":"user"}\n',
     '{"autoUpdatesChannel":"stable","fixture":"managed"}\n'];
   for (const [index, path] of state.files.entries()) await writeFile(path, state.originals[index], { mode: 0o600 });
-  const settingsPaths = [state.files[0], join('/etc/claude-code', 'managed-settings.json')];
-  state.deps = { platform: 'linux', env: { HOME: home, PATH: bin }, home,
+  const env = { HOME: home, PATH: bin, PROGRAMFILES: join(state.directory, 'program-files') };
+  const managedDirectory = platform === 'win32' ? join(env.PROGRAMFILES, 'ClaudeCode')
+    : platform === 'darwin' ? '/Library/Application Support/ClaudeCode' : '/etc/claude-code';
+  const settingsPaths = [state.files[0], join(managedDirectory, 'managed-settings.json')];
+  state.deps = { platform, env, home,
     cwd: state.directory, stateDir: join(state.directory, 'state'),
     target: { origin: 'http://127.0.0.1:8788' }, signal: state.controller.signal,
     probe: path => path === executable, realPath: path => path,
