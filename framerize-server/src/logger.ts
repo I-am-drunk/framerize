@@ -22,10 +22,11 @@ function boundedValue(value: unknown, depth = 0, seen = new WeakSet<object>()): 
     if (seen.has(value)) return '[circular]';
     seen.add(value);
     if (Array.isArray(value)) return value.slice(0, 100).map((item) => boundedValue(item, depth + 1, seen));
-    const entries: [string, unknown][] = value instanceof Error
-      ? [['name', value.name], ['message', value.message], ...Object.entries(value)]
-      : Object.entries(value);
-    return Object.fromEntries(entries.slice(0, 100).map(([key, item]) => (
+    const keys = value instanceof Error ? ['name', 'message', ...Object.keys(value)] : Object.keys(value);
+    const entries = keys.slice(0, 100).map((key): [string, unknown] => (
+      [key, (value as Record<string, unknown>)[key]]
+    ));
+    return Object.fromEntries(entries.map(([key, item]) => (
       [key, boundedValue(item, depth + 1, seen)]
     )));
   }
@@ -33,21 +34,21 @@ function boundedValue(value: unknown, depth = 0, seen = new WeakSet<object>()): 
     return value.slice(0, 2000);
   }
   if (typeof value === 'bigint') return String(value);
-  return value;
+  return typeof value === 'function' ? undefined : value;
 }
 
 export function createLogger({ stream = process.stderr, level = 'info' }: LoggerOptions = {}): Logger {
   const priorities = { debug: 10, info: 20, warn: 30, error: 40, silent: Infinity };
   const threshold = priorities[level] ?? priorities.info;
-  function write(event: string, fields: object & { level: LogLevel }) {
-    if ((priorities[fields.level] ?? priorities.info) < threshold) return;
-    try { stream.write(`${JSON.stringify({ ...boundedValue(fields) as object, time: new Date().toISOString(), event: boundedValue(event) })}\n`); }
+  function write(event: string, fields: object | undefined, entryLevel: LogLevel) {
+    if ((priorities[entryLevel] ?? priorities.info) < threshold) return;
+    try { stream.write(`${JSON.stringify({ ...boundedValue({ ...fields, level: entryLevel }) as object, level: entryLevel, time: new Date().toISOString(), event: boundedValue(event) })}\n`); }
     catch {}
   }
   return Object.freeze<Logger>({
-    debug: (event, fields) => write(event, { ...fields, level: 'debug' }),
-    info: (event, fields) => write(event, { ...fields, level: 'info' }),
-    warn: (event, fields) => write(event, { ...fields, level: 'warn' }),
-    error: (event, fields) => write(event, { ...fields, level: 'error' }),
+    debug: (event, fields) => write(event, fields, 'debug'),
+    info: (event, fields) => write(event, fields, 'info'),
+    warn: (event, fields) => write(event, fields, 'warn'),
+    error: (event, fields) => write(event, fields, 'error'),
   });
 }

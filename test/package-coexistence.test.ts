@@ -39,7 +39,7 @@ assert.equal(process.env.FRAMERIZE_SERVER_TOKEN, undefined);
 assert.equal(process.env.UPSTREAM_TOKEN, undefined);
 assert.equal(process.env.HTTP_PROXY, undefined);
 ${probe}
-console.log(process.argv.includes('version') ? '0.0.1'
+console.log(process.argv.includes('version') || process.argv.includes('--version') ? '0.0.1'
   : ${JSON.stringify(server ? 'Server' : 'frm connect [LINK] --server-token-env')});
 `,
   };
@@ -87,6 +87,13 @@ for (const crlf of [false, true]) {
     assert.deepEqual([remote, server].map((file) => readFileSync(file)), before);
   });
 }
+
+test('rejects a Server CLI that reports a different package version', context => {
+  const remote = fixture(context, 'framerize-remote');
+  const server = fixture(context, 'framerize', { version: '0.0.2' });
+  assert.throws(() => checkPackageCoexistence([remote, server]),
+    /framerize CLI version differs from its package/);
+});
 
 test('only a launcher shebang may lose CR during installation', () => {
   const original = Buffer.from('#!/usr/bin/env node\r\nbody\r\n');

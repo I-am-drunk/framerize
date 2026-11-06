@@ -4,6 +4,8 @@ import { constants } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { AccountFileError, AccountSelectionError, ConfigurationError } from './errors.js';
 
+export const ACCOUNT_FILE_MAX_BYTES = 1024 * 1024;
+
 export interface AccountMetadata {
   readonly id: string;
   readonly enabled?: boolean;
@@ -35,23 +37,37 @@ export async function loadAccounts(path?: string): Promise<readonly AccountMetad
 
 async function readAccounts(path?: string): Promise<readonly AccountMetadata[]> {
   if (!path) return Object.freeze([]);
-  let file: FileHandle | undefined;
   let value: unknown;
+  try { value = JSON.parse((await readAccountText(path))!); }
+  catch { throw new ConfigurationError('Account metadata unavailable'); }
+  return parseAccountList(value, path);
+}
+
+// Bounded nonblocking read of a regular file. A missing file is undefined only when allowed.
+export async function readAccountText(path: string, allowMissing = false): Promise<string | undefined> {
+  let file: FileHandle | undefined;
   try {
-    file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
+    try { file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK); }
+    catch (error) {
+      if (allowMissing && (error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw error;
+    }
     const info = await file.stat();
-    if (!info.isFile() || info.size > 1024 * 1024) throw new Error();
-    const buffer = Buffer.alloc(1024 * 1024 + 1);
+    if (!info.isFile() || info.size > ACCOUNT_FILE_MAX_BYTES) throw new Error();
+    const buffer = Buffer.alloc(ACCOUNT_FILE_MAX_BYTES + 1);
     let length = 0;
     while (length < buffer.length) {
       const { bytesRead } = await file.read(buffer, length, buffer.length - length, null);
       if (!bytesRead) break;
       length += bytesRead;
     }
-    if (length > 1024 * 1024) throw new Error();
-    value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, length)));
+    if (length > ACCOUNT_FILE_MAX_BYTES) throw new Error();
+    return new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, length));
   } catch { throw new ConfigurationError('Account metadata unavailable'); }
   finally { await file?.close(); }
+}
+
+export function parseAccountList(value: unknown, path: string): readonly AccountMetadata[] {
   if (!Array.isArray(value)) throw new ConfigurationError('accounts JSON must be an array');
   const ids = new Set<string>();
   return Object.freeze(value.map((entry: unknown, index): AccountMetadata => {
