@@ -1,3 +1,20 @@
+# Current continuation, 2026-11-06
+
+The current live issue is distinct from the refusal-wave outage. Recent
+structured logs show successful AI chains interleaved with device risk
+refusals; the user's upstream HTTP 404 text says all matching endpoints were
+excluded by model guardrail/data-policy rules and did not appear in recent
+Framerize error events. A source audit also found duplicate token minting on
+concurrent cache misses. Session-scoped single-flight minting now has a passing
+regression test. Release activation uses the verified graceful drain, checks
+the service cgroup is empty, and requires account-history readiness. The
+activation and drain suites pass (9 and 8 tests); the full framer-api suite
+passes (504 passed, 2 ignored). The original Linux package is stale. GitHub
+authentication is now available and the branch is pushed; Iris still runs
+alpha.31.
+Next: commit the follow-up fixes, build and smoke-test the updated Linux
+package locally, upload it to GitHub, and qualify deployment.
+
 # Refusal-wave inference availability repair, 2026-11-06
 
 Branch cursor/fix-403-cooldown-stall is based on the exact live alpha.31

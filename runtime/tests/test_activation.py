@@ -1,6 +1,7 @@
 """Release switching uses only temporary files and an inert service adapter."""
 import fcntl
 from contextlib import nullcontext
+import io
 import json
 from pathlib import Path
 import sqlite3
@@ -8,7 +9,6 @@ import sys
 import tempfile
 import time
 import unittest
-from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'scripts'))
@@ -23,7 +23,7 @@ class Service:
     def validate(self, old, new):
         pass
 
-    def stop(self):
+    def stop(self, executable=None):
         self.calls.append('stop')
 
     def start(self, package):
@@ -342,16 +342,64 @@ class ActivationTests(unittest.TestCase):
     def test_readiness_rejects_the_wrong_process_even_with_http_200(self):
         service = activation.UserService()
         info = {'ActiveState': 'active', 'MainPID': '42'}
-        responses = [nullcontext(SimpleNamespace(status=200, headers={'x-framerize-pid': pid}))
-                     for pid in ('99', '42')]
+        responses = []
+        for pid, body in (('99', b'ok'), ('42', b'ok'), ('42', b'{"ready":true}')):
+            response = io.BytesIO(body)
+            response.status = 200
+            response.headers = {'x-framerize-pid': pid}
+            responses.append(nullcontext(response))
         with patch.object(service, 'command') as command, \
              patch.object(service, 'show', return_value=info), \
              patch.object(service, 'executable', return_value=self.new / 'bin/framerize'), \
              patch.object(service.http, 'open', side_effect=responses) as opened, \
              patch.object(activation.time, 'sleep'):
             service.start(self.new)
-        self.assertEqual(opened.call_count, 2)
+        self.assertEqual(opened.call_count, 3)
         command.assert_called_once_with('start', '--', 'framerize.service')
+
+    def test_start_waits_for_account_history_readiness(self):
+        service = activation.UserService()
+        info = {'ActiveState': 'active', 'MainPID': '42'}
+        responses = []
+        for body in (b'ok', b'{"ready":false}', b'ok', b'{"ready":true}'):
+            response = io.BytesIO(body)
+            response.status = 200
+            response.headers = {'x-framerize-pid': '42'}
+            responses.append(nullcontext(response))
+        with patch.object(service, 'command') as command, \
+             patch.object(service, 'show', return_value=info), \
+             patch.object(service, 'executable', return_value=self.new / 'bin/framerize'), \
+             patch.object(service.http, 'open', side_effect=responses) as opened, \
+             patch.object(activation.time, 'sleep'):
+            service.start(self.new)
+        self.assertEqual(opened.call_count, 4)
+        command.assert_called_once_with('start', '--', 'framerize.service')
+
+    def test_activation_stop_uses_the_verified_graceful_drain(self):
+        service = activation.UserService()
+        state = dict(ActiveState='active', MainPID='42', ControlGroup='/fixture')
+        expected = self.old / 'bin/framerize'
+        with patch('release_drain.state', return_value=state), \
+             patch('release_drain.stop', return_value={'clean_exit': True}) as drain:
+            service.stop(expected)
+        drain.assert_called_once_with(service, expected)
+
+    def test_inactive_service_with_leftover_processes_cannot_be_replaced(self):
+        service = activation.UserService()
+        state = dict(ActiveState='failed', MainPID='0', ControlGroup='/fixture')
+        with patch('release_drain.state', return_value=state), \
+             patch('release_drain.descendants', return_value={42}):
+            with self.assertRaisesRegex(RuntimeError, 'still has processes'):
+                service.stop(self.old / 'bin/framerize')
+
+    def test_service_restart_during_inactive_preflight_cannot_be_replaced(self):
+        service = activation.UserService()
+        stopped = dict(ActiveState='failed', MainPID='0', ControlGroup='/fixture')
+        restarted = dict(ActiveState='active', MainPID='42', ControlGroup='/fixture')
+        with patch('release_drain.state', side_effect=[stopped, restarted]), \
+             patch('release_drain.descendants', return_value=set()):
+            with self.assertRaisesRegex(RuntimeError, 'state changed'):
+                service.stop(self.old / 'bin/framerize')
 
     def test_service_preflight_refuses_overrides_and_an_unrelated_process(self):
         service = activation.UserService()

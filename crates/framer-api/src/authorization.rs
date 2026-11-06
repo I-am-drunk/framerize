@@ -1,12 +1,13 @@
 //! Runtime-owned authorization. The invalidation handle never exposes tokens.
 use crate::auth::AiToken;
 use framer_core::{AccountId, port::Session};
-use std::{collections::HashMap, sync::{Arc, Mutex}};
+use std::{collections::HashMap, sync::{Arc, Mutex, Weak}};
 
 #[derive(Default)]
 pub(crate) struct AuthorizationState {
     pub(crate) accounts: Mutex<Vec<(AccountId, AiToken)>>,
     pub(crate) sessions: Mutex<HashMap<(String, String), AiToken>>,
+    pub(crate) mint_locks: Mutex<HashMap<(String, String), Weak<tokio::sync::Mutex<()>>>>,
 }
 
 /// Cookie-cache invalidation after the caller's session-generation barrier.

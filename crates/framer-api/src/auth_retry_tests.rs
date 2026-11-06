@@ -17,19 +17,25 @@ const WEB: &str = "/auth/web/access-token";
 const REJECTED: &str = "fixture-rejected";
 const FRESH: &str = "fixture-refreshed";
 
-struct Mint { result: Result<AiToken, String>, calls: usize }
+struct Mint { result: Result<AiToken, String>, calls: usize, delay: std::time::Duration }
 
 fn mints() -> &'static Mutex<HashMap<String, Mint>> {
     static MINTS: OnceLock<Mutex<HashMap<String, Mint>>> = OnceLock::new();
     MINTS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-pub(super) fn mint_fixture(session: &Session, path: &str) -> Option<Result<AiToken, String>> {
-    let mut entries = mints().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let entry = entries.get_mut(&session.cookie_header)?;
-    entry.calls += 1;
-    Some(if path == AI { entry.result.clone() }
-        else { Err("unexpected fixture token endpoint".into()) })
+pub(super) async fn mint_fixture(session: &Session, path: &str) -> Option<Result<AiToken, String>> {
+    let (result, delay) = {
+        let mut entries = mints().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let entry = entries.get_mut(&session.cookie_header)?;
+        entry.calls += 1;
+        (if path == AI { entry.result.clone() }
+            else { Err("unexpected fixture token endpoint".into()) }, entry.delay)
+    };
+    if !delay.is_zero() {
+        tokio::time::sleep(delay).await;
+    }
+    Some(result)
 }
 
 fn token(session: &Session, bearer: &str) -> AiToken {
@@ -64,7 +70,8 @@ impl Fixture {
             cookie_header: format!("auth-retry-fixture={}", account.0) };
         mints().lock().unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(session.cookie_header.clone(), Mint {
-                result: mint.map(|bearer| token(&session, bearer)), calls: 0 });
+                result: mint.map(|bearer| token(&session, bearer)), calls: 0,
+                delay: std::time::Duration::ZERO });
         let browser = Browser { account, cookie: session.cookie_header.clone(),
             statuses, bearers: Mutex::new(Vec::new()) };
         let mut transport = Transport::control_for_loopback(
@@ -210,4 +217,31 @@ async fn successful_calls_reuse_cached_tokens_without_minting() {
         assert_eq!(fixture.mint_calls(), 0);
         assert_eq!(fixture.cached(AI).as_deref(), Some(REJECTED));
     }
+}
+
+#[tokio::test]
+async fn concurrent_token_cache_misses_share_one_session_mint() {
+    let session = Session {
+        active_user: FramerUserId("fixture-concurrent-mint-user".into()),
+        cookie_header: "auth-retry-fixture=concurrent-mint".into(),
+    };
+    mints().lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(session.cookie_header.clone(), Mint {
+            result: Ok(token(&session, FRESH)), calls: 0,
+            delay: std::time::Duration::from_millis(30),
+        });
+    let transport = std::sync::Arc::new(Transport::new());
+    let tasks: Vec<_> = (0..8).map(|_| {
+        let transport = transport.clone();
+        let session = session.clone();
+        tokio::spawn(async move { crate::auth::ai_access_token(&transport, &session).await })
+    }).collect();
+    for task in tasks {
+        assert_eq!(task.await.unwrap().unwrap().bearer, FRESH);
+    }
+    let calls = mints().lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(&session.cookie_header).unwrap().calls;
+    assert_eq!(calls, 1);
+    mints().lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        .remove(&session.cookie_header);
 }

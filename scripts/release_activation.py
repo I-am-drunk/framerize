@@ -89,7 +89,7 @@ def _clear(path):
 
 
 def _restore(current, old, service, pending):
-    service.stop()
+    service.stop(current.resolve() / 'bin/framerize')
     _switch(current, old)
     service.start(old)
     _clear(pending)
@@ -127,7 +127,7 @@ def _activate_locked(package, installation, profiles, service, qualification=Non
     validate(new, qualification)
     _intent(pending, old, new)
     try:
-        service.stop()
+        service.stop(old / 'bin/framerize')
         _switch(current, new)
         service.start(new)
     except BaseException as error:
@@ -180,11 +180,18 @@ class UserService:
         if pid and self.executable(pid) not in (old / 'bin/framerize', new / 'bin/framerize'):
             raise ValueError('running executable does not belong to this update')
 
-    def stop(self):
-        self.command('stop', '--', self.unit)
-        info = self.show()
-        if info.get('MainPID') != '0' or info.get('ActiveState') not in ('inactive', 'failed'):
-            raise RuntimeError('service stop did not complete')
+    def stop(self, executable):
+        from release_drain import descendants, state, stop
+        info = state(self)
+        if info.get('ActiveState') == 'active':
+            return stop(self, executable)
+        if info.get('ActiveState') in ('inactive', 'failed') and info.get('MainPID') == '0':
+            if descendants(info.get('ControlGroup', '')):
+                raise RuntimeError('stopped service still has processes in its cgroup')
+            if state(self) != info:
+                raise RuntimeError('service state changed while confirming it was stopped')
+            return {'already_stopped': True, 'remaining_descendants': 0}
+        raise RuntimeError('service is not in a drainable state')
 
     def start(self, package):
         self.command('start', '--', self.unit)
@@ -196,8 +203,12 @@ class UserService:
             pid = int(info.get('MainPID', '0'))
             try:
                 if pid and self.executable(pid) == package / 'bin/framerize':
-                    with self.http.open('http://127.0.0.1:8787/api/health', timeout=1) as response:
-                        ready = response.status == 200 and response.headers.get('x-framerize-pid') == str(pid)
+                    from release_drain import require_readiness
+                    try:
+                        require_readiness(self, pid)
+                        ready = True
+                    except (OSError, RuntimeError, ValueError):
+                        ready = False
                     after = self.show()
                     if ready and after.get('MainPID') == str(pid) and after.get('ActiveState') == 'active':
                         return

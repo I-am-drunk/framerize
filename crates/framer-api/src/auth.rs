@@ -48,7 +48,7 @@ fn now_ms() -> i64 {
 
 async fn mint(t: &Transport, session: &Session, path: &str) -> Result<AiToken, String> {
     #[cfg(test)]
-    if let Some(result) = retry_tests::mint_fixture(session, path) {
+    if let Some(result) = retry_tests::mint_fixture(session, path).await {
         return result;
     }
     // JWT relay (2026-10-13): when the host's egress IP is edge-WAF-blocked
@@ -145,6 +145,27 @@ mod relay_tests;
 // caller (credits::usage mints a web token per call otherwise).
 async fn cached_mint(t: &Transport, session: &Session, path: &str) -> Result<AiToken, String> {
     let key = (session.cookie_header.clone(), path.to_string());
+    if let Ok(guard) = t.authorization.sessions.lock() {
+        if let Some(tok) = guard.get(&key) {
+            if tok.usable_for(session) {
+                return Ok(tok.clone());
+            }
+        }
+    }
+    let lock_key = (session.active_user.0.clone(), path.to_string());
+    let mint_lock = {
+        let mut locks = t.authorization.mint_locks.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        locks.retain(|_, lock| lock.strong_count() > 0);
+        if let Some(lock) = locks.get(&lock_key).and_then(|lock| lock.upgrade()) {
+            lock
+        } else {
+            let lock = std::sync::Arc::new(tokio::sync::Mutex::new(()));
+            locks.insert(lock_key, std::sync::Arc::downgrade(&lock));
+            lock
+        }
+    };
+    let _mint_guard = mint_lock.lock().await;
     if let Ok(guard) = t.authorization.sessions.lock() {
         if let Some(tok) = guard.get(&key) {
             if tok.usable_for(session) {
