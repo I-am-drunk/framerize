@@ -36,6 +36,23 @@ custom-route checks prove the release's route behavior; the next step is to
 inspect the next naturally occurring T3/custom-route request for repick,
 cooldown and completion events without sending another production request.
 
+Two legacy operations defects were fixed on the same branch. `daemonctl.sh`
+now verifies its PID and process group, sends only a group-scoped graceful
+signal, waits for the entire group to exit, and keeps its PID file if cleanup
+is incomplete; it no longer kills every `chrome-headless` process. The Iris
+watchdog now checks `/api/ready` before restarting for low memory and confirms
+readiness afterward. The watchdog timer is not installed on Iris, so these
+maintenance-script changes have not changed the live service. Three laptop
+regressions cover both behaviors.
+
+The prior CI workflow was filtered to a different repository owner and only
+ran on pushes. It now runs for pull requests in the current repository, covers
+`.gitattributes` changes, and includes the lifecycle-script regressions. The
+isolated-mode invocation was corrected and passed locally. GitHub run
+[42285540189](https://github.com/I-am-drunk/framerize/actions/runs/42285540189)
+is pending/in progress for the latest pushed commit; verify its final result
+before treating CI repair as complete.
+
 # Refusal-wave inference availability repair, 2026-11-06
 
 Branch cursor/fix-403-cooldown-stall is based on the exact live alpha.31
