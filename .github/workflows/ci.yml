@@ -28,7 +28,8 @@ jobs:
     timeout-minutes: 5
     outputs:
       source: ${{ steps.detect.outputs.source }}
-      packages: ${{ steps.detect.outputs.packages }}
+      # Every PR gets installable previews, including documentation-only PRs.
+      packages: ${{ github.event_name == 'pull_request' && 'true' || steps.detect.outputs.packages }}
       server: ${{ steps.detect.outputs.server }}
     steps:
       # Depth 2 brings the base commit the change is diffed against.
@@ -53,9 +54,8 @@ jobs:
     secrets: inherit
   packages:
     needs: [changes, source]
-    if: needs.changes.outputs.packages != 'false'
+    if: ${{ always() && !cancelled() && needs.changes.result == 'success' && (needs.source.result == 'success' || needs.source.result == 'skipped') && needs.changes.outputs.packages != 'false' }}
     uses: ./.github/workflows/package-coexistence.yml
-    secrets: inherit
   server:
     needs: changes
     if: needs.changes.outputs.server != 'false' && !inputs.skip_server

@@ -1,13 +1,18 @@
 #!/usr/bin/env node
 import { run } from '../dist/cli.js';
 import { ServerSetupError } from '../dist/service-control.js';
-import { AccountFileError, AccountSelectionError, CliUsageError, ConfigurationError,
+import { AccountCommandError, AccountFileError, AccountSelectionError, CliUsageError, ConfigurationError,
   ServerListenError, ServerTokenFileError } from '../dist/errors.js';
 
-run().then((code) => { process.exitCode = code; }).catch(error => {
-  const detail = error instanceof ServerSetupError ? {
+run().then((code) => { process.exitCode = code; }).catch(async error => {
+  const loginError = error?.name === 'BrowserLoginError'
+    && error instanceof (await import('../dist/browser-login.js')).BrowserLoginError;
+  const detail = loginError ? { message: error.message } : error instanceof ServerSetupError ? {
     message: error.message,
     next: 'Run framerize status --json or inspect server.log in FRAMERIZE_SERVER_HOME.',
+  } : error instanceof AccountCommandError ? {
+    message: error.message,
+    next: 'Run framerize accounts --help, or framerize accounts list --json to see account ids.',
   } : error instanceof CliUsageError ? {
     message: 'Invalid command or option.',
     next: 'Run framerize --help for supported commands and options.',
@@ -28,5 +33,5 @@ run().then((code) => { process.exitCode = code; }).catch(error => {
     next: 'Check option values, FRAMERIZE_SERVER_* settings and account session references. Run framerize --help for options. Environment guide: https://github.com/I-am-drunk/framerize/blob/main/framerize-server/docs/environment.md.',
   } : { message: 'Server failed to start or stop' };
   process.stderr.write(`${JSON.stringify({ event: 'server.failed', ...detail })}\n`);
-  process.exitCode = 1;
+  process.exitCode = loginError ? error.exitCode : 1;
 });
