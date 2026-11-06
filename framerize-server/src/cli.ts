@@ -220,7 +220,7 @@ export async function run(argv: readonly string[] = process.argv.slice(2),
   events.on('SIGTERM', stop);
   try {
     const serverConfig = loadConfig({
-      ...config, serverTokenFile: '', serverToken: await readServerToken(config),
+      ...config, serverTokenFile: '', serverToken: await readServerToken(config, controller.signal),
     }, env);
     const makeProvider: NonNullable<CliDependencies['createProvider']> =
       dependencies.createProvider ?? (await import('./backend.js')).createConfiguredProvider;

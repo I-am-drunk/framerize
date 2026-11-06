@@ -206,7 +206,7 @@ async function configureAndPair(command: string | undefined, action: string | un
   }
   const loaded = await configuredSettings(exists || explicitPath ? path : undefined, values, env);
   let config = loaded.config;
-  const token = await readServerToken(config);
+  const token = await readServerToken(config, signal);
   if (command !== 'pair' && config.backend === 'http' && !config.upstream) {
     if (!dependencies.ask) throw new ServerSetupError('Set FRAMERIZE_SERVER_UPSTREAM or pass --upstream to choose the inference API.');
     const upstream = (await dependencies.ask('Upstream inference API URL: ')).trim();
