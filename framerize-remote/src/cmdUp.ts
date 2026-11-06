@@ -44,10 +44,11 @@ function connection(input: string | undefined, saved: PersistedConfig | undefine
   return { remote: link.remote, token: link.token, paired: true };
 }
 
-async function readSaved(path: string): Promise<{ text: string | undefined; config: PersistedConfig | undefined }> {
+async function readSaved(path: string, signal?: AbortSignal): Promise<{ text: string | undefined; config: PersistedConfig | undefined }> {
   let text: string;
-  try { text = await readConfigText(path); }
+  try { text = await readConfigText(path, signal); }
   catch (error) {
+    if (signal?.aborted) throw new RemoteDiagnosticError('aborted');
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { text: undefined, config: undefined };
     throw new RemoteDiagnosticError('profile_invalid');
   }
@@ -117,7 +118,7 @@ async function readiness(configPath: string, env: NodeJS.ProcessEnv, signal?: Ab
 export async function setUp(input: string | undefined, io: CliIo, options: UpOptions): Promise<UpResult> {
   const signal = options.signal ?? options.service.signal;
   if (signal?.aborted) throw new RemoteDiagnosticError('aborted');
-  const initial = await readSaved(options.configPath);
+  const initial = await readSaved(options.configPath, signal);
   if (input === undefined && !options.env.FRM_REMOTE && !initial.config?.remote && io.ask) {
     input = (await io.ask('Pairing link or server address: ', signal)).trim();
   }
@@ -131,7 +132,7 @@ async function setUpLocked(input: string | undefined, options: UpOptions): Promi
   const active = (): void => { if (signal?.aborted) throw new RemoteDiagnosticError('aborted'); };
   active();
   if (signal) options = { ...options, signal, service: { ...options.service, signal } };
-  const before = await readSaved(options.configPath);
+  const before = await readSaved(options.configPath, signal);
   const link = connection(input, before.config, options.env);
   active();
   const profile = nextProfile(before.config, link, options.env);
@@ -140,7 +141,7 @@ async function setUpLocked(input: string | undefined, options: UpOptions): Promi
   let snapshot: ServiceSnapshot | undefined;
   try {
     await saveConfigFile(options.configPath, profile);
-    const after = await readConfigText(options.configPath);
+    const after = await readConfigText(options.configPath, signal);
     active();
     const notReady = await readiness(options.configPath, options.env, signal);
     active();

@@ -13,7 +13,7 @@ export async function clientDependencies(configPath: string, io: CliIo,
   signal?: AbortSignal): Promise<ClientSetupDeps> {
   signal?.throwIfAborted();
   if (!target) {
-    const config = await loadRunConfig(configPath, env, afterSetup);
+    const config = await loadRunConfig(configPath, env, afterSetup, signal);
     if (config.port === 0) throw new RemoteDiagnosticError('listen_invalid',
       'Set FRM_PORT to the running Remote port before starting a client.');
     const host = config.host === '0.0.0.0' ? '127.0.0.1' : config.host === '::' ? '[::1]'
