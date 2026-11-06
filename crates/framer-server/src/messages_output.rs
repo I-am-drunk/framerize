@@ -35,9 +35,9 @@ pub(super) async fn serve(state: AppState, payload: Value, model: String, max_to
             let _output_lease = producer_lease;
             let started = std::time::Instant::now();
             let log_model = payload["model"].as_str().unwrap_or("unknown").to_owned();
-            let (admitted, cleanup) = admit(&state, requested.as_deref(),
-                &log_model, &residency, cancelled.as_ref()).await;
-            let attempt = match admitted {
+            let (admitted, mut cleanup) = admit(&state, requested.as_deref(), &log_model,
+                &[], &residency, cancelled.as_ref()).await;
+            let mut attempt = match admitted {
                 Ok(value) => value,
                 Err(error) => {
                     operation_ownership::correlate_chain(framer_core::observability::Event::new("ai.chain"))
@@ -46,29 +46,70 @@ pub(super) async fn serve(state: AppState, payload: Value, model: String, max_to
                     return (Err(error), cleanup);
                 }
             };
-            let chat = explicit_session.unwrap_or_else(|| stable_session(&attempt.account.id));
-            let rotation = state.serving_accounts.rotation().clone();
-            let team = attempt.scope.team.0.clone();
-            let config = framer_core::port::ChainConfig {
-                max_total_tokens: Some(max_tokens), metered_fallback: false,
-                cancelled: Some(cancelled),
-                admission: Some(Arc::new(account_wait::MessagesAdmission::new(
-                    state.clone(), attempt.account.clone(), attempt.wait_budget))),
-                on_429: Some(Arc::new(move || rotation.mark_saturated(&team, 45_000))),
-                ..Default::default()
-            };
-            let callback = |event| {
-                if matches!(tx.try_send(event), Err(tokio::sync::mpsc::error::TrySendError::Full(_))) {
-                    overflow.store(true, Ordering::SeqCst);
+            let mut tried = Vec::new();
+            let mut retries = 0;
+            let content_seen = Arc::new(AtomicBool::new(false));
+            let result = loop {
+                let chat = explicit_session.clone()
+                    .unwrap_or_else(|| stable_session(&attempt.account.id));
+                let rotation = state.serving_accounts.rotation().clone();
+                let team = attempt.scope.team.0.clone();
+                let config = framer_core::port::ChainConfig {
+                    max_total_tokens: Some(max_tokens), metered_fallback: false,
+                    cancelled: Some(cancelled.clone()),
+                    admission: Some(Arc::new(account_wait::MessagesAdmission::new(
+                        state.clone(), attempt.account.clone(), attempt.wait_budget))),
+                    on_429: Some(Arc::new(move || rotation.mark_saturated(&team, 45_000))),
+                    ..Default::default()
+                };
+                let saw_content = content_seen.clone();
+                let tx = tx.clone();
+                let overflow_flag = overflow.clone();
+                let callback = move |event| {
+                    if matches!(&event, convert::ChainEvent::Chunk(blocks) if !blocks.is_empty()) {
+                        saw_content.store(true, Ordering::SeqCst);
+                    }
+                    if matches!(tx.try_send(event), Err(tokio::sync::mpsc::error::TrySendError::Full(_))) {
+                        overflow_flag.store(true, Ordering::SeqCst);
+                    }
+                };
+                let result = state.client.freechat_long(&attempt.session, state.browser.as_ref(),
+                    &attempt.account.id, &attempt.scope.project, payload.clone(), &config,
+                    &chat, Some(&callback)).await;
+                drop(attempt.permit);
+                let result = residency.observe_result(attempt.account.id, result);
+                cleanup &= !matches!(&result,
+                    Err(error) if pool_control::cleanup_unconfirmed(error));
+                config.admission.as_ref().unwrap()
+                    .finished(result.as_ref().err().map(String::as_str)).await;
+
+                let retry_credit_exhaustion = requested.is_none() && cleanup
+                    && !content_seen.load(Ordering::SeqCst)
+                    && !overflow.load(Ordering::SeqCst) && retries < 2
+                    && matches!(&result, Err(error)
+                        if framer_core::error::chain_error_cause(error) == "credits-exhausted");
+                if !retry_credit_exhaustion { break result; }
+
+                tried.push(attempt.account.id.0.to_string());
+                let original_error = result.unwrap_err();
+                drop(residency.take());
+                let (next, next_cleanup) = admit(&state, None, &log_model, &tried,
+                    &residency, cancelled.as_ref()).await;
+                cleanup &= next_cleanup;
+                match next {
+                    Ok(next) => {
+                        operation_ownership::correlate_chain(
+                            framer_core::observability::Event::new("ai.chain.repick"))
+                            .account(&attempt.account.id)
+                            .field("to", &next.account.id.0.to_string()[..8])
+                            .field("reason", "credits-exhausted")
+                            .emit();
+                        attempt = next;
+                        retries += 1;
+                    }
+                    Err(_) => break Err(original_error),
                 }
             };
-            let result = state.client.freechat_long(&attempt.session, state.browser.as_ref(),
-                &attempt.account.id, &attempt.scope.project, payload, &config, &chat, Some(&callback)).await;
-            drop(attempt.permit);
-            let result = residency.observe_result(attempt.account.id, result);
-            let cleanup = cleanup && !matches!(&result,
-                Err(error) if pool_control::cleanup_unconfirmed(error));
-            config.admission.as_ref().unwrap().finished(result.as_ref().err().map(String::as_str)).await;
             let result = if overflow.load(Ordering::SeqCst) && cleanup {
                 Err(format!("{}Messages output queue filled before the client consumed its content. Automatic replay is disabled because delivery is incomplete.",
                     framer_core::error::ADAPTIVE_INCOMPLETE_PREFIX))
@@ -162,7 +203,8 @@ fn render(rx: tokio::sync::mpsc::Receiver<convert::ChainEvent>,
 mod tests;
 
 async fn admit(state: &AppState, requested: Option<&str>, model: &str,
-    residency: &RequestResidency, cancelled: &(dyn Fn() -> bool + Send + Sync))
+    excluded: &[String], residency: &RequestResidency,
+    cancelled: &(dyn Fn() -> bool + Send + Sync))
     -> (Result<Attempt, String>, bool) {
     let mut budget = account_wait::MAX_WAIT;
     let mut cleanup = true;
@@ -170,7 +212,7 @@ async fn admit(state: &AppState, requested: Option<&str>, model: &str,
         if cancelled() { return (Err("client cancelled".into()), cleanup); }
         let result = async {
             let pool = state.state.list().await.map_err(ApiError::Internal)?;
-            let acquired = pool_control::select_account_observed(state, pool, requested, &[]).await;
+            let acquired = pool_control::select_account_observed(state, pool, requested, excluded).await;
             cleanup &= acquired.cleanup_confirmed;
             let lease = acquired.result?;
             let id = lease.account();

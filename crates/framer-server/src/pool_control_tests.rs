@@ -759,6 +759,22 @@ fn exact_local_cleanup_errors_fence_without_account_replay() {
     }
 }
 
+#[test]
+fn workspace_credit_exhaustion_can_repick_an_unpinned_account() {
+    assert!(crate::should_retry_account("credits-exhausted"));
+    assert!(crate::should_retry_account(
+        "chunk 0 retry died (fallback off): credits-exhausted"));
+    for error in [
+        "risk-refused",
+        "retryable 403 on /ai/v3/responses: policy",
+        "upstream HTTP 404: model blocked by guardrail",
+        "sidecar timeout",
+        "account browser cleanup is unconfirmed; retry after cleanup",
+    ] {
+        assert!(!crate::should_retry_account(error), "unexpected replay for {error}");
+    }
+}
+
 #[tokio::test]
 async fn activation_failure_after_healthy_status_fences_without_health_mutation() {
     let (state, ports) = fixture(2, 2);

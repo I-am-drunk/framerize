@@ -26,9 +26,26 @@ drop-in. The activation suite passes 31 tests and the drain suite passes 8.
 The exact package is active on Iris as
 `d85fb89836ec48f98c9f54c2a7851d8bd7889009`. Graceful activation completed,
 the live API reports ready, and all twelve production account aliases remain
-present. Two production accounts prewarmed successfully. No AI inference
-request from T3 or another production client was observed after restart yet;
-the four exact-package inference checks ran only on the isolated test profile.
+present. Production traffic resumed. In the latest 30-minute log window,
+`ai.post` recorded 93 successful responses, 5 upstream `credits-exhausted`
+responses, and 21 model guardrail/data-policy 404s. The 404s are provider
+policy outcomes, not service downtime or refusal cooldowns.
+
+The qualification requests used the ordinary custom routes, including
+buffered (`stream:false`) and streaming requests, with paid metered access
+disabled. They produced zero metered chunks. The first buffered GPT check
+reduced the isolated verification workspace from 500 to 499 credits; the other
+three checks showed no further deduction. This was the verification account,
+not a production account.
+
+The live 402s exposed a separate retry bug: the API translates upstream HTTP
+402 into `credits-exhausted`, but the account retry policy never treated that
+sentinel as retryable. Unpinned requests now retry another account on that
+exact signal, only before response content is published and at most twice;
+explicitly pinned accounts and policy/refusal/ambiguous transport errors are
+not replayed. The core pipeline also normalizes the sentinel into its existing
+workspace-rotation path. Regression coverage passes: 504 framer-server tests
+and 164 framer-core tests. This latest source fix is not yet built or deployed.
 
 # Refusal-wave inference availability repair, 2026-11-06
 

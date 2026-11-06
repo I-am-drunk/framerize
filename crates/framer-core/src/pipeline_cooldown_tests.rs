@@ -300,6 +300,24 @@ async fn risk_refused_after_402_rotation_uses_same_cooldown_without_third_attemp
 }
 
 #[tokio::test]
+async fn http_402_sentinel_rotates_to_another_credited_workspace() {
+    let mut current = account(1);
+    let fixture = Fixture::new(&current, vec![
+        reply(Err("credits-exhausted".into())),
+        reply(Ok(completed())),
+    ]);
+    let outcome = fixture.run(&mut current).await.unwrap();
+    assert_eq!(outcome.text, "inert response");
+    assert_eq!(current.current_team, operation_scope(true).current_team);
+    assert_eq!(current.current_project, operation_scope(true).current_project);
+    assert!(current.extra_workspaces.is_empty());
+    assert_eq!(current.state, AccountState::Ready);
+    assert_eq!(current.cooling_until_ms, None);
+    assert_record_eq(&fixture.stored(current.id).unwrap(), &current);
+    fixture.assert_finished(&expected_calls(true, false));
+}
+
+#[tokio::test]
 async fn cooldown_recorded_during_first_inference_prevents_402_retry() {
     let mut current = account(1);
     let mut newer = current.clone();

@@ -97,11 +97,17 @@ pub async fn run(
         .ok_or_else(|| CoreError::Framer("no current project — create one in the workspace".into()))?;
 
     check_inference_admission(deps, account, &session).await?;
-    match deps
+    let initial = deps
         .client
         .run_inference(&session, deps.browser, &account.id, &project, req)
-        .await
-    {
+        .await;
+    let initial = match initial {
+        Err(error) if crate::error::chain_error_cause(&error) == "credits-exhausted" => {
+            Ok(InferenceResult::Exhausted { reason: error })
+        }
+        result => result,
+    };
+    match initial {
         Ok(InferenceResult::Completed(outcome)) => {
             account.consecutive_failures = 0;
             Ok(outcome)
@@ -115,11 +121,17 @@ pub async fn run(
                 .clone()
                 .ok_or_else(|| CoreError::Framer("no project after rotation".into()))?;
             check_inference_admission(deps, account, &session).await?;
-            match deps
+            let retry = deps
                 .client
                 .run_inference(&session, deps.browser, &account.id, &project, req)
-                .await
-            {
+                .await;
+            let retry = match retry {
+                Err(error) if crate::error::chain_error_cause(&error) == "credits-exhausted" => {
+                    Ok(InferenceResult::Exhausted { reason: error })
+                }
+                result => result,
+            };
+            match retry {
                 Ok(InferenceResult::Completed(outcome)) => Ok(outcome),
                 Ok(InferenceResult::Exhausted { reason }) => {
                     deps.update(account, |current| current.state = AccountState::Exhausted).await?;

@@ -29,7 +29,8 @@ async fn check_credit_refusal(route: &str, paid: bool, streaming: bool) {
     if route.ends_with("responses") { payload["input"] = "fixture".into(); }
     else { payload["messages"] = serde_json::json!([{"role":"user", "content":"fixture"}]); }
     let mut request = Request::builder().method("POST").uri(route)
-        .header("content-type", "application/json");
+        .header("content-type", "application/json")
+        .header("x-framerize-account", f.accounts[0].id.0.to_string());
     if paid { request = request.header("x-framerize-mode", "paid"); }
     let app = crate::router(f.state.clone(), "/nonexistent-fixture-web");
     let task = tokio::spawn(app.oneshot(request.body(Body::from(payload.to_string())).unwrap()));
@@ -66,7 +67,7 @@ async fn check_credit_refusal(route: &str, paid: bool, streaming: bool) {
 }
 
 #[tokio::test]
-async fn exhausted_workspace_is_reported_without_retrying_another_account() {
+async fn pinned_exhausted_workspace_is_reported_without_retrying_another_account() {
     for route in ["/anthropic/v1/messages", "/openai/v1/responses", "/openai/v1/chat/completions"] {
         for paid in [false, true] {
             for streaming in [false, true] {
@@ -74,4 +75,65 @@ async fn exhausted_workspace_is_reported_without_retrying_another_account() {
             }
         }
     }
+}
+
+#[tokio::test]
+async fn buffered_custom_responses_route_retries_credit_exhaustion_on_another_account() {
+    let mut f = fixture::Fixture::new();
+    let payload = serde_json::json!({"model":"gpt-4.1", "stream":false, "input":"fixture"});
+    let app = crate::router(f.state.clone(), "/nonexistent-fixture-web");
+    let task = tokio::spawn(app.oneshot(Request::builder().method("POST")
+        .uri("/openai/v1/responses").header("content-type", "application/json")
+        .body(Body::from(payload.to_string())).unwrap()));
+
+    let first = f.next().await;
+    assert_eq!(first.kind, "responses");
+    let first_account = first.account.clone();
+    first.reply.send(Err("credits-exhausted".into())).ok().unwrap();
+
+    let second = f.next().await;
+    assert_eq!(second.kind, "responses");
+    assert_ne!(second.account, first_account, "retry must select a different account");
+    second.reply.send(Ok(fixture::success("responses"))).ok().unwrap();
+
+    let response = tokio::time::timeout(std::time::Duration::from_secs(3), task)
+        .await.unwrap().unwrap().unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 65536).await.unwrap();
+    let body: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["status"], "completed");
+    assert!(body.to_string().contains("fixture"));
+    f.no_call();
+}
+
+#[tokio::test]
+async fn anthropic_stream_retries_credit_exhaustion_before_publishing_content() {
+    let mut f = fixture::Fixture::new();
+    let payload = serde_json::json!({"model":"claude-fable-5-1", "stream":true,
+        "max_tokens":256, "messages":[{"role":"user", "content":"fixture"}]});
+    let app = crate::router(f.state.clone(), "/nonexistent-fixture-web");
+    let task = tokio::spawn(app.oneshot(Request::builder().method("POST")
+        .uri("/anthropic/v1/messages").header("content-type", "application/json")
+        .body(Body::from(payload.to_string())).unwrap()));
+
+    let first = f.next().await;
+    assert_eq!(first.kind, "messages");
+    let first_account = first.account.clone();
+    first.reply.send(Ok(fixture::Reply::MessagesFailure {
+        chunks: vec![], error: "credits-exhausted".into(),
+    })).ok().unwrap();
+
+    let second = f.next().await;
+    assert_eq!(second.kind, "messages");
+    assert_ne!(second.account, first_account, "retry must select a different account");
+    second.reply.send(Ok(fixture::success("messages"))).ok().unwrap();
+
+    let response = tokio::time::timeout(std::time::Duration::from_secs(3), task)
+        .await.unwrap().unwrap().unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = to_bytes(response.into_body(), 65536).await.unwrap();
+    let wire = std::str::from_utf8(&bytes).unwrap();
+    assert!(wire.contains("message_stop"));
+    assert!(!wire.contains("insufficient_quota"));
+    f.no_call();
 }

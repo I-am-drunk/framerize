@@ -947,9 +947,12 @@ fn is_server_cooling(error: &str) -> bool {
         .and_then(|seconds| seconds.parse::<u64>().ok()).is_some()
 }
 
-fn should_retry_account(_error: &str) -> bool {
-    // Keep one account identity for the whole request, including failures.
-    false
+fn should_retry_account(error: &str) -> bool {
+    // HTTP 402 is a workspace/account capacity signal, not an account refusal.
+    // An unpinned request can safely try another account before any response
+    // content is published. Keep refusals, policy errors and ambiguous
+    // transport failures bound to the original request.
+    framer_core::error::chain_error_cause(error) == "credits-exhausted"
 }
 
 /// Pick a serving account excluding the ones already tried for this request.
