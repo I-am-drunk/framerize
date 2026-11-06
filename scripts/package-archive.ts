@@ -31,7 +31,8 @@ export function readPackageArchive(input: string | Buffer): Map<string, Buffer> 
     };
     const checksum = header.reduce((sum, byte, index) => sum + (index >= 148 && index < 156 ? 32 : byte), 0);
     assert.equal(octal(148, 8), checksum, 'Archive checksum mismatch');
-    assert.equal(field(257, 6).trim(), 'ustar', 'Unsupported archive format');
+    // Byte 345 is a pathname prefix only in the POSIX USTAR layout.
+    assert.equal(header.subarray(257, 265).toString('latin1'), 'ustar\0' + '00', 'Unsupported archive format');
     const prefix = field(345, 155);
     const name = (prefix ? `${prefix}/` : '') + field(0, 100);
     const kind = header[156];
