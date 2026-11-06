@@ -3,6 +3,7 @@ import { closeSync, openSync } from 'node:fs';
 import type { Readable, Writable } from 'node:stream';
 import type { ClientCommand } from './clients.js';
 import { ClientCleanupError, RemoteDiagnosticError } from '../diagnostics.js';
+import { waitForGroup } from '../serviceCommand.js';
 
 // Windows quoting and shim dispatch adapted from T3 Code packages/shared/src/shell.ts
 // escapeWindowsShellArg and resolveSpawnCommand at 5a906583 (MIT).
@@ -68,6 +69,10 @@ async function stopCommandGroup(group: number): Promise<void> {
   send('SIGTERM');
   await new Promise(resolve => setTimeout(resolve, COMMAND_STOP_GRACE_MS));
   send('SIGKILL');
+  if (failures.length && failures.every(error => (error as NodeJS.ErrnoException).code === 'EPERM')) {
+    // macOS can deny signals to a group containing only exited processes.
+    try { await waitForGroup(group); return; } catch {}
+  }
   if (failures.length) throw new ClientCleanupError(failures);
 }
 
@@ -179,6 +184,7 @@ function runCancellable(command: ClientCommand, env: NodeJS.ProcessEnv, signal: 
       if (finish()) reject(stopError ?? new RemoteDiagnosticError('client_start_failed', error.message));
     });
     child.once('close', async (code, exitSignal) => {
+      if (code !== 0 || exitSignal) stopGroup();
       await treeStopped;
       if (!finish()) return;
       if (stopError) reject(stopError);
@@ -246,7 +252,8 @@ export function nodeRunner(platform: NodeJS.Platform = process.platform, launch:
         child.on('error', fail);
         child.stdout?.on('error', fail);
         child.once('close', code => {
-          finish(code !== 0 ? null : Buffer.concat(chunks).toString('utf8'));
+          if (code !== 0) fail();
+          else finish(Buffer.concat(chunks).toString('utf8'));
         });
         signal?.addEventListener('abort', fail, { once: true });
         if (signal?.aborted) fail();

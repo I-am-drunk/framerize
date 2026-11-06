@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import childProcess from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import fs from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -42,6 +43,9 @@ const handlers = () => ['SIGINT', 'SIGTERM'].map(signal => process.listeners(sig
 
 test('process-group signal failures keep a distinct cleanup diagnostic', async context => {
   context.mock.method(fs, 'openSync', () => { throw new Error('No controlling terminal'); });
+  context.mock.method(childProcess, 'execFile', (_file, _args, _options, callback) => {
+    callback(Object.assign(new Error('Synthetic inspection denial'), { code: 'EIO' }), '');
+  });
   syncBuiltinESMExports();
   context.after(() => { context.mock.restoreAll(); syncBuiltinESMExports(); });
   context.mock.timers.enable({ apis: ['setTimeout'] });

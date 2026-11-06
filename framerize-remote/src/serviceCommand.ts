@@ -17,7 +17,8 @@ export function unavailableCommand(error: unknown): undefined {
   return undefined;
 }
 
-async function waitForGroup(group: number): Promise<void> {
+/** Resolve only after the owned POSIX group has no running processes. */
+export async function waitForGroup(group: number): Promise<void> {
   const deadline = Date.now() + 1000;
   for (;;) {
     const remaining = deadline - Date.now();
