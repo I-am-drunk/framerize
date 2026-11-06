@@ -1,5 +1,6 @@
 import { parseArgs } from './cliArgs.js';
-import { saveConfigFile } from './configStore.js';
+import { saveConfigFile, validateConfigForSave } from './configStore.js';
+import { withProfileLock } from './profileLock.js';
 import { parseRemoteEndpoint } from './remoteUrl.js';
 import type { CredentialReference } from './credentials.js';
 import type { PersistedConfig } from './config.js';
@@ -63,6 +64,10 @@ export async function runSetup(argv: readonly string[], configPath: string,
     allowInsecureRemote: insecure,
     allowNonLoopback: options['allow-non-loopback'] === true,
   };
-  await saveConfigFile(configPath, config);
+  validateConfigForSave(config);
+  await withProfileLock(configPath, async () => {
+    signal?.throwIfAborted();
+    await saveConfigFile(configPath, config);
+  });
   return flags;
 }
