@@ -1,6 +1,6 @@
 import { mkdir, open, realpath, rm, type FileHandle } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
-import { RemoteDiagnosticError } from './diagnostics.js';
+import { ProfileLockCleanupError, RemoteDiagnosticError } from './diagnostics.js';
 
 /** Hold one profile writer through its reads, writes and rollback. */
 export async function withProfileLock<T>(path: string, operation: () => Promise<T>): Promise<T> {
@@ -21,12 +21,17 @@ export async function withProfileLock<T>(path: string, operation: () => Promise<
     }
     throw new RemoteDiagnosticError('profile_write');
   }
+  let result: { value: T } | undefined;
+  let failure: unknown;
   try {
     try { await handle.writeFile(`${process.pid}\n`); }
     catch { throw new RemoteDiagnosticError('profile_write'); }
-    return await operation();
-  } finally {
-    try { await handle.close(); }
-    finally { await rm(lockPath, { force: true }); }
-  }
+    result = { value: await operation() };
+  } catch (error) { failure = error; }
+  const failures: unknown[] = [];
+  try { await handle.close(); } catch (error) { failures.push(error); }
+  try { await rm(lockPath, { force: true }); } catch (error) { failures.push(error); }
+  if (failures.length) throw new ProfileLockCleanupError(failure, failures);
+  if (result) return result.value;
+  throw failure;
 }

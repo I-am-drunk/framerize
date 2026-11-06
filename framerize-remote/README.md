@@ -68,12 +68,16 @@ keep `frm serve` running.
 
 `up` and `setup` allow one writer per profile, including commands in separate
 processes. A concurrent writer reports `profile_busy`; retry after the active
-command finishes or rolls back. Normal completion, errors and cancellation
-release the profile lock.
+command finishes or rolls back. Address prompts and validation finish before
+locking; `up` rereads the saved profile after acquiring the lock. Normal
+completion, errors and cancellation release it. SIGINT, SIGTERM and SIGHUP
+cancel `up` and `setup`; lock-release failures report `profile_lock_cleanup`.
 
-After a forced termination, the lock can remain. For profile `remote.json`,
-the lock is `.remote.json.lock` beside it and contains the owning process ID.
-Confirm that process has stopped before deleting that lock and retrying.
+After a crash, SIGKILL or failed cleanup, the lock can remain. For profile
+`remote.json`, it is `.remote.json.lock` beside it. It normally contains the
+owning process ID but can be empty if the process died before writing it.
+Confirm that all commands using this profile have stopped before deleting
+the lock and retrying.
 Do not remove a lock while its command is still running.
 
 `FRM_REMOTE`, `FRM_HOST` and `FRM_PORT` apply to `up`. A saved port `0` becomes

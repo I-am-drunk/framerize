@@ -62,6 +62,7 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
     const stop = (): void => controller.abort();
     process.on('SIGINT', stop);
     process.on('SIGTERM', stop);
+    process.on('SIGHUP', stop);
     try {
       const overrides = await runSetup(passthrough, configPath, process.env, io.ask, controller.signal);
       controller.signal.throwIfAborted();
@@ -79,6 +80,7 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
     } finally {
       process.off('SIGINT', stop);
       process.off('SIGTERM', stop);
+      process.off('SIGHUP', stop);
     }
   }
   if (command === 'check') {

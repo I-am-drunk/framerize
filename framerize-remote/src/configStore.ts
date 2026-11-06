@@ -62,7 +62,7 @@ async function replaceProfile(temporary: string, path: string): Promise<void> {
   }
 }
 
-export async function saveConfigFile(path: string, config: PersistedConfig): Promise<void> {
+export function validateConfigForSave(config: PersistedConfig): RemoteConfig {
   let valid: RemoteConfig;
   try { valid = normalizeConfig(parsePersisted(config), process.cwd()); }
   catch (error) {
@@ -70,6 +70,11 @@ export async function saveConfigFile(path: string, config: PersistedConfig): Pro
     throw error;
   }
   resolveConfig(valid);
+  return valid;
+}
+
+export async function saveConfigFile(path: string, config: PersistedConfig): Promise<void> {
+  const valid = validateConfigForSave(config);
   let staging: string | undefined;
   try {
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });

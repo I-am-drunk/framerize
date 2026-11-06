@@ -1,6 +1,6 @@
 import { access } from 'node:fs/promises';
 import { run, serve, type CliIo } from './cli.js';
-import { ClientCleanupError, RemoteDiagnosticError, ServiceCommandCleanupError, SetupRollbackError } from './diagnostics.js';
+import { ClientCleanupError, ProfileLockCleanupError, RemoteDiagnosticError, ServiceCommandCleanupError, SetupRollbackError } from './diagnostics.js';
 import { FRM_HELP } from './present.js';
 import { profilePath } from './profilePaths.js';
 import { offerClientSetup, runClientCommand } from './clientCli.js';
@@ -23,6 +23,7 @@ async function runUp(input: string | undefined, io: CliIo, env: NodeJS.ProcessEn
   const stop = (): void => controller.abort();
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
+  process.on('SIGHUP', stop);
   try {
     const result = await setUp(input, io, { configPath, env, signal: controller.signal,
       service: serviceContext([...program, 'serve'], env) });
@@ -32,13 +33,15 @@ async function runUp(input: string | undefined, io: CliIo, env: NodeJS.ProcessEn
       && (await offerClientSetup(configPath, io, env, undefined, controller.signal)) === 'cancelled';
     return { result, offerCancelled };
   } catch (error) {
-    if (error instanceof ClientCleanupError || error instanceof ServiceCommandCleanupError) throw error;
+    if (error instanceof ClientCleanupError || error instanceof ServiceCommandCleanupError
+      || error instanceof ProfileLockCleanupError) throw error;
     if (!(error instanceof SetupRollbackError) && (controller.signal.aborted
       || (error instanceof Error && error.name === 'AbortError'))) throw new RemoteDiagnosticError('aborted');
     throw error;
   } finally {
     process.off('SIGINT', stop);
     process.off('SIGTERM', stop);
+    process.off('SIGHUP', stop);
   }
 }
 

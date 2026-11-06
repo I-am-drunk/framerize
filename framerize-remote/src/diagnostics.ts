@@ -7,7 +7,8 @@ const messages = {
   local_reference: ['The local token reference is missing or invalid.', 'Use exactly one valid --local-token-file path or --local-token-env variable name.'],
   inference_invalid: ['The inference timeout is invalid.', 'Use integer milliseconds between 1 and 2147463647 with --inference-timeout-ms.'],
   profile_write: ['The profile could not be saved.', 'Check the profile directory permissions and that the profile path is not a directory.'],
-  profile_busy: ['Another setup command is using this profile.', 'Wait for it to finish and retry. After a forced termination, follow profile lock recovery in the Remote README.'],
+  profile_busy: ['Another up or setup command is using this profile.', 'Wait for it to finish and retry. If the owner has stopped, follow profile lock recovery in the Remote README.'],
+  profile_lock_cleanup: ['The profile lock could not be fully released.', 'Follow profile lock recovery in the Remote README before retrying.'],
   listen_invalid: ['The listen address or port is invalid.', 'Use a valid host and a port between 0 and 65535.'],
   listen_failed: ['The local API could not listen on the requested address.', 'Choose a free local port and a host assigned to this machine.'],
   profile_missing: ['No saved profile or FRM_REMOTE was found.', 'Run frm setup, or set FRM_REMOTE to the server origin.'],
@@ -68,6 +69,14 @@ export function diagnosticText(code: DiagnosticCode): string {
 }
 
 export function commandFailure(error: unknown, json: boolean): string | undefined {
+  if (error instanceof ProfileLockCleanupError) {
+    const original = commandFailure(error.original, json);
+    const cleanup = diagnostic('profile_lock_cleanup');
+    if (original !== undefined) {
+      return json ? JSON.stringify({ ...JSON.parse(original) as Record<string, unknown>, profileLock: cleanup })
+        : `${original}\n${diagnosticText('profile_lock_cleanup')}`;
+    }
+  }
   if (error instanceof Error && error.name === 'AbortError') error = new RemoteDiagnosticError('aborted');
   if (!(error instanceof RemoteDiagnosticError)) return undefined;
   const setup = error instanceof SetupRollbackError ? diagnostic(error.setupCode) : undefined;
@@ -89,6 +98,13 @@ export class ClientCleanupError extends RemoteDiagnosticError {
   constructor(failures: readonly unknown[]) {
     super('client_cleanup_failed');
     this.cause = new AggregateError(failures, this.message);
+  }
+}
+
+export class ProfileLockCleanupError extends RemoteDiagnosticError {
+  constructor(readonly original: unknown, failures: readonly unknown[]) {
+    super('profile_lock_cleanup');
+    this.cause = new AggregateError([original, ...failures], this.message);
   }
 }
 

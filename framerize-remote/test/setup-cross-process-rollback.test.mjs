@@ -27,8 +27,11 @@ async function refused(port) {
   })); } finally { socket.destroy(); }
 }
 
-for (const existing of [false, true]) test(`separate setup rejects a busy ${existing ? 'existing' : 'absent'} profile and retries after rollback`,
-  { timeout: 12000 }, async context => {
+const cases = [[false, undefined, 'setup'], [true, undefined, 'setup'],
+  [true, 'SIGHUP', 'setup'], [true, 'SIGINT', 'up'], [true, 'SIGTERM', 'up']];
+for (const [existing, signal, contender] of cases) test(`separate ${contender} rejects a busy ${existing ? 'existing' : 'absent'} profile and retries after ${signal ?? 'failure'}`,
+  { timeout: 12000, skip: signal && process.platform === 'win32'
+    ? 'Windows does not deliver catchable POSIX signals' : false }, async context => {
     const home = await mkdtemp(join(tmpdir(), 'frm-cross-process-'));
     const profile = join(home, 'framerize-remote.json');
     const children = [], servers = [], sockets = new Set(), requests = [];
@@ -102,15 +105,19 @@ require('node:module').syncBuiltinESMExports();
     const older = launch(['up', origin(olderPort), '--json']);
     await bounded(entered);
     const waiting = await readFile(profile, 'utf8');
-    const newer = launch(['setup', '--remote', origin(newerPort), '--json']);
+    const newer = launch(contender === 'up' ? ['up', origin(newerPort), '--json']
+      : ['setup', '--remote', origin(newerPort), '--json']);
     const newerExit = await bounded(newer.closed);
     assert.deepEqual(newerExit, { code: 1, signal: null });
     assert.equal(newer.stdout, '');
     assert.equal(JSON.parse(newer.stderr).code, 'profile_busy');
     assert.equal(await readFile(profile, 'utf8'), waiting);
-    held.writeHead(503, { 'content-type': 'application/json' });
-    held.end(JSON.stringify({ apiVersion: 1, status: 'unavailable', reason: 'upstream_unavailable',
-      capabilities: { responses: true, chatCompletions: true, streaming: true } }));
+    if (signal) assert.equal(older.child.kill(signal), true);
+    else {
+      held.writeHead(503, { 'content-type': 'application/json' });
+      held.end(JSON.stringify({ apiVersion: 1, status: 'unavailable', reason: 'upstream_unavailable',
+        capabilities: { responses: true, chatCompletions: true, streaming: true } }));
+    }
     const olderExit = await bounded(older.closed);
     const restored = await readFile(profile, 'utf8').catch(error => {
       if (error.code === 'ENOENT') return undefined;
@@ -132,11 +139,11 @@ require('node:module').syncBuiltinESMExports();
     const ports = await Promise.all([olderPort, newerPort].map(refused));
     const removed = await access(home).then(() => false, error => error.code === 'ENOENT');
     context.diagnostic(JSON.stringify({ olderPid: older.child.pid, newerPid: newer.child.pid,
-      existing, olderExit, newerExit, retryExit, requests, committedSha256: digest(committed), afterSha256: digest(after),
+      existing, signal, contender, olderExit, newerExit, retryExit, requests, committedSha256: digest(committed), afterSha256: digest(after),
       restoredStaleBytes: after === before, unexpectedCommand, ports, removed, sockets: sockets.size }));
     assert.deepEqual(olderExit, { code: 1, signal: null });
     assert.equal(older.stdout, '');
-    assert.equal(JSON.parse(older.stderr).code, 'upstream_unavailable');
+    assert.equal(JSON.parse(older.stderr).code, signal ? 'aborted' : 'upstream_unavailable');
     assert.deepEqual(requests, [{ side: 'older', path: '/ready' }]);
     assert.equal(unexpectedCommand, false);
     assert.deepEqual(ports, ['ECONNREFUSED', 'ECONNREFUSED']);
