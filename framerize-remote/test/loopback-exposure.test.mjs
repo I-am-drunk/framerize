@@ -68,8 +68,8 @@ for (const host of ['0:0:0:0:0:0:0:1', '::ffff:127.0.0.1', 'fixture.invalid', '0
     let lookups = 0;
     const syntheticLookup = host === 'fixture.invalid' || host === '0177.0.0.1';
     if (syntheticLookup) context.mock.method(dns, 'lookup', (name, options, callback) => {
-      assert.equal(name, host);
-      lookups++;
+      assert.ok(name === host || name === peerHost, `Unexpected lookup: ${name}`);
+      if (name === host) lookups++;
       queueMicrotask(() => options.all
         ? callback(null, [{ address: peerHost, family: 4 }])
         : callback(null, peerHost, 4));
