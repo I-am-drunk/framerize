@@ -76,7 +76,7 @@ for (const phase of ['open', 'read', 'client']) {
       const fixture = await controlledFile(context, phase);
       const { controller, state, token, profile } = fixture;
       const operation = phase === 'client'
-        ? clientDependencies(profile, { stdout: assert.fail, stderr: assert.fail }, {}, undefined, controller.signal)
+        ? clientDependencies(profile, { stdout: assert.fail, stderr: assert.fail }, {}, undefined, false, controller.signal)
         : loadCredential({ kind: 'file', path: token }, {}, controller.signal);
       state.pending = operation.then(value => ({ value }), error => ({ error }));
       await bounded(fixture.entered);

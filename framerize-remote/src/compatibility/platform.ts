@@ -14,13 +14,19 @@ export const probeExecutable: ExecutableProbe = (candidate, platform) => {
   } catch { return false; }
 };
 
-export function readEnvPath(env: NodeJS.ProcessEnv): string | undefined {
-  return env.PATH ?? env.Path ?? env.path;
+function windowsEnvironment(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const names: string[] = [];
+  for (const key in env) if (key.toUpperCase() === name) names.push(key);
+  return env[names.sort()[0] ?? name];
+}
+
+export function readEnvPath(env: NodeJS.ProcessEnv, platform = process.platform): string | undefined {
+  return platform === 'win32' ? windowsEnvironment(env, 'PATH') : env.PATH;
 }
 
 export function windowsPathExtensions(env: NodeJS.ProcessEnv): readonly string[] {
   const fallback = ['.COM', '.EXE', '.BAT', '.CMD'];
-  const parsed = (env.PATHEXT ?? '').split(';').map(entry => entry.trim()).filter(Boolean)
+  const parsed = (windowsEnvironment(env, 'PATHEXT') ?? '').split(';').map(entry => entry.trim()).filter(Boolean)
     .map(entry => (entry.startsWith('.') ? entry : `.${entry}`).toUpperCase());
   return parsed.length > 0 ? [...new Set(parsed)] : fallback;
 }
@@ -36,9 +42,9 @@ function commandCandidates(command: string, platform: NodeJS.Platform, extension
 export function resolveCommandPath(command: string, platform: NodeJS.Platform,
   env: NodeJS.ProcessEnv, probe: ExecutableProbe = probeExecutable): string | null {
   const path = platform === 'win32' ? win32 : posix;
-  const candidates = commandCandidates(command, platform, windowsPathExtensions(env));
-  for (const entry of (readEnvPath(env) ?? '').split(platform === 'win32' ? ';' : ':')) {
-    const directory = entry.trim().replace(/^"+|"+$/g, '');
+  const candidates = commandCandidates(command, platform, platform === 'win32' ? windowsPathExtensions(env) : []);
+  for (const entry of (readEnvPath(env, platform) ?? '').split(platform === 'win32' ? ';' : ':')) {
+    const directory = platform === 'win32' ? entry.trim().replace(/^"+|"+$/g, '') : entry;
     if (!directory || !path.isAbsolute(directory)) continue;
     for (const candidate of candidates) {
       const full = path.join(directory, candidate);

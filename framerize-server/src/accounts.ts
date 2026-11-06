@@ -27,44 +27,81 @@ export interface FramerAccount extends AccountMetadata {
   readonly session: AccountSession;
 }
 
-export async function loadAccounts(path?: string): Promise<readonly AccountMetadata[]> {
-  try { return await readAccounts(path); }
+export async function loadAccounts(path?: string, signal?: AbortSignal): Promise<readonly AccountMetadata[]> {
+  try {
+    signal?.throwIfAborted();
+    return await readAccounts(path, signal);
+  }
   catch (error) {
+    signal?.throwIfAborted();
     if (error instanceof ConfigurationError) throw new AccountFileError(error.message);
     throw error;
   }
 }
 
-async function readAccounts(path?: string): Promise<readonly AccountMetadata[]> {
+async function readAccounts(path?: string, signal?: AbortSignal): Promise<readonly AccountMetadata[]> {
   if (!path) return Object.freeze([]);
   let value: unknown;
-  try { value = JSON.parse((await readAccountText(path))!); }
+  try { value = JSON.parse((await readAccountText(path, false, signal))!); }
   catch { throw new ConfigurationError('Account metadata unavailable'); }
   return parseAccountList(value, path);
 }
 
 // Bounded nonblocking read of a regular file. A missing file is undefined only when allowed.
-export async function readAccountText(path: string, allowMissing = false): Promise<string | undefined> {
+export async function readAccountText(path: string, allowMissing = false,
+  signal?: AbortSignal): Promise<string | undefined> {
+  signal?.throwIfAborted();
+  return cancellableRead(readAccountFile(path, allowMissing, signal), signal);
+}
+
+async function cancellableRead<Value>(pending: Promise<Value>, signal?: AbortSignal): Promise<Value> {
+  if (!signal) return pending;
+  let abort = (): void => {};
+  try {
+    const result = await Promise.race([pending, new Promise<never>((_resolve, reject) => {
+      abort = () => reject(signal.reason);
+      signal.addEventListener('abort', abort, { once: true });
+      if (signal.aborted) abort();
+    })]);
+    signal.throwIfAborted();
+    return result;
+  } finally { signal.removeEventListener('abort', abort); }
+}
+
+async function readAccountFile(path: string, allowMissing: boolean,
+  signal?: AbortSignal): Promise<string | undefined> {
   let file: FileHandle | undefined;
+  let closing: Promise<void> | undefined;
+  const close = (): Promise<void> => file ? closing ??= file.close() : Promise.resolve();
+  const abort = (): void => { void close().catch(() => {}); };
   try {
     try { file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK); }
     catch (error) {
       if (allowMissing && (error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
       throw error;
     }
+    signal?.addEventListener('abort', abort, { once: true });
+    signal?.throwIfAborted();
     const info = await file.stat();
+    signal?.throwIfAborted();
     if (!info.isFile() || info.size > ACCOUNT_FILE_MAX_BYTES) throw new Error();
     const buffer = Buffer.alloc(ACCOUNT_FILE_MAX_BYTES + 1);
     let length = 0;
     while (length < buffer.length) {
       const { bytesRead } = await file.read(buffer, length, buffer.length - length, null);
+      signal?.throwIfAborted();
       if (!bytesRead) break;
       length += bytesRead;
     }
     if (length > ACCOUNT_FILE_MAX_BYTES) throw new Error();
     return new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, length));
-  } catch { throw new ConfigurationError('Account metadata unavailable'); }
-  finally { await file?.close(); }
+  } catch {
+    signal?.throwIfAborted();
+    throw new ConfigurationError('Account metadata unavailable');
+  } finally {
+    signal?.removeEventListener('abort', abort);
+    await close();
+  }
 }
 
 export function parseAccountList(value: unknown, path: string): readonly AccountMetadata[] {
@@ -127,12 +164,13 @@ function parseSession(value: unknown, source: string): AccountSession {
   throw new ConfigurationError('Invalid account session reference');
 }
 
-export async function loadFramerAccount(path: string, accountId?: string): Promise<FramerAccount> {
+export async function loadFramerAccount(path: string, accountId?: string,
+  signal?: AbortSignal): Promise<FramerAccount> {
   if (accountId !== undefined && (typeof accountId !== 'string'
       || !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(accountId))) {
     throw new ConfigurationError('Invalid account selector');
   }
-  const accounts = (await loadAccounts(path)).filter(account => account.enabled !== false
+  const accounts = (await loadAccounts(path, signal)).filter(account => account.enabled !== false
     && (accountId === undefined || account.id === accountId));
   const selected = accounts[0];
   if (accounts.length !== 1 || !selected?.projectId || !selected.session) {
@@ -152,7 +190,8 @@ export async function readAccountSession(reference: AccountSession,
     if (!reference || Object.keys(reference).length !== 1) throw new Error();
     const variable = reference.env;
     const value = typeof variable === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(variable)
-      ? env[variable] : variable === undefined ? await readSessionFile(reference.file, signal) : undefined;
+      ? env[variable] : variable === undefined
+        ? await cancellableRead(readSessionFile(reference.file, signal), signal) : undefined;
     signal?.throwIfAborted();
     if (!validSession(value)) throw new Error();
     return value;
@@ -162,8 +201,14 @@ export async function readAccountSession(reference: AccountSession,
 async function readSessionFile(path: string | undefined, signal?: AbortSignal): Promise<string> {
   if (typeof path !== 'string' || !isAbsolute(path) || /[\x00-\x1f\x7f]/.test(path)) throw new Error();
   const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
+  let closing: Promise<void> | undefined;
+  const close = (): Promise<void> => closing ??= file.close();
+  const abort = (): void => { void close().catch(() => {}); };
+  signal?.addEventListener('abort', abort, { once: true });
   try {
+    signal?.throwIfAborted();
     const info = await file.stat();
+    signal?.throwIfAborted();
     if (!info.isFile() || info.size > 16_384 || (process.platform !== 'win32' && (info.mode & 0o077))) {
       throw new Error();
     }
@@ -172,11 +217,15 @@ async function readSessionFile(path: string | undefined, signal?: AbortSignal): 
     while (length < buffer.length) {
       signal?.throwIfAborted();
       const { bytesRead } = await file.read(buffer, length, buffer.length - length, null);
+      signal?.throwIfAborted();
       if (!bytesRead) break;
       length += bytesRead;
     }
     if (length > 16_384) throw new Error();
     return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
       .decode(buffer.subarray(0, length)).replace(/\r?\n$/, '');
-  } finally { await file.close(); }
+  } finally {
+    signal?.removeEventListener('abort', abort);
+    await close();
+  }
 }

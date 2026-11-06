@@ -62,7 +62,7 @@ async function replaceProfile(temporary: string, path: string): Promise<void> {
   }
 }
 
-export async function saveConfigFile(path: string, config: PersistedConfig): Promise<void> {
+export function validateConfigForSave(config: PersistedConfig): RemoteConfig {
   let valid: RemoteConfig;
   try { valid = normalizeConfig(parsePersisted(config), process.cwd()); }
   catch (error) {
@@ -70,6 +70,11 @@ export async function saveConfigFile(path: string, config: PersistedConfig): Pro
     throw error;
   }
   resolveConfig(valid);
+  return valid;
+}
+
+export async function saveConfigFile(path: string, config: PersistedConfig): Promise<void> {
+  const valid = validateConfigForSave(config);
   let staging: string | undefined;
   try {
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
@@ -91,15 +96,28 @@ export function resolveConfig(config: RemoteConfig): RemoteEndpoint {
   return parseRemoteEndpoint(config.remote, config.allowInsecureRemote);
 }
 
-/** Saved profile, then FRM_* variables. FRM_REMOTE alone runs without saving a profile. */
-export async function loadRunConfig(path: string, env: NodeJS.ProcessEnv): Promise<RemoteConfig> {
+export function sameRemoteOrigin(first: string, second: string): boolean {
+  try { return parseRemoteEndpoint(first, true).origin === parseRemoteEndpoint(second, true).origin; }
+  catch { return false; }
+}
+
+/** FRM_* overrides saved values, except setup's just-saved remote and token references. */
+export async function loadRunConfig(path: string, env: NodeJS.ProcessEnv,
+  afterSetup = false): Promise<RemoteConfig> {
   const settings = frmSettings(env);
   let saved: RemoteConfig | undefined;
   try { saved = await loadConfigFile(path); }
   catch (error) {
-    if (!(error instanceof RemoteDiagnosticError && error.code === 'profile_missing' && settings.remote)) throw error;
+    if (afterSetup || !(error instanceof RemoteDiagnosticError && error.code === 'profile_missing' && settings.remote)) throw error;
+  }
+  if (afterSetup && saved) {
+    settings.remote = saved.remote;
+    if (saved.serverToken) settings.serverToken = saved.serverToken;
+    if (saved.localToken) settings.localToken = saved.localToken;
   }
   const merged = { ...saved, ...settings };
+  if (saved && settings.remote !== undefined && settings.serverToken === undefined
+    && !sameRemoteOrigin(saved.remote, settings.remote)) delete merged.serverToken;
   if (merged.remote === undefined) throw new RemoteDiagnosticError('profile_missing');
   try { return normalizeConfig(parsePersisted(merged), process.cwd()); }
   catch (error) {

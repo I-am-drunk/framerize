@@ -5,7 +5,8 @@ import { rm, writeFile } from 'node:fs/promises';
 import type { CliIo } from './cli.js';
 import { runCheck } from './cmdRun.js';
 import { CONFIG_DEFAULTS, parsePersisted, type PersistedConfig } from './config.js';
-import { readConfigText, saveConfigFile } from './configStore.js';
+import { readConfigText, sameRemoteOrigin, saveConfigFile, validateConfigForSave } from './configStore.js';
+import { withProfileLock } from './profileLock.js';
 import { validate, type CredentialReference } from './credentials.js';
 import { FRM_LOCAL_TOKEN, FRM_SERVER_TOKEN, frmSettings } from './frmEnv.js';
 import { RemoteDiagnosticError, ServiceCommandCleanupError, SetupRollbackError, type DiagnosticCode } from './diagnostics.js';
@@ -28,10 +29,9 @@ export interface UpOptions {
 type Connection = { remote: string; token?: string | undefined; paired: boolean };
 
 /** A pairing link, a server origin, FRM_REMOTE, the saved remote, or one terminal question. */
-async function connection(input: string | undefined, saved: PersistedConfig | undefined,
-  io: CliIo, env: NodeJS.ProcessEnv, signal?: AbortSignal): Promise<Connection> {
-  let value = input ?? (env.FRM_REMOTE || undefined) ?? saved?.remote;
-  if (value === undefined && io.ask) value = (await io.ask('Pairing link or server address: ', signal)).trim();
+function connection(input: string | undefined, saved: PersistedConfig | undefined,
+  env: NodeJS.ProcessEnv): Connection {
+  const value = input ?? (env.FRM_REMOTE || undefined) ?? saved?.remote;
   if (!value) throw new RemoteDiagnosticError('remote_required');
   if (!isPairingLink(value)) {
     try { parseRemoteEndpoint(value, saved?.allowInsecureRemote === true); }
@@ -66,14 +66,15 @@ function envToken(env: NodeJS.ProcessEnv, name: string,
 
 /**
  * The profile `frm up` saves. Server token: pairing-link token, then FRM_SERVER_TOKEN, then the saved
- * token unless a tokenless link replaced it. Local token: FRM_LOCAL_TOKEN, then the saved token.
+ * token for the same origin unless a tokenless link replaced it. Local token: FRM_LOCAL_TOKEN, then the saved token.
  */
 function nextProfile(saved: PersistedConfig | undefined, link: Connection, env: NodeJS.ProcessEnv): PersistedConfig {
   const { serverToken: savedServer, localToken: savedLocal, ...rest } = saved ?? { remote: link.remote };
   const frm = frmSettings(env);
   const port = frm.port ?? saved?.port ?? CONFIG_DEFAULTS.port;
   const serverToken = link.token !== undefined ? { kind: 'value' as const, value: link.token }
-    : envToken(env, FRM_SERVER_TOKEN, 'server_credential') ?? (link.paired ? undefined : savedServer);
+    : envToken(env, FRM_SERVER_TOKEN, 'server_credential')
+      ?? (!link.paired && saved && sameRemoteOrigin(saved.remote, link.remote) ? savedServer : undefined);
   const localToken = envToken(env, FRM_LOCAL_TOKEN, 'local_credential') ?? savedLocal;
   return { ...rest, remote: link.remote, port: port === 0 ? CONFIG_DEFAULTS.port : port,
     ...(frm.host ? { host: frm.host } : {}), ...(serverToken ? { serverToken } : {}),
@@ -115,11 +116,23 @@ async function readiness(configPath: string, env: NodeJS.ProcessEnv, signal?: Ab
 
 export async function setUp(input: string | undefined, io: CliIo, options: UpOptions): Promise<UpResult> {
   const signal = options.signal ?? options.service.signal;
+  if (signal?.aborted) throw new RemoteDiagnosticError('aborted');
+  const initial = await readSaved(options.configPath);
+  if (input === undefined && !options.env.FRM_REMOTE && !initial.config?.remote && io.ask) {
+    input = (await io.ask('Pairing link or server address: ', signal)).trim();
+  }
+  if (signal?.aborted) throw new RemoteDiagnosticError('aborted');
+  validateConfigForSave(nextProfile(initial.config, connection(input, initial.config, options.env), options.env));
+  return withProfileLock(options.configPath, () => setUpLocked(input, options));
+}
+
+async function setUpLocked(input: string | undefined, options: UpOptions): Promise<UpResult> {
+  const signal = options.signal ?? options.service.signal;
   const active = (): void => { if (signal?.aborted) throw new RemoteDiagnosticError('aborted'); };
   active();
   if (signal) options = { ...options, signal, service: { ...options.service, signal } };
   const before = await readSaved(options.configPath);
-  const link = await connection(input, before.config, io, options.env, signal);
+  const link = connection(input, before.config, options.env);
   active();
   const profile = nextProfile(before.config, link, options.env);
   const localApi = `http://${urlHost(profile.host ?? CONFIG_DEFAULTS.host)}:${profile.port}/v1`;
