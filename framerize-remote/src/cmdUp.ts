@@ -6,6 +6,7 @@ import type { CliIo } from './cli.js';
 import { runCheck } from './cmdRun.js';
 import { CONFIG_DEFAULTS, parsePersisted, type PersistedConfig } from './config.js';
 import { readConfigText, saveConfigFile } from './configStore.js';
+import { withProfileLock } from './profileLock.js';
 import { validate, type CredentialReference } from './credentials.js';
 import { FRM_LOCAL_TOKEN, FRM_SERVER_TOKEN, frmSettings } from './frmEnv.js';
 import { RemoteDiagnosticError, ServiceCommandCleanupError, SetupRollbackError, type DiagnosticCode } from './diagnostics.js';
@@ -114,6 +115,11 @@ async function readiness(configPath: string, env: NodeJS.ProcessEnv, signal?: Ab
 }
 
 export async function setUp(input: string | undefined, io: CliIo, options: UpOptions): Promise<UpResult> {
+  if ((options.signal ?? options.service.signal)?.aborted) throw new RemoteDiagnosticError('aborted');
+  return withProfileLock(options.configPath, () => setUpLocked(input, io, options));
+}
+
+async function setUpLocked(input: string | undefined, io: CliIo, options: UpOptions): Promise<UpResult> {
   const signal = options.signal ?? options.service.signal;
   const active = (): void => { if (signal?.aborted) throw new RemoteDiagnosticError('aborted'); };
   active();

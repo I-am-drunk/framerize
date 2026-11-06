@@ -66,6 +66,16 @@ Rerunning `up` with unchanged settings checks the running service without restar
 it. Where no service manager is available, `up` saves the profile and asks you to
 keep `frm serve` running.
 
+`up` and `setup` allow one writer per profile, including commands in separate
+processes. A concurrent writer reports `profile_busy`; retry after the active
+command finishes or rolls back. Normal completion, errors and cancellation
+release the profile lock.
+
+After a forced termination, the lock can remain. For profile `remote.json`,
+the lock is `.remote.json.lock` beside it and contains the owning process ID.
+Confirm that process has stopped before deleting that lock and retrying.
+Do not remove a lock while its command is still running.
+
 `FRM_REMOTE`, `FRM_HOST` and `FRM_PORT` apply to `up`. A saved port `0` becomes
 8788, because the service needs a fixed port. `FRM_SERVER_TOKEN` and
 `FRM_LOCAL_TOKEN` also apply: `up` saves their values in the profile before it
