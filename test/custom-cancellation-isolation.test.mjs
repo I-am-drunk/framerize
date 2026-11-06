@@ -4,6 +4,12 @@ import { Agent } from 'node:http';
 import { fixture, post, protocols, reply } from './custom-routes-fixture.mjs';
 import { readCustomStream } from '../.tools/scripts/fixtures/custom-stream-reply.js';
 
+function responseFor(protocol, overrides) {
+  const value = reply(protocol, overrides);
+  if (protocol.name === 'responses') value.usage.total_tokens = 3;
+  return value;
+}
+
 function assertReply(result, protocol, expected, stream) {
   assert.equal(result.status, 200);
   const value = stream ? readCustomStream(protocol.name, result.body) : JSON.parse(result.body);
@@ -24,7 +30,7 @@ for (const cancelledProtocol of protocols) for (const viaRemote of [false, true]
         setup = await fixture(context, cancelledProtocol, viaRemote, { respond(response, count) {
           const observed = setup.observed[count - 1];
           const protocol = protocols.find(value => value.upstream === observed.path);
-          const value = reply(protocol, { id: `synthetic-${count}`, model: observed.body.request.model });
+          const value = responseFor(protocol, { id: `synthetic-${count}`, model: observed.body.request.model });
           const payload = Buffer.from(JSON.stringify(value));
           response.setHeader('content-type', 'application/json');
           if (count > 2) { response.end(payload); return; }
@@ -55,11 +61,11 @@ for (const cancelledProtocol of protocols) for (const viaRemote of [false, true]
         const [peerResult] = await peer;
         assert.equal(peerResult.status, 'fulfilled', peerResult.reason?.message);
         assertReply(peerResult.value, peerProtocol,
-          reply(peerProtocol, { id: 'synthetic-2', model: peerBody.model }), stream);
+          responseFor(peerProtocol, { id: 'synthetic-2', model: peerBody.model }), stream);
         const recoveredBody = { ...cancelledProtocol.body, model: 'synthetic-recovered', stream };
         const recovered = await setup.post(recoveredBody);
         assertReply(recovered, cancelledProtocol,
-          reply(cancelledProtocol, { id: 'synthetic-3', model: recoveredBody.model }), stream);
+          responseFor(cancelledProtocol, { id: 'synthetic-3', model: recoveredBody.model }), stream);
         assert.deepEqual(setup.observed.map(value =>
           [value.path, value.body.model, value.body.request.model, value.body.request.stream]), [
           [cancelledProtocol.upstream, cancelledBody.model, cancelledBody.model, false],
