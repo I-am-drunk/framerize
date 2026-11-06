@@ -11,7 +11,7 @@ const { parseInstalledVersion } = await import(
   `data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].contents).toString('base64')}`);
 
 test('build metadata and punctuation preserve complete prerelease identifiers', () => {
-  for (const version of ['1.2.3-alpha-', '1.2.3--', '1.2.3-alpha.-']) {
+  for (const version of ['1.2.3', '1.2.3-alpha-', '1.2.3--', '1.2.3-alpha.-']) {
     assert.equal(parseInstalledVersion(`client ${version}+build.7\n`), version);
     assert.equal(parseInstalledVersion(`client (${version})\n`), version);
   }

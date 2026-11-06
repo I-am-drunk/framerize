@@ -14,7 +14,9 @@ const { parseInstalledVersion, checkVersion, runClient } = await import(
   `data:text/javascript;base64,${Buffer.from(bytes).toString('base64')}`);
 
 for (const version of ['2.1.0-rc..1', '2.1.0-rc.', '2.1.0-.rc',
-  '2.1.0-01', '02.1.0', '2.01.0', '2.1.00']) {
+  '2.1.0-01', '02.1.0', '2.01.0', '2.1.00',
+  '2.1.0+', '2.1.0+bad..1', '2.1.0+bad.',
+  '2.1.0+bad_1', '2.1.0+one+two']) {
   test(`malformed installed version ${version} remains unknown`, context => {
     context.diagnostic(`source bundle sha256 ${bundleHash}`);
     assert.equal(parseInstalledVersion(`${version} (synthetic client)\n`), null);
@@ -27,7 +29,7 @@ test('valid zero and alphanumeric identifiers retain their installed versions', 
   }
 });
 
-function fixture() {
+function fixture(version = '2.1.1-rc..1') {
   const executable = '/synthetic/home/.local/bin/claude';
   const captures = [], runs = [], fetches = [], reads = [], output = [], errors = [];
   const deps = {
@@ -38,15 +40,17 @@ function fixture() {
     read: async path => { reads.push(path); return null; },
     fetch: async url => { fetches.push(url); return '2.1.0'; },
     runner: {
-      capture: async command => { captures.push(command); return '2.1.1-rc..1 (synthetic client)\n'; },
+      capture: async command => { captures.push(command); return `${version} (synthetic client)\n`; },
       run: async command => { runs.push(command); return 0; },
     },
   };
   return { executable, deps, captures, runs, fetches, reads, output, errors };
 }
 
-test('malformed installed version does not qualify as current', { timeout: 2000 }, async context => {
-  const state = fixture();
+const malformedVersions = ['2.1.1-rc..1', '2.1.1+bad..1'];
+for (const version of malformedVersions)
+test(`malformed installed version ${version} does not qualify as current`, { timeout: 2000 }, async context => {
+  const state = fixture(version);
   const result = await checkVersion('claude', state.executable, { owner: { kind: 'native' } }, state.deps);
   context.diagnostic(JSON.stringify({ result, captures: state.captures, fetches: state.fetches }));
   assert.deepEqual(result, { status: 'unknown', current: null, latest: null });
@@ -56,8 +60,9 @@ test('malformed installed version does not qualify as current', { timeout: 2000 
   assert.deepEqual(state.runs, []);
 });
 
-test('unknown installed version cannot suppress a consented update', { timeout: 2000 }, async context => {
-  const state = fixture();
+for (const version of malformedVersions)
+test(`unknown installed version ${version} cannot suppress a consented update`, { timeout: 2000 }, async context => {
+  const state = fixture(version);
   const result = await runClient(['claude', '--update', '--no-input'], state.deps);
   context.diagnostic(JSON.stringify({ result, output: state.output, errors: state.errors,
     runs: state.runs, captures: state.captures, fetches: state.fetches }));
