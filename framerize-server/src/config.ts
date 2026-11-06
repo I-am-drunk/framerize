@@ -152,6 +152,10 @@ export async function readServerToken(config: ServerConfig, signal?: AbortSignal
 
 async function readServerTokenFile(path: string, signal?: AbortSignal): Promise<string> {
   let file: FileHandle | undefined;
+  let closing: Promise<void> | undefined;
+  const close = () => file && (closing ??= file.close());
+  const abort = () => { void close()?.catch(() => {}); };
+  signal?.addEventListener('abort', abort, { once: true });
   try {
     file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
     signal?.throwIfAborted();
@@ -171,5 +175,8 @@ async function readServerTokenFile(path: string, signal?: AbortSignal): Promise<
     if (!token || !/^[A-Za-z0-9._~+/-]+=*$/.test(token)) invalid('server token file');
     return token;
   } catch { signal?.throwIfAborted(); throw new ServerTokenFileError(); }
-  finally { await file?.close(); }
+  finally {
+    signal?.removeEventListener('abort', abort);
+    await close();
+  }
 }

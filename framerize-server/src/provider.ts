@@ -120,20 +120,31 @@ async function credential(config: ProviderConfig, signal: AbortSignal): Promise<
 }
 
 async function fileCredential(path: string, signal: AbortSignal): Promise<string> {
+  signal.throwIfAborted();
   const file = await openFile(path, constants.O_RDONLY | constants.O_NONBLOCK);
+  let closing: Promise<void> | undefined;
+  const close = () => closing ??= file.close();
+  const abort = () => { void close().catch(() => {}); };
+  signal.addEventListener('abort', abort, { once: true });
   try {
+    signal.throwIfAborted();
     const info = await file.stat();
+    signal.throwIfAborted();
     if (!info.isFile() || (process.platform !== 'win32' && (info.mode & 0o077))) throw new Error();
     const buffer = Buffer.alloc(16_385);
     let length = 0;
     while (length < buffer.length) {
       signal.throwIfAborted();
       const { bytesRead } = await file.read(buffer, length, buffer.length - length, null);
+      signal.throwIfAborted();
       if (!bytesRead) return buffer.subarray(0, length).toString('utf8').trim();
       length += bytesRead;
     }
     throw new Error();
-  } finally { await file.close(); }
+  } finally {
+    signal.removeEventListener('abort', abort);
+    await close();
+  }
 }
 
 function exchange(active: Set<Exchange>, parent?: AbortSignal): Exchange {
