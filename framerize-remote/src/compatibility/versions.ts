@@ -102,7 +102,7 @@ export function parseHomebrewCaskVersion(stdout: string | null): string | null {
 /** First version-shaped token in `--version` output; a malformed candidate is unknown. */
 export function parseInstalledVersion(stdout: string | null): string | null {
   const candidate = /\b\d+\.\d+\.\d+[\w.-]*/.exec(stdout ?? '')?.[0];
-  return candidate && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(candidate) ? candidate : null;
+  return candidate && NPM_VERSION.test(candidate) ? candidate : null;
 }
 
 export const isNativeVersion = (text: string | null): text is string => NATIVE_VERSION.test(text?.trim() ?? '');
