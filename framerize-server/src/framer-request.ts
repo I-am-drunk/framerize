@@ -55,13 +55,21 @@ export function encodeFramerRequest(request: FramerRequest, projectId: string, c
 
 function userPrompt(request: Readonly<Record<string, unknown>>): string {
   const input = request.messages ?? request.input;
-  if (typeof input === 'string') return [...input].slice(0, 300).join('');
+  if (typeof input === 'string') return [...input.slice(0, 600)].slice(0, 300).join('');
   const message = lastUserMessage(input);
   const content = message?.content;
-  const text = typeof content === 'string' ? content : Array.isArray(content)
-    ? content.map(item => typeof item?.text === 'string' ? item.text
-      : typeof item?.input_text === 'string' ? item.input_text : '').join(' ') : '';
-  return [...text].slice(0, 300).join('');
+  let text = typeof content === 'string' ? content : '';
+  if (Array.isArray(content)) {
+    for (let index = 0; index < content.length && text.length < 600; index += 1) {
+      if (index > 0) text += ' ';
+      if (text.length === 600) break;
+      const item = content[index];
+      const part = typeof item?.text === 'string' ? item.text
+        : typeof item?.input_text === 'string' ? item.input_text : '';
+      text += part.slice(0, 600 - text.length);
+    }
+  }
+  return [...text.slice(0, 600)].slice(0, 300).join('');
 }
 
 function lastUserMessage(input: unknown): Record<string, unknown> | undefined {
