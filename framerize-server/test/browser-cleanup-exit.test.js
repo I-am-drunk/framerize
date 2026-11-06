@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,7 +11,7 @@ import { build } from 'esbuild';
 
 const exec = promisify(execFile);
 const entry = fileURLToPath(new URL('../src/browser-login.ts', import.meta.url));
-const helper = fileURLToPath(new URL('./helpers/browser-cleanup-exit-caller.mjs', import.meta.url));
+const helper = new URL('./helpers/browser-cleanup-exit-caller.fixture', import.meta.url);
 const compiled = await build({ entryPoints: [entry], bundle: true, platform: 'node', format: 'esm', write: false });
 const bytes = compiled.outputFiles[0].contents;
 console.log(JSON.stringify({ runtime: process.version, bundle: createHash('sha256').update(bytes).digest('hex') }));
@@ -58,7 +58,9 @@ for (const mode of ['denied', 'pipe-close', 'graceful']) {
     context.after(cleanup);
     const bundle = join(root, 'browser.mjs');
     await writeFile(bundle, bytes);
-    caller = spawn(process.execPath, [helper, bundle, root, mode], {
+    const callerPath = join(root, 'caller.mjs');
+    await writeFile(callerPath, await readFile(helper));
+    caller = spawn(process.execPath, [callerPath, bundle, root, mode], {
       cwd: root, env: { HOME: root, TMPDIR: root },
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
     });
