@@ -96,6 +96,11 @@ export function resolveConfig(config: RemoteConfig): RemoteEndpoint {
   return parseRemoteEndpoint(config.remote, config.allowInsecureRemote);
 }
 
+export function sameRemoteOrigin(first: string, second: string): boolean {
+  try { return parseRemoteEndpoint(first, true).origin === parseRemoteEndpoint(second, true).origin; }
+  catch { return false; }
+}
+
 /** FRM_* overrides saved values, except setup's just-saved remote and token references. */
 export async function loadRunConfig(path: string, env: NodeJS.ProcessEnv,
   afterSetup = false): Promise<RemoteConfig> {
@@ -111,6 +116,8 @@ export async function loadRunConfig(path: string, env: NodeJS.ProcessEnv,
     if (saved.localToken) settings.localToken = saved.localToken;
   }
   const merged = { ...saved, ...settings };
+  if (saved && settings.remote !== undefined && settings.serverToken === undefined
+    && !sameRemoteOrigin(saved.remote, settings.remote)) delete merged.serverToken;
   if (merged.remote === undefined) throw new RemoteDiagnosticError('profile_missing');
   try { return normalizeConfig(parsePersisted(merged), process.cwd()); }
   catch (error) {

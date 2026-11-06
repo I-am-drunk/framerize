@@ -5,7 +5,7 @@ import { rm, writeFile } from 'node:fs/promises';
 import type { CliIo } from './cli.js';
 import { runCheck } from './cmdRun.js';
 import { CONFIG_DEFAULTS, parsePersisted, type PersistedConfig } from './config.js';
-import { readConfigText, saveConfigFile, validateConfigForSave } from './configStore.js';
+import { readConfigText, sameRemoteOrigin, saveConfigFile, validateConfigForSave } from './configStore.js';
 import { withProfileLock } from './profileLock.js';
 import { validate, type CredentialReference } from './credentials.js';
 import { FRM_LOCAL_TOKEN, FRM_SERVER_TOKEN, frmSettings } from './frmEnv.js';
@@ -66,14 +66,15 @@ function envToken(env: NodeJS.ProcessEnv, name: string,
 
 /**
  * The profile `frm up` saves. Server token: pairing-link token, then FRM_SERVER_TOKEN, then the saved
- * token unless a tokenless link replaced it. Local token: FRM_LOCAL_TOKEN, then the saved token.
+ * token for the same origin unless a tokenless link replaced it. Local token: FRM_LOCAL_TOKEN, then the saved token.
  */
 function nextProfile(saved: PersistedConfig | undefined, link: Connection, env: NodeJS.ProcessEnv): PersistedConfig {
   const { serverToken: savedServer, localToken: savedLocal, ...rest } = saved ?? { remote: link.remote };
   const frm = frmSettings(env);
   const port = frm.port ?? saved?.port ?? CONFIG_DEFAULTS.port;
   const serverToken = link.token !== undefined ? { kind: 'value' as const, value: link.token }
-    : envToken(env, FRM_SERVER_TOKEN, 'server_credential') ?? (link.paired ? undefined : savedServer);
+    : envToken(env, FRM_SERVER_TOKEN, 'server_credential')
+      ?? (!link.paired && saved && sameRemoteOrigin(saved.remote, link.remote) ? savedServer : undefined);
   const localToken = envToken(env, FRM_LOCAL_TOKEN, 'local_credential') ?? savedLocal;
   return { ...rest, remote: link.remote, port: port === 0 ? CONFIG_DEFAULTS.port : port,
     ...(frm.host ? { host: frm.host } : {}), ...(serverToken ? { serverToken } : {}),

@@ -47,7 +47,8 @@ It saves the Server origin and any
 token from the link in `FRM_HOME/framerize-remote.json`, mode 0600. It checks
 Server readiness, then installs and starts the background service. Clients use
 `http://127.0.0.1:8788/v1`. A link without `#token=` is for a Server with no
-API token. `frm up ORIGIN` saves a plain origin and keeps any saved token.
+API token. `frm up ORIGIN` saves a plain origin and keeps a saved Server token
+only when the canonical HTTP(S) origin is unchanged.
 
 Running `frm` with no command and no saved profile does the same in a terminal:
 it asks for a link or address. In a terminal, `connect` then offers to set up
@@ -85,6 +86,10 @@ Do not remove a lock while its command is still running.
 `FRM_LOCAL_TOKEN` also apply: `up` saves their values in the profile before it
 checks readiness, so the service can use them. A token in the link takes
 precedence over `FRM_SERVER_TOKEN`.
+
+Changing the origin also drops an inherited Server token when `FRM_REMOTE`
+overrides a saved profile. Supply a pairing token or `FRM_SERVER_TOKEN` to use
+credentials for the new destination.
 
 ## Run in the foreground
 
