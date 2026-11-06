@@ -19,7 +19,8 @@ class ProxyLaunchTests(unittest.IsolatedAsyncioTestCase):
         async def new_browser(driver, **options):
             self.assertIs(driver, self.transport)
             browser = SimpleNamespace(is_connected=lambda: True)
-            self.launches.append((browser, options))
+            self.assertEqual(set(options), {'from_options'})
+            self.launches.append((browser, options['from_options']))
             return browser
 
         def receipt(browser):
@@ -30,6 +31,7 @@ class ProxyLaunchTests(unittest.IsolatedAsyncioTestCase):
         factories = (new_browser, Mock(return_value=SimpleNamespace(start=self.start)))
         for name, replacement in (
                 ('browser_runtime', Mock(return_value=factories)),
+                ('prepare_browser_options', AsyncMock(side_effect=lambda **options: options)),
                 ('prepared_memory_browser', Mock(return_value=None)),
                 ('prepared_memory_addon', Mock(return_value=None)),
                 ('BrowserCloseReceipt', receipt)):

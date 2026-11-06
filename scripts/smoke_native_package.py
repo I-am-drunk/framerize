@@ -45,11 +45,12 @@ def prepare(root):
         'entry': pins[1]['path'], 'pins': pins}))
 
 
-def ready(child, url):
+def ready(child, url, log_path):
     deadline = time.monotonic() + 10
     while True:
         if child.poll() is not None:
-            raise RuntimeError('native service exited before readiness')
+            detail = log_path.read_text(errors='replace')[-8192:]
+            raise RuntimeError('native service exited before readiness:\n' + detail)
         try:
             with HTTP.open(url + '/api/health', timeout=1) as reply:
                 assert reply.status == 200
@@ -73,11 +74,12 @@ def lifecycle(release, root, signum, packaged_worker=False):
         command.extend(['--worker-config', str(root / 'worker.json')])
     env = {'PATH': '/usr/bin:/bin', 'HOME': str(root),
         'FRAMERIZE_LOG_DIR': str(root / 'logs')}
-    with (root / f'native-{signum}.log').open('w') as log:
+    log_path = root / f'native-{signum}.log'
+    with log_path.open('w') as log:
         child = subprocess.Popen(command, cwd=root, env=env, start_new_session=True,
             stdout=log, stderr=log)
         try:
-            ready(child, 'http://' + address)
+            ready(child, 'http://' + address, log_path)
             invalid = urllib.request.Request('http://' + address + '/api/offline/complete',
                 data=b'{}', headers={'Content-Type': 'application/json'})
             try:
@@ -92,7 +94,7 @@ def lifecycle(release, root, signum, packaged_worker=False):
                 text=True, timeout=10)
             assert result.returncode != 0
             assert 'session store ownership unavailable' in result.stderr, result.stderr
-            ready(child, 'http://' + address)
+            ready(child, 'http://' + address, log_path)
             os.killpg(child.pid, signum)
             assert child.wait(timeout=10) == 0, 'native shutdown was not clean'
         finally:
