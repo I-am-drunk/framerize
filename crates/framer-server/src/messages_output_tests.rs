@@ -123,19 +123,15 @@ async fn finish(f: &mut fixture::Fixture, mut body: BodyDataStream, mut wire: St
 }
 
 #[tokio::test(start_paused = true)]
-async fn global_pause_sends_pings_then_finishes_one_response() {
+async fn refusal_wave_does_not_delay_a_healthy_account_response() {
     let mut f = fixture::Fixture::new();
     pause(&f);
     let response = crate::router(f.state.clone(), "/nonexistent-fixture-web")
         .oneshot(request(None)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.headers()["content-type"], "text/event-stream");
-    let mut body = response.into_body().into_data_stream();
-    let wire = heartbeat(&mut body).await;
-    f.no_call();
-    assert_eq!(f.state.serving_accounts.residents.snapshot().unwrap().occupied, 0);
-    f.state.wave.note_success();
-    finish(&mut f, body, wire).await;
+    let body = response.into_body().into_data_stream();
+    finish(&mut f, body, String::new()).await;
 }
 
 #[tokio::test(start_paused = true)]
@@ -158,16 +154,19 @@ async fn pinned_cooldown_waits_without_using_a_peer() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn disconnect_while_paused_prevents_later_attempts() {
+async fn disconnect_during_refusal_wave_cancels_the_started_request() {
     let mut f = fixture::Fixture::new();
     f.state = operation_ownership::with_owned_operations(f.state, 32).unwrap();
     let ownership = f.state.operation_ownership.clone().unwrap();
     pause(&f);
     let response = crate::router(f.state.clone(), "/nonexistent-fixture-web")
         .oneshot(request(None)).await.unwrap();
-    let mut body = response.into_body().into_data_stream();
-    heartbeat(&mut body).await;
+    let body = response.into_body().into_data_stream();
+    let call = f.next().await;
+    assert_eq!(call.kind, "messages");
+    f.loads.recv().await.unwrap();
     drop(body);
+    drop(call);
     let mut ticket = ownership.seal().unwrap();
     let proof = tokio::time::timeout(Duration::from_secs(2), ticket.wait_application())
         .await.unwrap().unwrap();
@@ -175,8 +174,6 @@ async fn disconnect_while_paused_prevents_later_attempts() {
     drop(proof);
     ticket.cancel_before_control().unwrap();
     assert!(ownership.accepting_requests());
-    f.state.wave.note_success();
-    tokio::time::advance(Duration::from_secs(1)).await;
     f.no_call();
     assert!(f.loads.try_recv().is_err());
 }
@@ -256,6 +253,11 @@ async fn messages_share_output_capacity_until_body_and_polled_bytes_are_disposed
     let app = crate::router(f.state.clone(), "/nonexistent-fixture-web");
     let response = app.clone().oneshot(request(None)).await.unwrap();
     let mut body = response.into_body().into_data_stream();
+    let call = f.next().await;
+    assert_eq!(call.kind, "messages");
+    f.loads.recv().await.unwrap();
+    call.reply.send(Ok(fixture::success("messages"))).ok().unwrap();
+    tokio::time::timeout(Duration::from_secs(3), call.dropped).await.unwrap().unwrap();
     let bytes = body.next().await.unwrap().unwrap();
     let retained = bytes.clone();
     drop(bytes);
@@ -282,7 +284,13 @@ async fn messages_share_output_capacity_until_body_and_polled_bytes_are_disposed
     assert_eq!(f.state.response_output.counts().0, 0);
     let response = app.oneshot(request(None)).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    drop(response);
+    let mut body = response.into_body().into_data_stream();
+    let call = f.next().await;
+    assert_eq!(call.kind, "messages");
+    f.loads.recv().await.unwrap();
+    call.reply.send(Ok(fixture::success("messages"))).ok().unwrap();
+    tokio::time::timeout(Duration::from_secs(3), call.dropped).await.unwrap().unwrap();
+    while body.next().await.is_some() {}
     let mut ticket = ownership.seal().unwrap();
     let proof = ticket.wait_application().await.unwrap();
     ownership.check_application_drained(&proof).unwrap();

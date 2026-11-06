@@ -90,13 +90,7 @@ pub(super) async fn pick_cancellable(
             return AcquisitionOutcome { result: Err(ApiError::Internal("client cancelled".into())),
                 cleanup_confirmed: true };
         }
-        let outcome = match state.wave.check() {
-            Some(remaining) => AcquisitionOutcome {
-                result: Err(ApiError::Cooling { retry_after_secs: remaining.as_secs() + 1 }),
-                cleanup_confirmed: true,
-            },
-            None => pick_fresh_account(state, excluded).await,
-        };
+        let outcome = pick_fresh_account(state, excluded).await;
         let delay = match (&outcome.result, outcome.cleanup_confirmed) {
             (Err(error @ (ApiError::AccountCooling { retry_after_secs, .. }
                 | ApiError::Cooling { retry_after_secs })), true)

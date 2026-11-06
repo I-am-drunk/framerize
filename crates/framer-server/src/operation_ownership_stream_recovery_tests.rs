@@ -158,35 +158,6 @@ fn assert_recovery_output(body: &[u8], messages: bool, failed: bool) {
 
 
 #[tokio::test]
-async fn discarded_messages_wave_refusal_keeps_cooldown_without_sealing() {
-    let mut f = fixture::Fixture::new();
-    f.state = with_owned_operations(f.state, 32).unwrap();
-    let ownership = f.state.operation_ownership.clone().unwrap();
-    f.state.wave.note_refusal("fixture-wave-a");
-    f.state.wave.note_refusal("fixture-wave-b");
-    assert!(f.state.wave.check().is_some());
-    let request = HttpRequest::builder().method("POST").uri("/anthropic/v1/messages")
-        .header("content-type", "application/json")
-        .body(Body::from(serde_json::json!({"model":"claude-opus-5-5",
-            "messages":[{"role":"user","content":"fixture"}],
-            "max_tokens":16,"stream":true}).to_string())).unwrap();
-    let response = crate::router(f.state.clone(), "/nonexistent-fixture-web")
-        .oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(response.headers()["content-type"], "text/event-stream");
-    drop(response);
-    tokio::time::timeout(WAIT, async {
-        while ownership.gate.stats().unwrap().active > 1 { tokio::task::yield_now().await; }
-    }).await.unwrap();
-    f.no_call();
-    assert!(f.loads.try_recv().is_err());
-    assert_eq!(f.state.serving_accounts.residents.snapshot().unwrap().occupied, 0);
-    assert_eq!(ownership.gate.stats().unwrap().active, 1);
-    assert!(!ownership.gate.stats().unwrap().unconfirmed);
-    assert!(f.state.wave.check().is_some());
-}
-
-#[tokio::test]
 async fn read_only_heads_and_discarded_gets_preserve_running_stream_and_admission() {
     let mut f = fixture::Fixture::new();
     f.state = with_owned_operations(f.state, 32).unwrap();

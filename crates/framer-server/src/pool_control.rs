@@ -406,6 +406,11 @@ pub(super) async fn activate_observed(State(s): State<AppState>, Json(body): Jso
     }
     let lease = cleanup.outcome(lease_account_observed(&s, body.account_id).await)?;
     cleanup.admission(super::current_account(&s, body.account_id).await)?;
+    if let Some(remaining) = s.wave.check() {
+        return Err(ApiError::Cooling {
+            retry_after_secs: remaining.as_secs().saturating_add(1),
+        });
+    }
     let result = cleanup.external(s.browser.castle_token(&body.account_id).await);
     observe_lease_result(&lease, result).map_err(ApiError::Internal)?;
     Ok(Json(serde_json::json!({"account_id":body.account_id,"status":"active"})))

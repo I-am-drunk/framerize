@@ -12,9 +12,11 @@
 //!    ENVIRONMENT condition (one egress IP, all accounts), not an account
 //!    condition. Per-account cooldowns are the wrong abstraction mid-wave.
 //!
-//! So: when refusals CLUSTER ACROSS ACCOUNTS, stop ALL traffic briefly. No
-//! probes, no retries, nothing for the ratio to feed on. This is the whole
-//! fix — the score decays on quiet by design.
+//! A cross-account cluster is retained as a process-local signal for guarded
+//! account activation and lifecycle control. Inference admission must remain
+//! account-scoped: a refusal cools its own account, while healthy accounts
+//! stay eligible. A process-wide inference pause turns a short refusal wave
+//! into a client outage and is intentionally not enforced here.
 
 use std::collections::VecDeque;
 use std::sync::Mutex;
@@ -60,8 +62,8 @@ impl WaveGuard {
         }
     }
 
-    /// Call before spending a mint+request. Returns the remaining pause if
-    /// the environment is in a wave cool-off (fail fast; do not feed it).
+    /// Returns the remaining observation window used by guarded control
+    /// operations. Inference admission must use each account's own cooldown.
     pub fn check(&self) -> Option<Duration> {
         let inner = self.inner.lock().ok()?;
         let until = inner.paused_until?;
@@ -100,7 +102,7 @@ impl WaveGuard {
             inner.paused_until = Some(now + len);
             inner.pause_len = (inner.pause_len * 2).min(PAUSE_MAX);
             eprintln!(
-                "[wave] risk-refusals across {} accounts inside {:?} — pausing ALL traffic {:?} (ratio feed must stop)",
+                "[wave] risk-refusals across {} accounts inside {:?} — retaining control guard for {:?}; healthy accounts remain eligible",
                 distinct_len,
                 WAVE_WINDOW,
                 len

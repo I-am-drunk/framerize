@@ -122,23 +122,24 @@ No second registry or background scheduler is added.
 The six-browser capacity bounds loaded accounts, not eligible saved accounts.
 An unloaded account requires a free slot or a confirmed close of an idle
 resident. Active or unconfirmed browsers cannot be displaced. Explicit account
-selection keeps its identity. Device history and all refusal pauses remain.
+selection keeps its identity. Device history and per-account cooldowns remain.
 
-The global refusal-pause ladder resets after ten minutes without a refusal.
-The first refusal after that quiet interval resets the next pause to 150 seconds;
-a second account's refusal within 90 seconds still triggers the pause. Clusters
-without that quiet interval still escalate, up to 900 seconds. A quiet reset
-does not cancel any pause that is already in progress.
+Cross-account refusal waves remain tracked as an in-memory guard for account
+activation and lifecycle control. They do not gate inference admission or
+stream progress. A recognized refusal cools its own account; a later unbound
+request can select another eligible account. Requests are not replayed on a
+different account after a refusal because the outcome may be uncertain.
 
 # Waiting through temporary upstream pauses
 
-Unbound streaming Responses requests can wait through a temporary global pause
-or account cooldown. The existing bounded output owner sends progress frames
-while admission waits. It holds no account residency or model permit during
-that wait. Disconnect stops future admission and retains cleanup ownership.
-The total wait budget is 960 seconds, including admission and later recovery.
-An initially waiting request has no account-derived session header yet; an
-explicit session header is preserved. Normal admitted requests are unchanged.
+Unbound streaming Responses requests can wait while all eligible accounts are
+cooling or capacity is unavailable. They do not wait on a process-wide refusal
+wave. The existing bounded output owner sends progress frames while admission
+waits. It holds no account residency or model permit during that wait.
+Disconnect stops future admission and retains cleanup ownership. The total
+wait budget is 960 seconds, including admission and later recovery. An initially
+waiting request has no account-derived session header yet; an explicit session
+header is preserved. Normal admitted requests are unchanged.
 
 Recovery retains the existing two account replacements and the accounts already
 tried. Published output still forbids replay. Unknown cleanup keeps its fence.

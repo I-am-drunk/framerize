@@ -1627,11 +1627,10 @@ async fn prewarm_rechecks_cooldown_after_waiting_for_residency() {
 }
 
 #[tokio::test]
-async fn handlers_recheck_account_and_wave_after_waiting_for_the_model_gate() {
+async fn handlers_recheck_account_after_waiting_for_the_model_gate() {
     for route in ROUTES {
         for stream in [false, true] {
-            for wave in [false, true] {
-                let (mut state, ports) = fixture(1, 1);
+            let (mut state, ports) = fixture(1, 1);
                 state.runtime_mut().expect("unique fixture runtime").gate = one_slot_gate();
                 let model = match route {
                     Route::Free => "claude-opus-5-5", Route::Native => "gpt-6-astra", Route::Compat => "fixture",
@@ -1650,23 +1649,16 @@ async fn handlers_recheck_account_and_wave_after_waiting_for_the_model_gate() {
                 assert!(slot(&state, id(1)).users > 0);
                 assert_eq!(ports.request_started.load(Ordering::SeqCst), 0);
                 assert!(ports.events.lock().unwrap().iter().all(|event| event.0 == "status"));
-                if wave {
-                    state.wave.note_refusal("fixture-gate-a");
-                    state.wave.note_refusal("fixture-gate-b");
-                    assert!(state.wave.check().is_some());
-                } else {
-                    ports.records.lock().unwrap()[0].cooling_until_ms = Some(framer_core::rotation::now_ms() + 60_000);
-                }
+                ports.records.lock().unwrap()[0].cooling_until_ms = Some(framer_core::rotation::now_ms() + 60_000);
                 drop(permit);
                 let response = match early { Some(response) => response, None => request.await };
                 if stream && !matches!(route, Route::Compat) {
                     assert_waiting_response(response).await;
                     until(|| slot(&state, id(1)).users == 0).await;
-                } else { assert_cooling_response(response, wave).await; }
+                } else { assert_cooling_response(response, false).await; }
                 assert_eq!(ports.request_started.load(Ordering::SeqCst), 0);
                 assert!(ports.events.lock().unwrap().iter().all(|event| event.0 == "status"));
                 assert_eq!(slot(&state, id(1)).users, 0);
-            }
         }
     }
 }

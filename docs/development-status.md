@@ -1,3 +1,16 @@
+# Refusal-wave inference availability repair, 2026-11-06
+
+Branch cursor/fix-403-cooldown-stall is based on the exact live alpha.31
+source commit ef8e43ac7065135239b925186aeb8d8a93834d30. Iris logs confirm that
+two recognized account refusals triggered process-wide 150–600 second pauses,
+which matched the reported prompt outage; restarting erased that in-memory
+pause. Inference requests now continue through healthy eligible accounts while
+the refused account keeps its persisted cooldown. The wave guard remains for
+account activation and lifecycle control. All 501 framer-server tests pass,
+including the refusal-wave admission and stream regressions. The candidate is
+not built for Linux or deployed.
+Next: build and smoke-test the Linux x64 package locally.
+
 # Alpha.31 Claude tool-input budget repair, 2026-11-04
 
 Branch `ops/legacy-claude-alpha29-upgrade-20261104` now separates acknowledged

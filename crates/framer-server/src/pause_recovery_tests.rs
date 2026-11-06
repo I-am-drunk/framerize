@@ -94,7 +94,7 @@ fn pause(f: &fixture::Fixture) {
 }
 
 #[tokio::test(start_paused = true)]
-async fn admission_wait_exhausts_its_budget_without_attempts_or_history_changes() {
+async fn refusal_wave_does_not_block_account_selection() {
     let mut f = fixture::Fixture::new();
     pause(&f);
     let before = serde_json::to_value(f.state.state.list().await.unwrap()).unwrap();
@@ -102,10 +102,12 @@ async fn admission_wait_exhausts_its_budget_without_attempts_or_history_changes(
     let outcome = tokio::time::timeout(Duration::from_secs(3), crate::account_wait::pick(
         &f.state, &[], crate::account_wait::WaitFor::Capacity, &mut budget,
     )).await.expect("admission wait exceeded its total budget");
-    assert!(matches!(outcome.result, Err(crate::ApiError::Cooling { .. })));
+    assert!(outcome.result.is_ok(), "healthy account was blocked by a refusal wave");
     assert!(outcome.cleanup_confirmed);
-    assert!(budget.is_zero());
+    assert_eq!(budget, Duration::from_secs(2));
     assert!(f.state.wave.check().is_some());
+    let (_, lease) = outcome.result.unwrap();
+    drop(lease);
     idle(&mut f).await;
     assert_eq!(serde_json::to_value(f.state.state.list().await.unwrap()).unwrap(), before);
 }
@@ -130,18 +132,13 @@ async fn initial_account_cooldown_waits_without_work_or_history_changes() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn initial_wave_streams_heartbeats_without_work_then_resumes_once() {
+async fn initial_refusal_wave_serves_a_healthy_account_immediately() {
     let mut f = fixture::Fixture::new();
     f.state = with_owned_operations(f.state, 32).unwrap();
     pause(&f);
     let mut body = open(&f).await.into_body().into_data_stream();
     let mut wire = String::new();
-    heartbeat(&mut body, &mut wire).await;
     assert!(f.state.wave.check().is_some());
-    assert_eq!(f.state.serving_accounts.residents.snapshot().unwrap().occupied, 0);
-    idle(&mut f).await;
-    // Explicit fixture transition: Tokio time does not advance WaveGuard's clock.
-    f.state.wave.note_success();
     let call = f.next().await;
     assert_eq!(call.kind, "responses");
     let loaded = f.loads.recv().await.unwrap();
@@ -151,26 +148,23 @@ async fn initial_wave_streams_heartbeats_without_work_then_resumes_once() {
     tokio::time::timeout(WAIT, call.dropped).await.unwrap().unwrap();
     drop(body);
     drained(&mut f).await;
+    assert!(f.state.wave.check().is_none());
 }
 
 #[tokio::test(start_paused = true)]
-async fn disconnect_during_initial_wave_finishes_cleanup_without_later_attempts() {
+async fn disconnect_after_refusal_wave_cancels_admitted_work() {
     let mut f = fixture::Fixture::new();
     f.state = with_owned_operations(f.state, 32).unwrap();
-    let before = serde_json::to_value(f.state.state.list().await.unwrap()).unwrap();
     pause(&f);
-    let mut body = open(&f).await.into_body().into_data_stream();
-    heartbeat(&mut body, &mut String::new()).await;
-    idle(&mut f).await;
+    let body = open(&f).await.into_body().into_data_stream();
+    let call = f.next().await;
+    assert_eq!(call.kind, "responses");
+    f.loads.recv().await.unwrap();
     drop(body);
+    drop(call);
     drained(&mut f).await;
-    assert!(f.state.wave.check().is_some(), "disconnect must not clear the pause");
-    f.state.wave.note_success();
-    tokio::time::advance(Duration::from_secs(2)).await;
-    tokio::task::yield_now().await;
     idle(&mut f).await;
-    assert_eq!(f.state.serving_accounts.residents.snapshot().unwrap().occupied, 0);
-    assert_eq!(serde_json::to_value(f.state.state.list().await.unwrap()).unwrap(), before);
+    f.no_call();
 }
 
 struct Accounts {

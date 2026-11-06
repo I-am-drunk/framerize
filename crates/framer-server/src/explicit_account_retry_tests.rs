@@ -222,35 +222,21 @@ async fn exercise_undecodable_account(wave: bool) {
             let response = tokio::time::timeout(WAIT,
                 crate::router(f.state.clone(), "/nonexistent-fixture-web").oneshot(request))
                 .await.unwrap().unwrap();
-            let wave_response = wave && !messages;
-            assert_eq!(response.status(), if wave_response { StatusCode::SERVICE_UNAVAILABLE }
-                else { StatusCode::BAD_REQUEST });
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
             assert_eq!(response.headers()[axum::http::header::CONTENT_TYPE], "application/json");
             assert!(response.headers().contains_key("x-framerize-operation-id"));
-            if wave_response {
-                assert_eq!(response.headers()[axum::http::header::RETRY_AFTER], "30");
-            } else {
-                assert!(!response.headers().contains_key(axum::http::header::RETRY_AFTER));
-            }
+            assert!(!response.headers().contains_key(axum::http::header::RETRY_AFTER));
             assert_eq!(ownership.gate.stats().unwrap().active, 2); // Host and response.
             assert!(!ownership.gate.stats().unwrap().unconfirmed);
             if consume {
                 let body = tokio::time::timeout(WAIT, to_bytes(response.into_body(), 4096))
                     .await.unwrap().unwrap();
                 let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
-                if wave_response {
-                    assert_eq!(value["error"]["code"], "framerize_cooling");
-                    assert_eq!(value["error"]["type"], "overloaded_error");
-                    assert_eq!(value["error"]["retry_after_seconds"], 30);
-                    assert_eq!(value["error"]["message"],
-                        "Recent security refusals across multiple accounts triggered the global admission pause. Retry in 30 seconds.");
-                } else {
-                    assert_eq!(value, serde_json::json!({"type":"error", "error": {
-                        "type":"invalid_request_error",
-                        "code": "invalid_request",
-                        "message": "x-framerize-account must contain valid text"
-                    }}));
-                }
+                assert_eq!(value, serde_json::json!({"type":"error", "error": {
+                    "type":"invalid_request_error",
+                    "code": "invalid_request",
+                    "message": "x-framerize-account must contain valid text"
+                }}));
             } else {
                 drop(response);
             }

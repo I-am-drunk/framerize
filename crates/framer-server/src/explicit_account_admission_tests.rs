@@ -325,20 +325,23 @@ async fn ready_explicit_preserves_closing_fence_and_unconfirmed_close() {
 }
 
 #[tokio::test]
-async fn api_run_ready_keeps_existing_wave_backoff_before_io() {
+async fn api_run_does_not_apply_a_global_refusal_wave_to_inference() {
     let (mut state, ports) = fixture(false);
     state.runtime_mut().expect("unique fixture runtime").serving_accounts = Arc::new(policy(&[1, 2]));
     state.wave.note_refusal("fixture-a");
     state.wave.note_refusal("fixture-b");
     assert!(state.wave.check().is_some());
-    let before = records(&ports);
+    *ports.native_session.lock().unwrap() = Some(None);
     let result = crate::run(State(state.clone()), Json(run_body())).await;
     let response = result.unwrap();
-    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-    let body: Value = serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
-    assert_eq!(body["error"]["code"], "framerize_cooling");
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    assert_eq!(body.as_ref(), framer_core::error::CoreError::NoSession.to_string().as_bytes());
     assert!(state.wave.check().is_some());
-    assert_unchanged_without_io(&ports, &before);
+    assert_eq!(ports.session_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(ports.client_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(ports.browser_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(ports.state_writes.load(Ordering::SeqCst), 0);
     assert_no_request_lease_or_peer(&state);
 }
 

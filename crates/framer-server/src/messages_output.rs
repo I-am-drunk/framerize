@@ -100,7 +100,6 @@ pub(super) async fn serve(state: AppState, payload: Value, model: String, max_to
 }
 
 async fn preflight(state: &AppState, requested: Option<&str>) -> Result<(), ApiError> {
-    if requested.is_none() && state.wave.check().is_some() { return Ok(()); }
     let pool = state.state.list().await.map_err(ApiError::Internal)?;
     if requested.is_none() && pool.iter().any(|account|
         state.serving_accounts.allows(&account.id) && account.is_eligible()) { return Ok(()); }
@@ -170,9 +169,6 @@ async fn admit(state: &AppState, requested: Option<&str>, model: &str,
     loop {
         if cancelled() { return (Err("client cancelled".into()), cleanup); }
         let result = async {
-            if let Some(remaining) = state.wave.check() {
-                return Err(ApiError::Cooling { retry_after_secs: remaining.as_secs() + 1 });
-            }
             let pool = state.state.list().await.map_err(ApiError::Internal)?;
             let acquired = pool_control::select_account_observed(state, pool, requested, &[]).await;
             cleanup &= acquired.cleanup_confirmed;

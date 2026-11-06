@@ -1012,9 +1012,6 @@ async fn current_account(s: &AppState, id: AccountId) -> Result<ManagedAccount, 
     }
     let account = s.state.get(id).await.map_err(ApiError::Internal)?
         .ok_or_else(|| ApiError::InvalidRequest("account not found".into()))?;
-    if let Some(remaining) = s.wave.check() {
-        return Err(ApiError::Cooling { retry_after_secs: remaining.as_secs().saturating_add(1) });
-    }
     let now = framer_core::rotation::now_ms();
     if let Some(until) = account.cooling_until_ms.filter(|until| *until > now) {
         return Err(ApiError::AccountCooling {
@@ -1233,11 +1230,6 @@ async fn free_complete(
             hdr(headers, "x-framerize-account"), hdr(headers, "x-framerize-session")).await;
     }
 
-    if let Some(remaining) = s.wave.check() {
-        return Err(operation_ownership::completed_preflight(ApiError::Cooling {
-            retry_after_secs: remaining.as_secs().saturating_add(1),
-        }));
-    }
     if headers.get("x-framerize-account").is_some_and(|value| value.to_str().is_err()) {
         return Err(operation_ownership::completed_preflight(ApiError::InvalidRequest(
             "x-framerize-account must contain valid text".into(),
@@ -1583,16 +1575,6 @@ async fn native_complete(
         }
     }
 
-    if let Some(remaining) = s.wave.check() {
-        if wants_stream && dialect == ClientDialect::OpenAiResponses
-            && !headers.contains_key("x-framerize-account") {
-            return response_output::wait(s, native_payload, client_model, max_tokens,
-                hdr(headers, "x-framerize-session")).await;
-        }
-        return Err(operation_ownership::completed_preflight(ApiError::Cooling {
-            retry_after_secs: remaining.as_secs().saturating_add(1),
-        }));
-    }
     if headers.get("x-framerize-account").is_some_and(|value| value.to_str().is_err()) {
         return Err(operation_ownership::completed_preflight(ApiError::InvalidRequest(
             "x-framerize-account must contain valid text".into(),

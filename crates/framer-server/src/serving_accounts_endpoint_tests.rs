@@ -350,30 +350,14 @@ async fn non_waiting_routes_reject_all_cooling_before_external_io() {
 }
 
 #[tokio::test]
-async fn wave_cooldown_returns_retry_after_and_json_before_external_io() {
-    use axum::response::IntoResponse;
-    for (dialect, stream) in [(ClientDialect::AnthropicMessages, false),
-        (ClientDialect::OpenAiResponses, false)] {
-        let (state, ports) = fixture(false);
-        state.wave.note_refusal("fixture-a");
-        state.wave.note_refusal("fixture-b");
-        let payload = json!({
-            "model": "gpt-6-astra", "stream": stream,
-            "input": "fixture", "messages": [{"role": "user", "content": "fixture"}]
-        });
-        let error = crate::free_complete(state.clone(), &HeaderMap::new(), dialect, payload).await.unwrap_err();
-        let response = error.into_response();
-        assert_eq!(response.status(), 503);
-        assert_eq!(response.headers()["retry-after"], "30");
-        assert!(state.wave.check().unwrap() > std::time::Duration::from_secs(30));
-        assert_eq!(response.headers()["content-type"], "application/json");
-        let bytes = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
-        let body: Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(body["error"]["code"], "framerize_cooling");
-        assert_eq!(body["error"]["retry_after_seconds"], 30);
-        assert!(body["error"]["cooldown_remaining_seconds"].as_u64().unwrap() > 30);
-        ports.assert_rejected_before_io(0);
-    }
+async fn refusal_wave_keeps_healthy_accounts_available_for_inference() {
+    let (state, ports) = fixture(false);
+    state.wave.note_refusal("fixture-a");
+    state.wave.note_refusal("fixture-b");
+    assert!(state.wave.check().is_some());
+    let available = crate::current_account(&state, account(1).id).await.unwrap();
+    assert_eq!(available.id, account(1).id);
+    ports.assert_rejected_before_io(1);
 }
 
 #[tokio::test]
@@ -435,7 +419,7 @@ async fn cooldown_guidance_bounds_local_rechecks_and_preserves_full_pause() {
 }
 
 #[tokio::test]
-async fn local_rechecks_keep_wave_closed_until_an_actual_success() {
+async fn refusal_wave_does_not_override_account_admission_errors() {
     for dialect in [
         ClientDialect::AnthropicMessages, ClientDialect::OpenAiResponses,
         ClientDialect::OpenAiChat,
@@ -449,19 +433,19 @@ async fn local_rechecks_keep_wave_closed_until_an_actual_success() {
             "model": "gpt-6-astra", "stream": false, "input": "fixture",
             "messages": [{"role": "user", "content": "fixture"}]
         });
-        for _ in 0..3 {
+        for attempt in 0..3 {
             let result = crate::free_complete(
                 state.clone(), &parked_headers(), dialect, payload.clone(),
             ).await;
-            assert!(matches!(result, Err(ApiError::Cooling { retry_after_secs }) if retry_after_secs > 800));
+            assert!(matches!(result, Err(ApiError::ServingCapacity(_))));
             assert!(state.wave.check().unwrap() > std::time::Duration::from_secs(800));
-            ports.assert_rejected_before_io(0);
+            ports.assert_rejected_before_io(attempt + 1);
         }
         state.wave.note_success();
         assert!(state.wave.check().is_none());
         let result = crate::free_complete(state, &parked_headers(), dialect, payload).await;
         assert!(matches!(result, Err(ApiError::ServingCapacity(_))));
-        ports.assert_rejected_before_io(1);
+        ports.assert_rejected_before_io(4);
     }
 }
 
