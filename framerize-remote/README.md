@@ -59,7 +59,8 @@ command. A pending hostname lookup does not delay rollback.
 If setup fails or is cancelled, `up` attempts to restore the previous
 profile and service state. A previously stopped service stays stopped. If
 restoration fails, the error includes the original failure and reports that
-restoration is incomplete. If the profile cannot be restored, `up` does not restart
+restoration is incomplete. If stopping fails, rollback keeps the unit.
+If the profile cannot be restored, `up` does not restart
 the service with changed settings.
 Rerunning `up` with unchanged settings checks the running service without restarting
 it. Where no service manager is available, `up` saves the profile and asks you to

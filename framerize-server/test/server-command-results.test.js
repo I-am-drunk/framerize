@@ -15,7 +15,7 @@ test('commands preserve stdout, failure status and literal arguments', { timeout
   const args = ['-e', 'process.stdout.write(process.argv[1])', value];
   assert.deepEqual(await runStep(process.execPath, args), { code: 0, stdout: value });
   assert.deepEqual(await runStep(process.execPath, ['-e', 'process.stdout.write("kept"); process.exit(7)']),
-    { code: 1, stdout: 'kept' });
+    { code: 7, stdout: 'kept' });
   assert.deepEqual(await runStep(join(dirname(process.execPath), 'framerize-missing-command'), []),
     { code: 1, stdout: '' });
 });
