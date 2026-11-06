@@ -137,7 +137,7 @@ export async function runClient(argv: readonly string[], deps: ClientSetupDeps):
   if (options.check) return check(options, deps);
   try {
     if (options.undo) {
-      const result = await undoClaudeSettings(deps.stateDir);
+      const result = await undoClaudeSettings(deps.stateDir, deps.platform);
       deps.io.stdout(result === 'restored' ? 'Removed the Remote values from Claude settings.\n'
         : result === 'changed_since' ? 'Claude settings changed since Framerize wrote them; left them unchanged.\n'
           : 'Framerize has not written Claude settings.\n');

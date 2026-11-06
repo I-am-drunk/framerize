@@ -99,6 +99,15 @@ function ours(record: WriteRecord | undefined, key: (typeof MANAGED_KEYS)[number
   return typeof value === 'string' && record?.written[key] === digest(value);
 }
 
+function foreignManagedKeys(env: Record<string, unknown>, record: WriteRecord | undefined,
+  platform: NodeJS.Platform): string[] {
+  const names = Object.keys(env);
+  // Framerize only writes canonical keys; aliases remain externally managed.
+  return MANAGED_KEYS.flatMap(managed => names.filter(key =>
+    (platform === 'win32' ? key.toUpperCase() : key) === managed && env[key] !== undefined
+      && (key !== managed || !ours(record, managed, env[key]))));
+}
+
 /** Sets only the managed env keys and keeps every other setting. Values Framerize did not write stay. */
 export async function writeClaudeSettings(settingsPath: string, stateDir: string, target: RemoteTarget,
   platform: NodeJS.Platform = process.platform): Promise<void> {
@@ -120,11 +129,7 @@ async function writeSettings(settingsPath: string, stateDir: string, target: Rem
     throw new SettingsError('Claude settings are already managed at another path. Run frm client claude --undo with the same Remote profile before changing CLAUDE_CONFIG_DIR.');
   }
   const values = claudeEnv(target);
-  const names = Object.keys(env);
-  // Framerize only writes canonical keys; aliases remain externally managed.
-  const foreign = MANAGED_KEYS.flatMap(managed => names.filter(key =>
-    (platform === 'win32' ? key.toUpperCase() : key) === managed && env[key] !== undefined
-      && (key !== managed || !ours(record, managed, env[key]))));
+  const foreign = foreignManagedKeys(env, record, platform);
   if (foreign.length > 0) {
     throw new SettingsError(`Claude settings already set ${foreign.join(' and ')}. Remove them or use frm client claude without --persist.`);
   }
@@ -147,21 +152,23 @@ async function writeSettings(settingsPath: string, stateDir: string, target: Rem
 export type UndoResult = 'restored' | 'not_configured' | 'changed_since';
 
 /** Removes only values that still match what Framerize wrote, then forgets the record. */
-export async function undoClaudeSettings(stateDir: string): Promise<UndoResult> {
+export async function undoClaudeSettings(stateDir: string,
+  platform: NodeJS.Platform = process.platform): Promise<UndoResult> {
   if (!await readRecord(stateDir)) return 'not_configured';
   stateDir = await settingsDestination(stateDir);
   return withSettingsLock(recordPath(stateDir), async () => {
     const record = await readRecord(stateDir);
     if (!record) return 'not_configured';
     const settingsPath = await settingsDestination(record.settingsPath);
-    return withSettingsLock(settingsPath, () => undoSettings(settingsPath, stateDir, record));
+    return withSettingsLock(settingsPath, () => undoSettings(settingsPath, stateDir, record, platform));
   });
 }
 
-async function undoSettings(settingsPath: string, stateDir: string, record: WriteRecord): Promise<UndoResult> {
+async function undoSettings(settingsPath: string, stateDir: string, record: WriteRecord,
+  platform: NodeJS.Platform): Promise<UndoResult> {
   const settings = await readSettings(settingsPath);
   const env = { ...(settings?.env ?? {}) };
-  const changed = MANAGED_KEYS.some(key => env[key] !== undefined && !ours(record, key, env[key]));
+  const changed = foreignManagedKeys(env, record, platform).length > 0;
   if (settings && !changed) {
     for (const key of MANAGED_KEYS) delete env[key];
     const { env: _previous, ...rest } = settings;
