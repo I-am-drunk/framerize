@@ -146,14 +146,14 @@ export async function runSetupCommand(argv: readonly string[], dependencies: Set
   const env = dependencies.env ?? process.env;
   const plan = servicePlan(env, dependencies);
   if (command === 'status' || action === 'status') {
-    const state = await serviceStatus(plan, run);
+    const state = await serviceStatus(plan, run, dependencies.signal);
     dependencies.stdout.write(flags.json ? `${JSON.stringify(state)}\n`
       : `Server service: ${state.running ? 'running' : state.installed ? 'stopped' : 'not installed'}\n`);
     return 0;
   }
   if (action && ['start', 'stop', 'restart', 'uninstall'].includes(action)) {
     const result = action === 'uninstall' ? await uninstall(plan, run, dependencies.signal)
-      : await controlService(plan, action as 'start' | 'stop' | 'restart', run);
+      : await controlService(plan, action as 'start' | 'stop' | 'restart', run, dependencies.signal);
     dependencies.stdout.write(flags.json ? `${JSON.stringify({ service: result })}\n` : `Server service: ${result}\n`);
     return 0;
   }
@@ -161,7 +161,7 @@ export async function runSetupCommand(argv: readonly string[], dependencies: Set
 }
 
 async function uninstall(plan: ServicePlan, run?: StepRunner, signal?: AbortSignal): Promise<'done' | 'missing'> {
-  const status = await serviceStatus(plan, run);
+  const status = await serviceStatus(plan, run, signal);
   if (status.otherHome) throw new ServerSetupError('The Server service belongs to another FRAMERIZE_SERVER_HOME.');
   const path = join(plan.home, 'server.json');
   const exists = await access(path).then(() => true, error => {
@@ -174,7 +174,7 @@ async function uninstall(plan: ServicePlan, run?: StepRunner, signal?: AbortSign
     const route = await prepareTailscale(config.port, saved.access.tailscalePort, run, localAddress(config).host);
     await route.remove();
   }
-  const result = await controlService(plan, 'uninstall', run);
+  const result = await controlService(plan, 'uninstall', run, signal);
   if (saved?.access) {
     const { access: _access, ...settings } = saved;
     await writeAtomic(path, `${JSON.stringify(settings, null, 2)}\n`);

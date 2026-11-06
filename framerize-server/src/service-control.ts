@@ -1,7 +1,9 @@
 // Service activation and rollback adapted from T3 Code cli/up.ts and
 // cloud/bootService.ts at 5a906583fed3fa41dc806f2a19bd9d095537ed3e. MIT, T3 Tools Inc.
 import { execFile, spawn } from 'node:child_process';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { mkdir, open, rename, rm, writeFile } from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { selectServiceManager, serviceHomeOf, type ServicePlan, type ServiceStep } from './service-units.js';
@@ -139,12 +141,41 @@ export async function ensureServiceHost(plan: ServicePlan, run: StepRunner = run
   }
 }
 
-async function readOptional(path: string): Promise<string | undefined> {
-  try { return await readFile(path, 'utf8'); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-    throw error;
-  }
+async function readOptional(path: string, signal?: AbortSignal): Promise<string | undefined> {
+  signal?.throwIfAborted();
+  let file: FileHandle | undefined;
+  let closing: Promise<void> | undefined;
+  const close = (): Promise<void> => file ? closing ??= file.close() : Promise.resolve();
+  const pending = (async () => {
+    try {
+      file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOCTTY);
+      signal?.throwIfAborted();
+      const info = await file.stat();
+      signal?.throwIfAborted();
+      if (!info.isFile()) throw new ServerSetupError('Service state must be a regular file.');
+      const contents = await file.readFile({ encoding: 'utf8', signal });
+      signal?.throwIfAborted();
+      return contents;
+    } catch (error) {
+      signal?.throwIfAborted();
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw error;
+    } finally { await close(); }
+  })();
+  if (!signal) return pending;
+  let abort = (): void => {};
+  try {
+    const result = await Promise.race([pending, new Promise<never>((_resolve, reject) => {
+      abort = () => {
+        void close().catch(() => {});
+        reject(signal.reason);
+      };
+      signal.addEventListener('abort', abort, { once: true });
+      if (signal.aborted) abort();
+    })]);
+    signal.throwIfAborted();
+    return result;
+  } finally { signal.removeEventListener('abort', abort); }
 }
 
 export async function writeAtomic(path: string, contents: string): Promise<void> {
@@ -162,14 +193,16 @@ async function steps(run: StepRunner, entries: readonly ServiceStep[]): Promise<
   }
 }
 
-export async function serviceStatus(plan: ServicePlan, run: StepRunner = runStep) {
+export async function serviceStatus(plan: ServicePlan, run: StepRunner = runStep, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  const activeRun = cancellableRunner(run, signal);
   const manager = selectServiceManager(plan);
   if (!manager) return { supported: false, installed: false, running: false, enabled: false, current: false, otherHome: false };
-  const contents = await readOptional(manager.path);
+  const contents = await readOptional(manager.path, signal);
   const installed = contents !== undefined;
   const installedHome = contents && serviceHomeOf(contents);
   const otherHome = installed && (!installedHome || resolve(installedHome) !== resolve(plan.home));
-  const state = installed ? await run(manager.active.command, manager.active.args) : undefined;
+  const state = installed ? await activeRun(manager.active.command, manager.active.args) : undefined;
   const loaded = state?.code === 0;
   const output = state?.stdout ?? '';
   const activeState = /^ActiveState=(\S+)$/m.exec(output)?.[1];
@@ -179,7 +212,7 @@ export async function serviceStatus(plan: ServicePlan, run: StepRunner = runStep
     ? /^ActiveState=active$/m.test(output) && /^SubState=running$/m.test(output)
     : /^\s*state = running\s*$/m.test(output);
   const running = loaded && active && Number.isSafeInteger(pid) && pid > 0;
-  const enabled = !manager.enabled || (await run(manager.enabled.command, manager.enabled.args)).code === 0;
+  const enabled = !manager.enabled || (await activeRun(manager.enabled.command, manager.enabled.args)).code === 0;
   return { supported: true, installed, running, loaded, activeState, pid: running ? pid : undefined,
     enabled, current: contents === manager.contents && enabled, otherHome,
     unitPath: manager.path, logPath: join(plan.home, 'server.log') };
@@ -197,10 +230,12 @@ export async function reconcileService(plan: ServicePlan, settings: string,
   Promise<'installed' | 'updated' | 'unchanged'> {
   const manager = requiredManager(plan);
   const activeRun = cancellableRunner(run, signal);
-  const before = await serviceStatus(plan, activeRun);
+  const before = await serviceStatus(plan, activeRun, signal);
   if (before.otherHome) throw new ServerSetupError('The Server service belongs to another FRAMERIZE_SERVER_HOME.');
   const settingsPath = join(plan.home, 'server.json');
-  const [oldSettings, oldUnit] = await Promise.all([readOptional(settingsPath), readOptional(manager.path)]);
+  const oldSettings = await readOptional(settingsPath, signal);
+  const oldUnit = await readOptional(manager.path, signal);
+  signal?.throwIfAborted();
   if (before.running && before.current && oldSettings === settings) {
     await verifyReady(await ready());
     return 'unchanged';
@@ -222,7 +257,7 @@ export async function reconcileService(plan: ServicePlan, settings: string,
   return before.installed ? 'updated' : 'installed';
 
   async function verifyReady(pid: number | void): Promise<void> {
-    const after = await serviceStatus(plan, activeRun);
+    const after = await serviceStatus(plan, activeRun, signal);
     if (!after.running || (pid !== undefined && after.pid !== pid)) {
       throw new ServerSetupError('The Server service is not running or another process answered readiness. Check server.log.');
     }
@@ -255,19 +290,21 @@ export async function reconcileService(plan: ServicePlan, settings: string,
 }
 
 export async function controlService(plan: ServicePlan, action: 'start' | 'stop' | 'restart' | 'uninstall',
-  run: StepRunner = runStep): Promise<'done' | 'missing'> {
+  run: StepRunner = runStep, signal?: AbortSignal): Promise<'done' | 'missing'> {
+  signal?.throwIfAborted();
+  const activeRun = cancellableRunner(run, signal);
   const manager = requiredManager(plan);
-  const status = await serviceStatus(plan, run);
+  const status = await serviceStatus(plan, activeRun, signal);
   if (!status.installed) return 'missing';
   if (status.otherHome) throw new ServerSetupError('The Server service belongs to another FRAMERIZE_SERVER_HOME.');
   if (action === 'start' && status.running) return 'done';
   if (action === 'uninstall') {
-    if (plan.platform !== 'darwin' || status.loaded) await steps(run, manager.remove);
+    if (plan.platform !== 'darwin' || status.loaded) await steps(activeRun, manager.remove);
     await rm(manager.path, { force: true });
-    await steps(run, manager.reload);
+    await steps(activeRun, manager.reload);
   } else if (action !== 'stop' || status.loaded) {
     const needsRestart = plan.platform === 'darwin' ? status.loaded : status.running && action === 'restart';
-    await steps(run, action === 'stop' ? manager.stop
+    await steps(activeRun, action === 'stop' ? manager.stop
       : needsRestart ? manager.restart : manager.activate);
   }
   return 'done';
