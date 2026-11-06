@@ -24,7 +24,7 @@ HTTP = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 def prepare(root):
     profiles = root / 'profiles'
-    (profiles / '.sessions').mkdir(parents=True)
+    (profiles / '.sessions').mkdir(parents=True, mode=0o700)
     subprocess.run([sys.executable, '-I', '-B',
         str(REPO / 'runtime/tests_native/seed_ledger.py'),
         str(profiles / '.sidecar/camoufox')], check=True, timeout=10,
