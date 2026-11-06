@@ -46,7 +46,7 @@ jobs:
         run: python -I -B -m unittest discover -s runtime/tests -v
       - name: Operational lifecycle script tests
         if: matrix.app == 'framerize'
-        run: python -I -B -m unittest scripts.tests.test_lifecycle_scripts -v
+        run: python -I -B -m unittest discover -s scripts/tests -p test_lifecycle_scripts.py -v
       - name: Build browser interface
         if: matrix.app == 'framerize'
         run: |
