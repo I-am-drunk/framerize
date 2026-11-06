@@ -47,7 +47,9 @@ async function launch(platform, inherited, client = 'claude', authenticated = tr
   assert.deepEqual(output, []);
   assert.deepEqual(env, before, 'The parent environment must remain unchanged');
   assert.deepEqual(['SIGINT', 'SIGTERM'].map(name => process.listenerCount(name)), signals);
-  assert.equal(captures.length, platform === 'win32' || client === 'codex' ? 0 : 1);
+  const hasPosixOwner = process.getuid?.() !== undefined;
+  assert.equal(captures.length,
+    platform === 'win32' || client === 'codex' || !hasPosixOwner ? 0 : 1);
   assert.equal(reads.length > 0, client === 'claude');
   assert.equal(calls[0].options.env.AWS_REGION, 'synthetic-region');
   assert.equal(calls[0].options.env.KEEP_ME, 'unchanged');
