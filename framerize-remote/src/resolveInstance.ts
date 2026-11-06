@@ -36,14 +36,16 @@ export async function resolveInstance(
     if (error instanceof RemoteDiagnosticError) throw error;
     throw new RemoteDiagnosticError('profile_invalid', error instanceof Error ? error.message : undefined);
   }
+  const credentials = new AbortController();
+  const credentialSignal = signal ? AbortSignal.any([signal, credentials.signal]) : credentials.signal;
   const optional = (reference: RemoteConfig['serverToken'], code: 'server_credential' | 'local_credential') =>
-    reference === undefined ? Promise.resolve(null) : loadCredential(reference, env, signal).catch(() => {
+    reference === undefined ? Promise.resolve(null) : loadCredential(reference, env, credentialSignal).catch(() => {
       if (signal?.aborted) throw new RemoteDiagnosticError('aborted');
       throw new RemoteDiagnosticError(code, 'credential is unavailable or invalid');
     });
   const [serverToken, localToken] = await Promise.all([
     optional(config.serverToken, 'server_credential'), optional(config.localToken, 'local_credential'),
-  ]);
+  ]).catch(error => { credentials.abort(); throw error; });
   signal?.throwIfAborted();
   const backend = createRemoteBackend({
     endpoint, serverToken, ...DEFAULT_BACKEND_TIMINGS,
