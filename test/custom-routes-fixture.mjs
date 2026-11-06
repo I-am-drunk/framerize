@@ -63,7 +63,7 @@ export async function fixture(context, protocol, viaRemote, options = {}) {
       body: JSON.parse(Buffer.concat(chunks)) });
     response.once('close', disconnected.resolve);
     entered.resolve();
-    if (options.respond) { options.respond(response, observed.length); return; }
+    if (options.respond) { options.respond(response, observed.length, observed.at(-1)); return; }
     response.writeHead(options.status ?? 200, {
       'content-type': 'application/json', ...options.headers,
       ...(options.mode === 'length' ? { 'content-length': payload.length + 100 } : {}),
