@@ -85,7 +85,8 @@ export function captureSettings(config: ServerConfig, env: Environment,
   const environment: Record<string, string> = {};
   for (const name of [config.serverTokenEnv, config.authorizationEnv, ...extraEnvNames]) {
     const value = env[name];
-    if (name && value !== undefined) environment[name] = value;
+    if (name && value !== undefined) Object.defineProperty(environment, name,
+      { value, enumerable: true, writable: true, configurable: true });
   }
   const values: Record<string, unknown> = { ...config };
   if (!config.serverToken && !config.serverTokenFile) {
