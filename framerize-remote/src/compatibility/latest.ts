@@ -51,7 +51,8 @@ export async function lookupLatestVersion(client: ClientName, plan: UpdatePlan, 
     const npmPackage = CLIENTS[client].npmPackage;
     const owner = plan.owner;
     if (owner.kind === 'native' && client === 'claude') {
-      const channel = await claudeUpdateChannel(deps.read, deps.platform, deps.env, claudeSettingsPath(deps.env, deps.home));
+      const channel = await claudeUpdateChannel(deps.read, deps.platform, deps.env,
+        claudeSettingsPath(deps.env, deps.home), deps.signal);
       if (deps.signal?.aborted) return null;
       const text = (await deps.fetch(claudeReleaseUrl(channel), RELEASE_TIMEOUT_MS, deps.signal))?.trim() ?? null;
       return isNativeVersion(text) ? text : null;

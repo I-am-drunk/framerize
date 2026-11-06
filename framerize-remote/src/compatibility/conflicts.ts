@@ -53,10 +53,32 @@ export interface LaunchSettings {
   readonly blocking: readonly SettingsConflict[];
 }
 
+export async function readSettings(read: ReadText, path: string, signal?: AbortSignal): Promise<string | null> {
+  if (!signal) return read(path);
+  signal.throwIfAborted();
+  let abort = (): void => {};
+  try {
+    const cancelled = new Promise<never>((resolveUnused, reject) => {
+      abort = () => reject(signal.reason);
+      signal.addEventListener('abort', abort, { once: true });
+      if (signal.aborted) abort();
+    });
+    const text = await Promise.race([Promise.resolve().then(() => {
+      signal.throwIfAborted();
+      return read(path);
+    }), cancelled]);
+    signal.throwIfAborted();
+    return text;
+  } finally {
+    signal.removeEventListener('abort', abort);
+  }
+}
+
 /** Inspects user, project, local and managed Claude settings before a launch. */
 export async function inspectClaudeSettings(read: ReadText, input: { readonly platform: NodeJS.Platform;
   readonly env: NodeJS.ProcessEnv; readonly userPath: string; readonly cwd: string;
   readonly localPath?: string;
+  readonly signal?: AbortSignal;
   readonly expected: Readonly<Record<string, string>> }): Promise<LaunchSettings> {
   const managedPath = claudeManagedSettingsPath(input.platform, input.env);
   const localPath = join(input.cwd, '.claude', 'settings.local.json');
@@ -66,7 +88,8 @@ export async function inspectClaudeSettings(read: ReadText, input: { readonly pl
   const blocking: SettingsConflict[] = [];
   for (const path of files) {
     const managed = path === managedPath;
-    const keys = conflictKeys(parseSettingsObject(await read(path)), managed, input.expected, input.platform);
+    const text = await readSettings(read, path, input.signal);
+    const keys = conflictKeys(parseSettingsObject(text), managed, input.expected, input.platform);
     const blocked = keys.filter(key => managed || key.toUpperCase() !== 'ENV.ANTHROPIC_BASE_URL');
     if (keys.length > blocked.length) overrideBaseUrl = true;
     if (blocked.length > 0) blocking.push({ path, keys: blocked });
