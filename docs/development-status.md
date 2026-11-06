@@ -7,9 +7,14 @@ which matched the reported prompt outage; restarting erased that in-memory
 pause. Inference requests now continue through healthy eligible accounts while
 the refused account keeps its persisted cooldown. The wave guard remains for
 account activation and lifecycle control. All 501 framer-server tests pass,
-including the refusal-wave admission and stream regressions. The candidate is
-not built for Linux or deployed.
-Next: build and smoke-test the Linux x64 package locally.
+including the refusal-wave admission and stream regressions. A Linux x86_64
+release package was built locally and passed the isolated package lifecycle
+smoke check. Its archive SHA-256 is
+13a3deb02b62cb5779a9f01e04c6c0b9824be65c68dea33d9fb6565b5bd85830. The
+candidate branch and archive are not published because GitHub authentication
+is unavailable on this laptop; Iris still runs the original binary.
+Next: publish the branch and archive to GitHub, then deploy with the verified
+graceful-drain procedure and confirm the new process is healthy.
 
 # Alpha.31 Claude tool-input budget repair, 2026-11-04
 
