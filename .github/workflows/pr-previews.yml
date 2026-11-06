@@ -1,0 +1,58 @@
+name: PR preview downloads
+
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+  pull_request_target:
+    types: [closed]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+jobs:
+  identify:
+    if: github.event_name == 'pull_request_target' || (github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    outputs:
+      pr: ${{ steps.target.outputs.result }}
+    steps:
+      - id: target
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          result-encoding: string
+          script: |
+            if (context.payload.pull_request) return context.payload.pull_request.number;
+            const run = context.payload.workflow_run;
+            const linked = run.pull_requests.length ? run.pull_requests
+              : await github.paginate(github.rest.repos.listPullRequestsAssociatedWithCommit,
+                { ...context.repo, commit_sha: run.head_sha });
+            const matches = linked.filter(pr => pr.head.sha === run.head_sha
+              && pr.base.repo.id === context.payload.repository.id);
+            return matches.length === 1 ? matches[0].number : '';
+
+  publish:
+    needs: identify
+    if: needs.identify.outputs.pr != ''
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+    concurrency:
+      group: pr-preview-${{ needs.identify.outputs.pr }}
+      cancel-in-progress: false
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
+        with:
+          script: |
+            const { publish } = require('./.github/scripts/publish-pr-preview.cjs');
+            await publish({ github, context, core });

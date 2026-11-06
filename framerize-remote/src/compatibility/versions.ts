@@ -1,4 +1,6 @@
-import { readFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { open } from 'node:fs/promises';
+import { StringDecoder } from 'node:string_decoder';
 import type { ReadText } from './conflicts.js';
 import { claudeManagedSettingsPath, parseSettingsObject } from './conflicts.js';
 
@@ -35,7 +37,21 @@ export const fetchText: FetchText = async (url, timeoutMs, signal) => {
 };
 
 export const readText: ReadText = async path => {
-  try { const text = await readFile(path, 'utf8'); return text.length <= 1024 * 1024 ? text : null; }
+  try {
+    const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
+    try {
+      if (!(await file.stat()).isFile()) return null;
+      const decoder = new StringDecoder('utf8');
+      const buffer = Buffer.alloc(65536);
+      let text = '';
+      while (true) {
+        const { bytesRead } = await file.read(buffer, 0, buffer.length, null);
+        text += bytesRead ? decoder.write(buffer.subarray(0, bytesRead)) : decoder.end();
+        if (text.length > 1024 * 1024) return null;
+        if (!bytesRead) return text;
+      }
+    } finally { await file.close(); }
+  }
   catch { return null; }
 };
 

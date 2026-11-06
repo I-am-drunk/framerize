@@ -31,7 +31,7 @@ export function packageFixture(t, { environmentAware = false } = {}) {
   for (const folder of ['src', 'bin', 'scripts', 'dist']) mkdirSync(path.join(directory, folder), { recursive: true });
   const providerFiles = ['provider.js', 'provider.d.ts', 'core.d.ts',
     ...['startup-access', 'private-network', 'qr-code', 'settings', 'setup', 'service-units',
-      'service-control', 'tailscale'].flatMap(name => [`${name}.js`, `${name}.d.ts`]),
+      'service-control', 'tailscale', 'account-cli', 'account-store', 'browser-login'].flatMap(name => [`${name}.js`, `${name}.d.ts`]),
     'backend.js', 'backend.d.ts', 'castle-loader.js', 'castle-loader.d.ts', 'castle.js',
     'framer-auth.js', 'framer-auth.d.ts',
     'account-backend.js', 'account-backend.d.ts',
