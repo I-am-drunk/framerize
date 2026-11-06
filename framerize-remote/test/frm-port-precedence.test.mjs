@@ -4,6 +4,7 @@ import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { createServer, get } from 'node:http';
+import { isIP } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -58,8 +59,9 @@ function health(port, host = '127.0.0.1') {
   return new Promise((resolve, reject) => {
     const request = get({ host, port, path: '/health', agent: false,
       signal: AbortSignal.timeout(2000) }, response => {
+      const address = response.socket.remoteAddress;
       response.once('error', reject);
-      response.once('end', () => resolve(response.statusCode));
+      response.once('end', () => resolve({ status: response.statusCode, address }));
       response.resume();
     });
     request.once('error', reject);
@@ -119,11 +121,15 @@ for (const command of ['serve', 'setup']) {
     const listening = await bounded(ready);
     assert.equal(listening.host, host);
     const { port } = listening;
-    assert.equal(await health(port, host), 200);
+    const peer = await health(port, host);
+    assert.equal(peer.status, 200);
+    assert.notEqual(isIP(peer.address), 0);
+    context.diagnostic(JSON.stringify({ requestedHost: host, peer: peer.address, port }));
     assert.deepEqual(calls, ['/ready']);
     child.kill('SIGTERM');
     assert.deepEqual(await bounded(closed), process.platform === 'win32' ? [null, 'SIGTERM'] : [0, null]);
-    await assert.rejects(health(port, host), { code: 'ECONNREFUSED' });
+    // localhost can select another address family after this listener closes.
+    await assert.rejects(health(port, peer.address), { code: 'ECONNREFUSED' });
     const entries = await readdir(root, { recursive: true, withFileTypes: true });
     assert.deepEqual(entries.filter(entry => !entry.isDirectory()).map(entry => entry.name),
       command === 'setup' ? ['framerize-remote.json'] : []);
