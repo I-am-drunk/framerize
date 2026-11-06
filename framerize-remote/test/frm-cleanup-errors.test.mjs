@@ -30,11 +30,11 @@ export function runClientCommand() { throw new Error('Unexpected client command'
 } }] });
 const cli = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].contents).toString('base64')}`);
 
-for (const stage of ['service', 'client']) for (const event of ['SIGINT', 'SIGTERM']) {
+for (const stage of ['service', 'client', 'profile']) for (const event of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   test(`frm up preserves ${stage} cleanup failure after ${event}`, async t => {
     const root = await mkdtemp(join(tmpdir(), 'frm-cleanup-error-'));
     const previous = process.env.FRM_HOME;
-    const counts = ['SIGINT', 'SIGTERM'].map(name => process.listenerCount(name));
+    const counts = ['SIGINT', 'SIGTERM', 'SIGHUP'].map(name => process.listenerCount(name));
     t.after(async () => {
       if (previous === undefined) delete process.env.FRM_HOME;
       else process.env.FRM_HOME = previous;
@@ -43,11 +43,13 @@ for (const stage of ['service', 'client']) for (const event of ['SIGINT', 'SIGTE
     process.env.FRM_HOME = root;
     const cause = new Error('synthetic-private-cleanup-failure');
     const error = stage === 'service' ? new cli.ServiceCommandCleanupError(cause)
-      : new cli.ClientCleanupError([cause]);
+      : stage === 'client' ? new cli.ClientCleanupError([cause])
+      : new cli.ProfileLockCleanupError(new cli.SetupRollbackError(
+        new cli.RemoteDiagnosticError('upstream_unavailable'), [cause]), [cause]);
     let output = '', injected = false;
     const io = { stdout(text) { output += text; }, stderr() {},
       fail(current, signal) {
-        if (current !== stage) return;
+        if (current !== (stage === 'profile' ? 'service' : stage)) return;
         injected = true;
         process.emit(event);
         assert.equal(signal.aborted, true);
@@ -56,9 +58,11 @@ for (const stage of ['service', 'client']) for (const event of ['SIGINT', 'SIGTE
     await assert.rejects(cli.runFrm(['up', 'http://127.0.0.1:1'], io,
       { program: ['/synthetic/frm'] }), result => result === error);
     assert.equal(injected, true);
-    assert.equal(JSON.parse(cli.commandFailure(error, true)).error, `${stage}_cleanup_failed`);
+    const diagnostic = JSON.parse(cli.commandFailure(error, true));
+    assert.equal(diagnostic.error, stage === 'profile' ? 'service_rollback_failed' : `${stage}_cleanup_failed`);
+    if (stage === 'profile') assert.equal(diagnostic.profileLock.code, 'profile_lock_cleanup');
     assert.doesNotMatch(cli.commandFailure(error, false), /cancelled|synthetic-private/);
     assert.equal(output, stage === 'client' ? 'ready\n' : '');
-    assert.deepEqual(['SIGINT', 'SIGTERM'].map(name => process.listenerCount(name)), counts);
+    assert.deepEqual(['SIGINT', 'SIGTERM', 'SIGHUP'].map(name => process.listenerCount(name)), counts);
   });
 }

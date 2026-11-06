@@ -52,7 +52,7 @@ export async function createAccountBackend(input: AccountBackendOptions): Promis
   let castle: FramerMinter | undefined;
   try {
     checkSignal(config.signal);
-    const account = await loadFramerAccount(config.accountsFile, config.accountId);
+    const account = await loadFramerAccount(config.accountsFile, config.accountId, config.signal);
     checkSignal(config.signal);
     const sessionCookie = await readAccountSession(account.session, config.env, config.signal);
     checkSignal(config.signal);
