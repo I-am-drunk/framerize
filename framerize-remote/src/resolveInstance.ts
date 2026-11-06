@@ -16,6 +16,7 @@ export async function resolveInstance(
   configPath: string,
   env: NodeJS.ProcessEnv = process.env,
   overrides?: ListenOverrides,
+  afterSetup = false,
 ): Promise<Resolved> {
   let config: RemoteConfig;
   let endpoint: ReturnType<typeof resolveConfig>;
@@ -23,7 +24,7 @@ export async function resolveInstance(
     const selectedEnv: NodeJS.ProcessEnv = Object.create(env);
     if (overrides?.host !== undefined) Object.defineProperty(selectedEnv, 'FRM_HOST', { value: undefined });
     if (overrides?.port !== undefined) Object.defineProperty(selectedEnv, 'FRM_PORT', { value: undefined });
-    config = await loadRunConfig(configPath, selectedEnv);
+    config = await loadRunConfig(configPath, selectedEnv, afterSetup);
     if (overrides) config = applyListenOverrides(config, overrides);
     endpoint = resolveConfig(config);
   }
