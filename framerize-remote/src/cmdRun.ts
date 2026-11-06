@@ -18,7 +18,7 @@ export async function runCheck(
   tailscale = false,
   signal: AbortSignal = new AbortController().signal,
 ): Promise<CommandResult> {
-  const { backend } = await resolveInstance(configPath, env);
+  const { backend } = await resolveInstance(configPath, env, undefined, signal);
   try {
     const { readiness: result, code } = await backend.diagnose({ signal });
     const line = readinessLine(result);
@@ -57,7 +57,7 @@ export async function startServe(
   signal: AbortSignal = new AbortController().signal,
   overrides: ListenOverrides = {},
 ): Promise<ServeHandle> {
-  const { config, localToken, backend } = await resolveInstance(configPath, env, overrides);
+  const { config, localToken, backend } = await resolveInstance(configPath, env, overrides, signal);
   let close = async (): Promise<void> => { await backend.close(); };
   try {
     signal.throwIfAborted();
