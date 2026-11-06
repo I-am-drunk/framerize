@@ -99,10 +99,10 @@ export function parseHomebrewCaskVersion(stdout: string | null): string | null {
   } catch { return null; }
 }
 
-/** First version-shaped token in `--version` output; a malformed candidate is unknown. */
+/** First version-shaped token; validate build metadata before omitting it from the result. */
 export function parseInstalledVersion(stdout: string | null): string | null {
-  const candidate = /\b\d+\.\d+\.\d+[\w.-]*/.exec(stdout ?? '')?.[0];
-  return candidate && NPM_VERSION.test(candidate) ? candidate : null;
+  const candidate = /\b\d+\.\d+\.\d+[\w.+-]*/.exec(stdout ?? '')?.[0];
+  return candidate && NPM_VERSION.test(candidate) ? candidate.split('+', 1)[0]! : null;
 }
 
 export const isNativeVersion = (text: string | null): text is string => NATIVE_VERSION.test(text?.trim() ?? '');
