@@ -12,7 +12,7 @@
   "scripts": {
     "package:next": "tsc -p tsconfig.server-tools.json && node .tools/scripts/package-framer-next.js",
     "check:inference": "tsc -p tsconfig.tools.json && node .tools/scripts/check-inference.js",
-    "test:inference": "node --test .tools/test/inference-check.test.js test/inference-legacy-function.test.mjs",
+    "test:inference": "node --test .tools/test/inference-check.test.js test/inference-content-coding.test.mjs test/inference-delta-shape.test.mjs test/inference-comment-tail.test.mjs test/inference-event-dispatch.test.mjs test/inference-empty-data.test.mjs test/inference-legacy-function.test.mjs",
     "test:native-tools": "tsc -p tsconfig.server-tools.json && node --test .tools/test/server-native-bundle.test.js .tools/test/server-native-account.test.js .tools/test/framer-next.test.js test/server-workflow.test.mjs test/server-source-newlines.test.mjs",
     "build:server": "npm run build --workspace=@framerize/core && tsc -p tsconfig.server-tools.json && node .tools/scripts/build-server.js && tsc -p framerize-server/tsconfig.json",
     "test:release": "node --test .tools/test/package-release.test.js .tools/test/package-promotion.test.js",
