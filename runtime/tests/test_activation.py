@@ -401,20 +401,31 @@ class ActivationTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'state changed'):
                 service.stop(self.old / 'bin/framerize')
 
-    def test_service_preflight_refuses_overrides_and_an_unrelated_process(self):
+    def test_service_preflight_preserves_custom_config_and_rejects_mutation(self):
         service = activation.UserService()
         service.unit_file = self.root / 'framerize.service'
-        service.unit_file.write_text('fixture')
+        service.unit_file.write_text('custom user service')
+        executable = str(Path.home() / '.local/share/framerize/current/bin/framerize')
         info = dict(LoadState='loaded', ActiveState='active', MainPID='42',
                     FragmentPath=str(service.unit_file), DropInPaths='',
-                    KillMode='mixed', SendSIGKILL='yes', Delegate='no', NeedDaemonReload='no')
+                    KillMode='mixed', SendSIGKILL='yes', Delegate='no', NeedDaemonReload='no',
+                    ExecStart=f'{{ path={executable} ; argv[]={executable} daemon --listen 127.0.0.1:8787 ; pid=42 }}')
         with patch.object(service, 'show', return_value=info), \
              patch.object(service, 'executable', return_value=self.old / 'bin/framerize') as exe:
             service.validate(self.old, self.new)
-            info['DropInPaths'] = '/unreviewed/override.conf'
-            with self.assertRaisesRegex(ValueError, 'migration'):
-                service.validate(self.old, self.new)
+            override = self.root / 'override.conf'
+            override.write_text('MemoryMax=2G\n')
+            info['DropInPaths'] = str(override)
+            service.validate(self.old, self.new)
+            service.verify_configuration()
+            override.write_text('MemoryMax=1G\n')
+            with self.assertRaisesRegex(RuntimeError, 'configuration changed'):
+                service.verify_configuration()
             info['DropInPaths'] = ''
+            info['ExecStart'] = '{ path=/unmanaged/framerize ; argv[]=/unmanaged/framerize daemon ; pid=42 }'
+            with self.assertRaisesRegex(ValueError, 'managed current release'):
+                service.validate(self.old, self.new)
+            info['ExecStart'] = f'{{ path={executable} ; argv[]={executable} daemon ; pid=42 }}'
             exe.return_value = Path('/unrelated/framerize')
             with self.assertRaisesRegex(ValueError, 'running executable'):
                 service.validate(self.old, self.new)

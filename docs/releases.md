@@ -144,17 +144,23 @@ Health checks, an HTTP 402, or an unfinished HTTP 200 do not qualify a release.
 The receipt hashes its saved request results; changed evidence is rejected.
 
 The command checks the qualification, both packages, the installed user unit
-and the live history schema before stopping anything. It drains the service, changes `current`
-atomically, starts the selected package and verifies that the health response
-comes from its main process. Failed startup restores the previous compatible
-package. Account history is never restored from a backup or changed by this tool.
+and the live history schema before stopping anything. It drains the service,
+changes `current` atomically, starts the selected package and verifies that the
+health and readiness responses come from its main process. Failed startup
+restores the previous compatible package. Account history is never restored
+from a backup or changed by this tool.
 
 One update lock prevents concurrent replacements. An interrupted update leaves
 `update.json`; rerunning the command restores the previous package first and
 reports `recovered`, without retrying the failed candidate. Both packages must
-declare activation protocol 1, use the same history schema and carry the same
-installed service template. Development packages and unreviewed unit overrides
-are refused. This command does not perform the unresolved legacy migration.
+declare activation protocol 1, use compatible history schemas and carry
+text-equivalent service templates. User-managed unit files and drop-ins may
+remain installed when the effective `ExecStart` uses the managed `current`
+release, lifecycle settings are safe, and the exact unit/drop-in contents and
+effective settings stay unchanged through the drain and readiness checks. The
+activation never rewrites those files. Symlinked or missing config, stale
+systemd state, unsafe lifecycle settings, and unrelated executables still block
+replacement. This command does not perform the unresolved legacy migration.
 
 For source development, pass `--web-dir web/dist` and
 `--sidecar-script "$PWD/runtime/host.py"` explicitly. `--allow-dirty` creates a

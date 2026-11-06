@@ -1,9 +1,11 @@
 """Activate an already staged release of the managed browser service."""
 import fcntl
 from contextlib import closing
+import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import signal
 import sqlite3
 import subprocess
@@ -152,9 +154,40 @@ class UserService:
             env={'PATH': '/usr/bin:/bin', 'XDG_RUNTIME_DIR': f'/run/user/{os.getuid()}'})
 
     def show(self):
-        fields = 'LoadState,ActiveState,MainPID,FragmentPath,DropInPaths,KillMode,SendSIGKILL,Delegate,NeedDaemonReload'
+        fields = ('LoadState,ActiveState,MainPID,FragmentPath,DropInPaths,KillMode,SendSIGKILL,Delegate,NeedDaemonReload,'
+                  'ExecStart,Restart,RestartUSec,TimeoutStopUSec,MemoryMax,MemoryHigh,MemorySwapMax,TasksMax,'
+                  'CPUQuotaPerSecUSec,CPUQuotaPeriodUSec,StartLimitIntervalUSec,StartLimitBurst')
         result = self.command('show', '--property=' + fields, '--', self.unit)
         return dict(line.split('=', 1) for line in result.stdout.splitlines())
+
+    @staticmethod
+    def _configuration_snapshot(info, unit_file):
+        paths = [unit_file, *(Path(path) for path in info.get('DropInPaths', '').split())]
+        files = []
+        for path in paths:
+            if path.is_symlink() or not path.is_file():
+                raise ValueError('service configuration contains a missing file or symbolic link')
+            files.append((str(path.resolve()), hashlib.sha256(path.read_bytes()).hexdigest()))
+        start = info.get('ExecStart', '')
+        path = re.search(r'(?:^|[\s{])path=([^ ;}]+)', start)
+        argv = re.search(r'(?:^|[\s{])argv\[\]=([^;}]+)', start)
+        if not path or not argv:
+            raise ValueError('service has no single inspectable executable command')
+        properties = ('LoadState', 'FragmentPath', 'DropInPaths', 'KillMode', 'SendSIGKILL', 'Delegate',
+            'NeedDaemonReload', 'Restart', 'RestartUSec', 'TimeoutStopUSec', 'MemoryMax', 'MemoryHigh',
+            'MemorySwapMax', 'TasksMax', 'CPUQuotaPerSecUSec', 'CPUQuotaPeriodUSec',
+            'StartLimitIntervalUSec', 'StartLimitBurst')
+        return {
+            'files': tuple(files),
+            'exec_start_path': path.group(1).strip(),
+            'exec_start_argv_sha256': hashlib.sha256(argv.group(1).strip().encode()).hexdigest(),
+            'properties': tuple((key, info.get(key, '')) for key in properties),
+        }
+
+    def verify_configuration(self):
+        expected = getattr(self, '_validated_configuration', None)
+        if expected is not None and self._configuration_snapshot(self.show(), self.unit_file) != expected:
+            raise RuntimeError('service configuration changed after preflight')
 
     @staticmethod
     def executable(pid):
@@ -164,9 +197,8 @@ class UserService:
         info = self.show()
         template = Path('share/systemd/user/framerize.service')
         if (self.unit_file.is_symlink() or not self.unit_file.is_file()
-                or self.unit_file.read_bytes() != (old / template).read_bytes()
-                or (new / template).read_bytes() != (old / template).read_bytes()
-                or info.get('LoadState') != 'loaded' or info.get('DropInPaths')
+                or (old / template).read_text().splitlines() != (new / template).read_text().splitlines()
+                or info.get('LoadState') != 'loaded'
                 or info.get('NeedDaemonReload') != 'no'
                 or Path(info.get('FragmentPath', '')).resolve() != self.unit_file.resolve()):
             raise ValueError('installed service requires migration; refusing to replace it')
@@ -174,13 +206,19 @@ class UserService:
                 or info.get('SendSIGKILL') != 'yes' or info.get('Delegate') != 'no'
                 or info.get('ActiveState') not in ('active', 'inactive', 'failed')):
             raise ValueError('service lifecycle configuration differs')
+        configuration = self._configuration_snapshot(info, self.unit_file)
+        expected = str(Path.home() / '.local/share/framerize/current/bin/framerize')
+        if configuration['exec_start_path'] != expected:
+            raise ValueError('service executable does not use the managed current release')
         pid = int(info.get('MainPID', '0'))
         if info['ActiveState'] == 'active' and not pid:
             raise ValueError('active service has no main process')
         if pid and self.executable(pid) not in (old / 'bin/framerize', new / 'bin/framerize'):
             raise ValueError('running executable does not belong to this update')
+        self._validated_configuration = configuration
 
     def stop(self, executable):
+        self.verify_configuration()
         from release_drain import descendants, state, stop
         info = state(self)
         if info.get('ActiveState') == 'active':
@@ -211,6 +249,7 @@ class UserService:
                         ready = False
                     after = self.show()
                     if ready and after.get('MainPID') == str(pid) and after.get('ActiveState') == 'active':
+                        self.verify_configuration()
                         return
             except OSError:
                 pass
