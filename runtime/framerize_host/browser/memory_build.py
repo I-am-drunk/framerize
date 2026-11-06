@@ -5,10 +5,9 @@ import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import tempfile
 import zipfile
-from .files import link_or_copy
+from .files import apply_unified_patch, link_or_copy, normalize_text_line_endings
 
 PATCHES = Path(__file__).with_name("patches")
 MODULE = 'chrome/juggler/content/NetworkObserver.js'
@@ -29,14 +28,11 @@ def patch_contexts(data, directory):
         raise ValueError('unsupported browser context owner; qualify this version first')
     target = directory / 'TargetRegistry.js'
     target.write_bytes(data)
-    subprocess.run(['patch', '--batch', '--fuzz=0', str(target),
-                    str(PATCHES / 'context_retention.patch')],
-                   check=True, capture_output=True, timeout=30)
-    subprocess.run(['patch', '--batch', '--fuzz=0', str(target),
-                    str(PATCHES / 'page_creation.patch')],
-                   check=True, capture_output=True, timeout=30)
+    apply_unified_patch(target, PATCHES / 'context_retention.patch')
+    apply_unified_patch(target, PATCHES / 'page_creation.patch')
     patched = target.read_bytes()
-    guard = Path(__file__).with_name('page_creation_guard.js').read_bytes()
+    guard = normalize_text_line_endings(
+        Path(__file__).with_name('page_creation_guard.js').read_bytes())
     patched = patched.replace(b'const helper = new Helper();',
         b'const helper = new Helper();\n\n' + guard)
     if hashlib.sha256(patched).hexdigest() != CONTEXTS_PATCHED:
@@ -68,9 +64,7 @@ def patch_module(data, directory):
     module = directory / 'NetworkObserver.js'
     module.write_bytes(data)
     for name in ['network_capture.patch', 'network_lifecycle.patch', 'network_identity.patch']:
-        subprocess.run(['patch', '--batch', '--fuzz=0', str(module),
-                        str(PATCHES / name)],
-                       check=True, capture_output=True, timeout=30)
+        apply_unified_patch(module, PATCHES / name)
     patched = module.read_bytes()
     if hashlib.sha256(patched).hexdigest() != PATCHED:
         raise ValueError('browser network patch does not match its qualified hash')

@@ -11,10 +11,35 @@ from unittest.mock import patch
 
 from framerize_host.browser import driver_memory
 from framerize_host.browser import memory_build
-from framerize_host.browser.files import link_or_copy
+from framerize_host.browser.files import (
+    apply_unified_patch, link_or_copy, normalize_text_line_endings)
 
 
 class MemoryPatchTests(unittest.TestCase):
+    def test_unified_patch_is_normalized_from_crlf(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / 'fixture.js'
+            target.write_bytes(b'const value = 1;\n')
+            patch_file = root / 'fixture.patch'
+            patch_file.write_bytes(
+                b'--- a/fixture.js\n+++ b/fixture.js\n'
+                b'@@ -1 +1 @@\n-const value = 1;\n+const value = 2;\n'
+                .replace(b'\n', b'\r\n'))
+
+            apply_unified_patch(target, patch_file)
+
+            self.assertEqual(target.read_bytes(), b'const value = 2;\n')
+
+    def test_patch_assets_have_stable_lf_line_endings(self):
+        patch_files = list(memory_build.PATCHES.glob('*.patch'))
+        patch_files.append(Path(memory_build.__file__).with_name('page_creation_guard.js'))
+        for path in patch_files:
+            with self.subTest(path=path.name):
+                self.assertNotIn(b'\r', path.read_bytes())
+
+        self.assertEqual(normalize_text_line_endings(b'one\r\ntwo\r\n'), b'one\ntwo\n')
+
     def test_pinned_browser_teardown_preserves_source_and_other_pages(self):
         selected = os.environ.get('FRAMERIZE_TEST_BROWSER')
         if not selected:

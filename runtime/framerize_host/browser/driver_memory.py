@@ -4,9 +4,8 @@ import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import tempfile
-from .files import link_or_copy
+from .files import apply_unified_patch, link_or_copy
 
 MODULE = 'package/lib/coreBundle.js'
 SOURCE = '3258d1cf334c6afc95f22aa9c292436cb976b391e0437f1359c83b84f0cb9d66'
@@ -24,8 +23,7 @@ def patch_driver(source, target):
     shutil.copy2(source, target)
     for name in ('playwright_memory.patch', 'driver_identity.patch'):
         patch = Path(__file__).with_name('patches') / name
-        subprocess.run(['patch', '--batch', '--fuzz=0', str(target), str(patch)],
-                       check=True, capture_output=True, timeout=30)
+        apply_unified_patch(target, patch)
     if digest(target) != PATCHED:
         raise ValueError('Playwright memory patch failed its integrity check')
 
