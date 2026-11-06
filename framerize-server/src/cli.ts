@@ -196,10 +196,6 @@ export async function run(argv: readonly string[] = process.argv.slice(2),
   }
   const { command, values } = parseArgs(argv);
   const { config: explicitPath, ...settings } = values;
-  const path = explicitPath ?? await defaultSettingsPath(dependencies.env ?? process.env);
-  const loaded = await configuredSettings(path, settings, dependencies.env ?? process.env);
-  const { config, env } = loaded;
-  const logger = dependencies.logger ?? createLogger({ stream: events.stderr, level: config.logLevel });
   const controller = new AbortController();
   let provider: ServerProvider | undefined;
   let app: CliInstance | undefined;
@@ -219,6 +215,10 @@ export async function run(argv: readonly string[] = process.argv.slice(2),
   events.on('SIGINT', stop);
   events.on('SIGTERM', stop);
   try {
+    const path = explicitPath ?? await defaultSettingsPath(dependencies.env ?? process.env, controller.signal);
+    const loaded = await configuredSettings(path, settings, dependencies.env ?? process.env, controller.signal);
+    const { config, env } = loaded;
+    const logger = dependencies.logger ?? createLogger({ stream: events.stderr, level: config.logLevel });
     const serverConfig = loadConfig({
       ...config, serverTokenFile: '', serverToken: await readServerToken(config, controller.signal),
     }, env);
