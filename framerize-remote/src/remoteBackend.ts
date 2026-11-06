@@ -23,10 +23,11 @@ function unavailable(code: DiagnosticCode): ReadinessDiagnosis {
 
 function pick(headers: Readonly<Record<string, string>>, completed: boolean): Record<string, string> {
   const result: Record<string, string> = {};
+  const connection = (headers.connection ?? '').toLowerCase().split(',').map(name => name.trim());
   for (const name of [...FORWARDED_REQUEST_HEADERS,
     ...(completed ? ['anthropic-version', 'anthropic-beta'] : [])]) {
     const value = headers[name];
-    if (typeof value === 'string') result[name] = value;
+    if (typeof value === 'string' && !connection.includes(name)) result[name] = value;
   }
   return result;
 }
