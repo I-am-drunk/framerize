@@ -55,7 +55,8 @@ function evidenceFixture(platform = 'linux', arch = 'x64') {
     runId: '1234', runAttempt: '1' };
   const tooling = ['package.json', 'scripts/package-coexistence.js', 'scripts/package-archive.js',
     'scripts/core-package-check.js', 'scripts/fixtures/core-installed.js',
-    'scripts/fixtures/installed-server.js', 'scripts/fixtures/transport-scenario.js',
+    'scripts/fixtures/installed-server.js', 'scripts/fixtures/installed-accounts.js',
+    'scripts/fixtures/transport-scenario.js',
     'test/installed-remote-flow.test.js', 'test/package-coexistence.test.js', 'test/package-archive.test.js']
     .map((file) => {
       const bytes = Buffer.from(file === 'package.json' ? '{"type":"module"}\n' : 'synthetic compiled tool');
@@ -141,6 +142,32 @@ function evidenceFixture(platform = 'linux', arch = 'x64') {
 const producerStep = 'Write producer manifest beside exactly two tarballs';
 const verifyStep = 'Verify producer manifest, source and input hashes';
 const reportStep = 'Match checker identities to producer manifest';
+
+test('producer artifact includes every local runtime import of its tooling', () => {
+  const fixture = evidenceFixture();
+  fixture.files.delete(fixture.manifestFile);
+  for (const file of fixture.files.keys()) {
+    if (file.startsWith(path.join(fixture.input, 'tooling') + path.sep)) fixture.files.delete(file);
+  }
+  fixture.execute(producerStep);
+  const files = new Set(JSON.parse(fixture.files.get(fixture.manifestFile)).tooling.map(entry => entry.file));
+  const ts = requireBuiltin('typescript');
+  for (const file of files) {
+    if (file === 'package.json') continue;
+    const source = readFileSync(new URL('../' + file.replace(/\.js$/, '.ts'), import.meta.url), 'utf8');
+    const javascript = ts.transpileModule(source, {
+      compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
+    }).outputText;
+    const parsed = ts.createSourceFile(file, javascript, ts.ScriptTarget.ES2022, true);
+    for (const statement of parsed.statements) {
+      if (!ts.isImportDeclaration(statement) && !ts.isExportDeclaration(statement)) continue;
+      const specifier = statement.moduleSpecifier;
+      if (!specifier || !ts.isStringLiteral(specifier) || !specifier.text.startsWith('.')) continue;
+      const dependency = path.posix.normalize(path.posix.join(path.posix.dirname(file), specifier.text));
+      assert.ok(files.has(dependency), `${file} imports ${dependency}, missing from the producer artifact`);
+    }
+  }
+});
 
 test('actual workflow reuses attempt-one producer bytes on attempt-two consumers', () => {
   const producer = evidenceFixture();
