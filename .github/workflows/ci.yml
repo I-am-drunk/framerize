@@ -31,6 +31,7 @@ jobs:
       # Every PR gets installable previews, including documentation-only PRs.
       packages: ${{ github.event_name == 'pull_request' && 'true' || steps.detect.outputs.packages }}
       server: ${{ steps.detect.outputs.server }}
+      performance: ${{ steps.detect.outputs.performance }}
     steps:
       # Depth 2 brings the base commit the change is diffed against.
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -61,6 +62,10 @@ jobs:
     if: needs.changes.outputs.server != 'false' && !inputs.skip_server
     uses: ./.github/workflows/server-ci.yml
     secrets: inherit
+  performance:
+    needs: changes
+    if: needs.changes.outputs.performance != 'false'
+    uses: ./.github/workflows/request-performance.yml
 
   # Adapted from T3 Code's Check job. Require this job by name. It fails when a
   # job fails or is cancelled, or skips without the gate that allows it.
@@ -68,7 +73,7 @@ jobs:
   check:
     name: Check
     if: ${{ always() }}
-    needs: [changes, source, packages, server]
+    needs: [changes, source, packages, server, performance]
     runs-on: ubuntu-22.04
     timeout-minutes: 5
     steps:

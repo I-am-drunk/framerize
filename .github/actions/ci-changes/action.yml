@@ -8,6 +8,8 @@ outputs:
     value: ${{ steps.detect.outputs.packages }}
   server:
     value: ${{ steps.detect.outputs.server }}
+  performance:
+    value: ${{ steps.detect.outputs.performance }}
 runs:
   using: composite
   steps:

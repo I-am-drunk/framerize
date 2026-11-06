@@ -59,8 +59,9 @@ export async function fixture(context, protocol, viaRemote, options = {}) {
   const upstream = httpServer(async (incoming, response) => {
     const chunks = [];
     for await (const chunk of incoming) chunks.push(chunk);
+    const bytes = Buffer.concat(chunks);
     observed.push({ path: incoming.url, headers: incoming.headers,
-      body: JSON.parse(Buffer.concat(chunks)) });
+      body: JSON.parse(bytes), requestBytes: bytes.length });
     response.once('close', disconnected.resolve);
     entered.resolve();
     if (options.respond) { options.respond(response, observed.length, observed.at(-1)); return; }
