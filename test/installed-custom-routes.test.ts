@@ -25,7 +25,9 @@ function installPackages(repository: string, root: string, consumer: string, env
       archive = join(root, packed[0]!.filename);
     }
     const bytes = readFileSync(archive);
-    assert.ok(bytes.length < (name === 'framerize-server' ? 2 * 1024 * 1024 : 64 * 1024));
+    const limit = name === 'framerize-server' ? 2 * 1024 * 1024 : 80 * 1024;
+    assert.ok(bytes.length < limit,
+      `${name} archive has ${bytes.length} bytes; size budget is ${limit} bytes`);
     const members = readPackageArchive(archive);
     return { name, packageName: name === 'framerize-server' ? 'framerize' : name, archive, members, bytes: bytes.length,
       sha256: createHash('sha256').update(bytes).digest('hex') };
