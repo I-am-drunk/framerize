@@ -39,13 +39,16 @@ export interface RawAccounts {
   readonly text: string | undefined;
 }
 
-export async function readRawAccounts(path: string): Promise<RawAccounts> {
+export async function readRawAccounts(path: string, signal?: AbortSignal): Promise<RawAccounts> {
   let text: string | undefined;
   let value: unknown = [];
   try {
-    text = await readAccountText(path, true);
+    text = await readAccountText(path, true, signal);
     if (text !== undefined) value = JSON.parse(text);
-  } catch { throw new AccountFileError('Account metadata unavailable'); }
+  } catch {
+    signal?.throwIfAborted();
+    throw new AccountFileError('Account metadata unavailable');
+  }
   checkAccounts(value, path);
   return { accounts: value as RawAccount[], text };
 }
