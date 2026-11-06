@@ -15,13 +15,16 @@ export interface ServerProvider {
 export interface ServerDependencies {
   readonly provider?: ServerProvider | undefined;
   readonly logger?: Partial<Pick<Logger, 'info'>> | undefined;
+  readonly signal?: AbortSignal | undefined;
 }
 
 export async function createServer(values: unknown = {},
-  { provider, logger }: ServerDependencies = {}): Promise<FramerizeInstance> {
+  { provider, logger, signal }: ServerDependencies = {}): Promise<FramerizeInstance> {
+  signal?.throwIfAborted();
   const config = loadConfig(values);
-  const token = await readServerToken(config);
-  await loadAccounts(config.accountsFile);
+  const token = await readServerToken(config, signal);
+  await loadAccounts(config.accountsFile, signal);
+  signal?.throwIfAborted();
   const backend: InferenceBackend = {
     async ready(context) {
       if (!provider?.forward || !provider?.ready) return { ready: false, reason: 'configuration_unavailable' };
