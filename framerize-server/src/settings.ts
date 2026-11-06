@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { ConfigurationError } from './errors.js';
@@ -97,4 +97,16 @@ export function captureSettings(config: ServerConfig, env: Environment,
   }
   if (!config.serverTokenEnv && !config.serverTokenFile) values.serverToken = config.serverToken;
   return { version: 1, config: values, environment };
+}
+
+// serve and check read server.json from serverHome when no --config is given, so a
+// selection saved by accounts or configure applies without flags or exports. An
+// environment without a home variable, as in isolated tests, skips the lookup.
+export async function defaultSettingsPath(env: Environment): Promise<string | undefined> {
+  if (![env.FRAMERIZE_SERVER_HOME, env.HOME, env.USERPROFILE].some(Boolean)) return undefined;
+  const path = resolve(serverHome(env), 'server.json');
+  return access(path).then(() => path, (error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return undefined;
+    throw new ConfigurationError('Server settings are unavailable or invalid');
+  });
 }

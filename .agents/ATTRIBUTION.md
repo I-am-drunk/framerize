@@ -40,3 +40,21 @@ under the same MIT License:
 - `test/ci-changes.test.mjs` adapts the inert-docs case from
   `scripts/check-changed.test.ts`. Its dependency, full-selection and `Check`
   cases are Framerize tests of the adapted logic.
+
+## Pull request previews
+
+The preview workflows and scripts adapt T3 Code at commit
+`fbe5df2d4b630d13adc8fe2d38cab354e6d66d67` under the same MIT License:
+
+- `.github/scripts/preview-version.cjs` adapts the prerelease identity approach
+  in `scripts/resolve-nightly-release.ts` for Framerize npm package versions.
+- `.github/workflows/pr-previews.yml` and its publisher adapt the separation of
+  unprivileged builds and trusted publication in
+  `.github/workflows/desktop-macos-preview-publish.yml` and its single PR comment.
+- `.github/scripts/stage-pr-preview.py` adapts the bounded ZIP validation in
+  `.github/scripts/stage-preview-bundle.py`. Framerize permits two npm tarballs and two
+  JSON manifests, not a desktop application bundle.
+
+Framerize retains its own package consumer checks, separate PR-head and merge
+identities, immutable asset hashes and foreground isolation instructions.
+No T3 desktop updater, signing, Electron packaging or npm publication is added.
