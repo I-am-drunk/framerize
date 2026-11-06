@@ -98,6 +98,7 @@ export async function readTailscaleStatus(options: TailscaleOptions = {}) {
       void stopping.catch(error => {
         clearTimeout(timer);
         options.signal?.removeEventListener('abort', abort);
+        child.unref();
         reject(error);
       });
     };
