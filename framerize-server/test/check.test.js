@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const source = fileURLToPath(new URL('../scripts/check.js', import.meta.url));
 const compatibility = ['completed-reply', 'completed-stream', 'events', 'messages-stream', 'responses-stream'];
 const setupModules = ['startup-access', 'private-network', 'qr-code', 'settings', 'setup',
-  'service-units', 'service-control', 'tailscale'];
+  'service-units', 'service-control', 'tailscale', 'browser-login', 'account-cli', 'account-store'];
 const notices = ['README.md', 'LICENSE', 'T3-LICENSE', 'NAYUKI-LICENSE', 'T3-ATTRIBUTION.md'];
 const sources = ['account-backend.ts', 'accounts.ts', 'cli.ts', 'config.ts', 'errors.ts', 'framer-auth.ts', 'framer-backend.ts',
   'framer-request.ts', 'logger.ts', 'provider.ts', 'server.ts', 'backend.ts', 'castle-loader.ts', 'castle.ts',
