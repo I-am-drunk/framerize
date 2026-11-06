@@ -12,21 +12,22 @@ function requestAtLimit(protocol) {
 }
 
 for (const protocol of protocols) for (const viaRemote of [false, true]) {
-  for (const stage of ['server', 'backend']) {
-    test(`custom request byte limit at ${stage}: ${protocol.name}, remote=${viaRemote}`,
+  for (const [stage, framing] of [['server', 'length'], ['server', 'chunked'], ['backend', 'length']]) {
+    test(`custom request byte limit at ${stage}/${framing}: ${protocol.name}, remote=${viaRemote}`,
       async context => {
+        const headers = framing === 'chunked' ? { 'transfer-encoding': 'chunked' } : {};
         const setup = await fixture(context, protocol, viaRemote,
           { [stage]: { maxBodyBytes: limit } });
         const body = requestAtLimit(protocol);
         const oversized = { ...body, metadata: { padding: body.metadata.padding + 'x' } };
         assert.equal(Buffer.byteLength(JSON.stringify(oversized)), limit + 1);
-        const rejected = await setup.post(oversized);
+        const rejected = await setup.post(oversized, headers);
         assert.equal(rejected.status, 413);
         assert.equal(JSON.parse(rejected.body).error.code, 'body_too_large');
         assert.equal(setup.observed.length, 0);
         assert.equal(setup.counts.auth, 0);
         assert.equal(setup.counts.mints, 0);
-        const accepted = await setup.post(body);
+        const accepted = await setup.post(body, headers);
         assert.equal(accepted.status, 200);
         assert.deepEqual(accepted.body, setup.payload);
         assert.equal(setup.observed.length, 1);
