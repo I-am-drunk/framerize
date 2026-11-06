@@ -9,6 +9,8 @@ permissions:
 
 env:
   NODE_OPTIONS: ''
+  FRAMERIZE_PR_NUMBER: ${{ github.event.pull_request.number }}
+  FRAMERIZE_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 
 defaults:
   run:
@@ -26,8 +28,12 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22.23.4'
+      - name: Install the pinned build tools
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Stamp PR package versions
+        run: node .github/scripts/preview-version.cjs stamp
       - name: Build the shared TypeScript listener
-        run: npm ci --ignore-scripts --no-audit --no-fund && npm run build
+        run: npm run build
       - name: Pack each package once with private npm configuration
         run: |
           set -euo pipefail
@@ -112,6 +118,19 @@ jobs:
           if-no-files-found: error
           overwrite: true
 
+      - name: Export PR preview without repacking
+        if: github.event_name == 'pull_request'
+        run: node .github/scripts/preview-version.cjs export "$ARTIFACT_DIR" "$RUNNER_TEMP/pr-preview"
+      - name: Upload PR preview
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr-preview-${{ github.run_id }}
+          path: ${{ runner.temp }}/pr-preview/*
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
+
   consume:
     name: consume packages (${{ matrix.target }}, Node ${{ matrix.node }})
     needs: produce
@@ -147,6 +166,8 @@ jobs:
           node-version: ${{ matrix.node }}
       - name: Install the pinned type checker without product builds
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Stamp expected PR package versions
+        run: node .github/scripts/preview-version.cjs stamp
       - name: Isolate npm configuration
         run: |
           set -euo pipefail
