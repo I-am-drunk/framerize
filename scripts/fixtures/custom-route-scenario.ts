@@ -11,27 +11,31 @@ function scenarioCase(name: 'responses' | 'messages') {
   const call = responses
     ? { type: 'function_call', id: 'fc_fixture', call_id: 'call_fixture', name: 'lookup', arguments: '{"query":"snow"}' }
     : { type: 'tool_use', id: 'call_fixture', name: 'lookup', input: { query: 'snow' } };
-  const request = (input: unknown) => responses
-    ? { model: 'fixture', stream: false, input }
-    : { model: 'fixture', stream: false, max_tokens: 64, messages: input };
+  const request = (input: unknown, model = 'fixture') => responses
+    ? { model, stream: false, input }
+    : { model, stream: false, max_tokens: 64, messages: input };
   const initial = request([firstInput]);
   const followupFor = (tool: unknown) => request(responses ? [firstInput, tool,
     { type: 'function_call_output', call_id: 'call_fixture', output: 'synthetic-result' }]
     : [firstInput, { role: 'assistant', content: [tool] }, { role: 'user', content: [
       { type: 'tool_result', tool_use_id: 'call_fixture', content: 'synthetic-result' }] }]);
   const followup = followupFor(call);
-  const reply = (tool: boolean) => responses
-    ? { id: 'resp_fixture', object: 'response', created_at: 1, model: 'fixture', status: 'completed',
+  const reply = (tool: boolean, model = 'fixture') => responses
+    ? { id: 'resp_fixture', object: 'response', created_at: 1, model, status: 'completed',
       usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 },
       output: tool ? [call] : [{ type: 'message', id: 'msg_fixture', role: 'assistant',
         content: [{ type: 'output_text', text: 'Synthetic result.', annotations: [] }] }] }
-    : { id: 'msg_fixture', type: 'message', role: 'assistant', model: 'fixture',
+    : { id: 'msg_fixture', type: 'message', role: 'assistant', model,
       usage: { input_tokens: 1, output_tokens: 2 },
       content: tool ? [call] : [{ type: 'text', text: 'Synthetic result.' }],
       stop_reason: tool ? 'tool_use' : 'end_turn', stop_sequence: null };
+  const alternateModel = `fixture-alternate-${name}`;
+  const text = 'Synthetic plain text with Unicode café 🙂.';
   return { name, path: responses ? '/openai/v1/responses' : '/anthropic/v1/messages',
     upstream: responses ? '/ai/v3/responses/' : '/ai/v3/messages/', initial, followup, followupFor,
     first: Buffer.from(JSON.stringify(reply(true))), final: Buffer.from(JSON.stringify(reply(false))),
+    plain: request(responses ? text : [{ role: 'user', content: text }], alternateModel),
+    plainReply: Buffer.from(JSON.stringify(reply(false, alternateModel))),
     invalid: request([{ role: 'user', content: 'bad-reply' }]),
     cancel: request([{ role: 'user', content: 'cancel' }]) };
 }
@@ -63,6 +67,7 @@ export async function createCustomScenario() {
       response.setHeader('content-type', 'application/json');
       if (isDeepStrictEqual(payload.request, entry.initial)) response.end(entry.first);
       else if (isDeepStrictEqual(payload.request, entry.followup)) response.end(entry.final);
+      else if (isDeepStrictEqual(payload.request, entry.plain)) response.end(entry.plainReply);
       else if (isDeepStrictEqual(payload.request, entry.invalid)) response.end('{"unfinished":');
       else if (isDeepStrictEqual(payload.request, entry.cancel)) {
         response.once('close', () => { state.cancelled += 1; gateway.emit('inference-closed'); });
@@ -107,10 +112,18 @@ export async function exerciseCustomFlow(base: string, token: string,
         streamingRequests.push(entry.followupFor(content[0]));
       }
     }
+    for (const stream of [false, true]) {
+      const result = await exchange(base, entry.path, token,
+        { body: { ...entry.plain, stream }, timeoutMs: 20_000 });
+      assert.equal(result.status, 200);
+      if (stream) assert.deepEqual(readCustomStream(entry.name, result.body),
+        JSON.parse(entry.plainReply.toString()));
+      else assert.deepEqual(result.body, entry.plainReply);
+    }
     const invalid = await exchange(base, entry.path, token, { body: entry.invalid, timeoutMs: 20_000 });
     assert.equal(invalid.status, 502);
     assert.equal(JSON.parse(invalid.body.toString()).error.code, 'upstream_response_invalid');
-    assert.equal(scenario.state.inference, before + 5);
+    assert.equal(scenario.state.inference, before + 7);
     const controller = new AbortController();
     const arrived = once(scenario.gateway, 'inference-waiting', { signal: AbortSignal.timeout(20_000) });
     const closed = once(scenario.gateway, 'inference-closed', { signal: AbortSignal.timeout(20_000) });
@@ -120,7 +133,7 @@ export async function exerciseCustomFlow(base: string, token: string,
     controller.abort();
     await pending;
     await closed;
-    assert.equal(scenario.state.inference, before + 6);
+    assert.equal(scenario.state.inference, before + 8);
   }
   assert.deepEqual(scenario.state.failures, []);
 }

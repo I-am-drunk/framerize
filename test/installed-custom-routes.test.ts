@@ -71,7 +71,7 @@ test('installed custom routes use the account server and Remote without a worksp
       await exerciseCustomFlow(remote.url, localToken, scenario);
       assert.deepEqual(scenario.state.failures, []);
       assert.equal(scenario.state.auth, 1);
-      assert.equal(scenario.state.inference, 24);
+      assert.equal(scenario.state.inference, 32);
       assert.equal(scenario.state.cancelled, 4);
       await remote.close();
       await server.close();
@@ -79,7 +79,9 @@ test('installed custom routes use the account server and Remote without a worksp
       await assert.rejects(exchange(server.url, '/health', serverToken), { code: 'ECONNREFUSED' });
       await assert.rejects(exchange(remote.url, '/health', localToken), { code: 'ECONNREFUSED' });
       context.diagnostic(JSON.stringify({ node: process.version, packages,
-        completedToolRoundTrips: 4, streamedToolRoundTrips: 4, invalidReplies: 4, cancelled: scenario.state.cancelled,
+        completedToolRoundTrips: 4, streamedToolRoundTrips: 4,
+        completedPlainReplies: 4, streamedPlainReplies: 4,
+        invalidReplies: 4, cancelled: scenario.state.cancelled,
         providerPosts: scenario.state.inference, builtInMinter: true }));
     } catch (error) {
       failures.push(error);
