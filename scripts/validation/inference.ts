@@ -66,7 +66,7 @@ export async function checkInference(input: InferenceCheckOptions) {
     if ((headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase() !== contentType) {
       return fail(invalidReply);
     }
-    if (headers['content-encoding'] && headers['content-encoding'] !== 'identity') return fail('unsupported_encoding');
+    if (headers['content-encoding'] && headers['content-encoding'].toLowerCase() !== 'identity') return fail('unsupported_encoding');
     const { bytes } = await readBounded(raw.message, 65536, 5000, controller.signal);
     let completion: ReturnType<typeof inspectCompletion> | ReturnType<typeof inspectJsonCompletion>;
     try { completion = config.protocol === 'chat' ? inspectCompletion(bytes)

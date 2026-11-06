@@ -57,7 +57,8 @@ export function inspectCompletion(bytes: Buffer) {
     if (value.choices.length === 0) continue;
     if (value.choices.length !== 1 || finished) throw new Error('Unexpected choice');
     const choice = value.choices[0] as Record<string, unknown> | null;
-    if (!choice || choice.index !== 0 || !choice.delta || typeof choice.delta !== 'object') {
+    if (!choice || choice.index !== 0 || !choice.delta || typeof choice.delta !== 'object'
+      || Array.isArray(choice.delta)) {
       throw new Error('Invalid choice');
     }
     const delta = choice.delta as Record<string, unknown>;
