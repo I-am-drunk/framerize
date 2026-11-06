@@ -1,0 +1,51 @@
+# CodeRabbit review configuration. Reference: https://docs.coderabbit.ai/reference/configuration
+# Public repositories under 10 stars receive reviews only on request:
+# comment "@coderabbitai review" once the PR is ready. See CONTRIBUTING.md.
+language: en-US
+tone_instructions: >-
+  Report concrete defects with file locations and the affected caller or
+  client path. Follow the Code Review Rules in AGENTS.md. Do not restate
+  the diff, praise the change, or comment on style.
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: false
+  poem: false
+  review_status: true
+  collapse_walkthrough: true
+  path_instructions:
+    - path: "framerize-remote/**"
+      instructions: >-
+        Remote forwards inference to the server. Flag provider accounts,
+        Castle or upstream routing added here, and any local client
+        credential that could reach the remote provider.
+    - path: "scripts/**"
+      instructions: >-
+        Release assembly and promotion must keep byte identity and hash
+        bindings for every artifact. Flag any widened limit or skipped check.
+  auto_review:
+    enabled: true
+    drafts: false
+    auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 0
+    ignore_title_keywords: ["WIP", "DO NOT MERGE"]
+  pre_merge_checks:
+    docstrings:
+      mode: "off"
+    title:
+      mode: warning
+      requirements: >-
+        A plain-language conventional title, such as "fix(remote): ...".
+    description:
+      mode: warning
+    issue_assessment:
+      mode: "off"
+  auto_approvals:
+    enabled: false
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
+chat:
+  auto_reply: true

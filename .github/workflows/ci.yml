@@ -16,8 +16,17 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.sha }}-${{ github.workflow }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Supersede stale main and PR runs. Other runs keep distinct groups.
+  # Group names ignore case, so restart branches need a group per run.
+  group: >-
+    ci-${{ github.workflow }}-${{
+      github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) ||
+      github.event_name == 'push' && github.ref == 'refs/heads/main' && 'branch-main' ||
+      format('run-{0}', github.run_id)
+    }}
+  cancel-in-progress: >-
+    ${{ github.event_name == 'pull_request' ||
+        (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
 
 jobs:
   # Adapted from T3 Code's ci.yml at 5a906583 (MIT). .github/scripts/ci-changes.cjs

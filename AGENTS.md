@@ -81,8 +81,10 @@ current `main` and the active change that owns those files. If that source
 already has the fix, do not rerun the stale probe or start a duplicate
 implementation. Send only the relevant evidence to the fix's owner.
 The `Check` job in `.github/workflows/ci.yml` is the single CI result to
-require. `main` has no branch rule yet, so reviewers must confirm `Check`
-passed on the reviewed head before approving.
+require. The `main` ruleset requires this result from GitHub Actions.
+Reviewers must confirm it passed on the reviewed head before merging.
+Independent source review remains a maintainer responsibility because the
+ruleset does not require an approval. Follow [the maintenance workflow](docs/pr-maintenance.md).
 `.github/scripts/ci-changes.cjs` selects its gates; an unknown path runs them all.
 
 ## Code Review Rules
