@@ -41,8 +41,9 @@ When agents share the author's GitHub account, record that review as a
 The author's own verification is not independent review.
 
 Before merging, read review bodies, inline threads and PR comments. Resolve
-blocking findings and recheck the head. Use
-`gh pr merge --merge --match-head-commit <reviewed-head>` to reject a changed head.
+blocking findings and recheck the head. Use the reviewed PR's URL with
+`gh pr merge <pr-url> --merge --match-head-commit <reviewed-head>`
+to target that PR and reject a changed head.
 See [the maintenance workflow](docs/pr-maintenance.md) for ownership, retries
 and handling PRs that should be fixed or closed.
 

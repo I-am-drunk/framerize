@@ -23,9 +23,12 @@ to the repository.
 5. Re-read the head, discussion and `Check` before deciding. Merge a wanted change
    only after its blockers are resolved. Fix a useful but broken change. Close a
    duplicate, superseded or unwanted change with a concrete explanation and any
-   replacement link. Age and a green check alone are not reasons to merge or close.
+   replacement link. Merge or close only when the user requested that action for
+   the PR or explicitly authorized a scope that includes it. Age and a green
+   check alone are not reasons to merge or close.
 
-For a merge, use `gh pr merge --merge --match-head-commit <reviewed-head>`.
+For a merge, use the reviewed PR's URL:
+`gh pr merge <pr-url> --merge --match-head-commit <reviewed-head>`.
 The required check is `Check` from GitHub Actions, app ID `15368`. Missing,
 pending, cancelled or failed results do not pass. The ruleset requires zero
 approvals; maintainers must enforce independent source review themselves.
@@ -66,9 +69,10 @@ recovery messages; do not discard user messages or PR notifications. Do not bind
 recovery to an archived coordinator, restore disabled tasks without authority,
 add a polling daemon or repeat unchanged status messages.
 
-Send a new actionable review to an active owner with `t3_thread_send` in `steer`
-mode. For an idle owner, `auto` can start the turn. Record the returned delivery
-state and message ID. A `queued` receipt is pending work, not successful handling.
+Send a new actionable review to its owner with `t3_thread_send` in `auto` mode.
+It can steer a running turn, queue the message or start an idle owner. Record the
+returned delivery state and message ID. A `queued` receipt is pending work, not
+successful handling.
 Confirm the owner consumed the evidence through its response or the resulting
 GitHub action. Recovery scans must revisit pending deliveries without duplicating
 requests already in progress.
