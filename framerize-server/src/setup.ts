@@ -72,6 +72,24 @@ function servicePlan(env: NodeJS.ProcessEnv, dependencies: SetupDependencies): S
     environmentPath: [dirname(prefix[0]!), '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin'].join(':') };
 }
 
+async function readReadinessBody(response: Response): Promise<Uint8Array> {
+  const reader = response.body?.getReader();
+  if (!reader) return new Uint8Array();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return Buffer.concat(chunks, bytes);
+      bytes += value.byteLength;
+      if (bytes > 64 * 1024) throw new ServerSetupError('Server readiness response is too large.');
+      chunks.push(value);
+    }
+  } finally {
+    try { await reader.cancel(); } finally { reader.releaseLock(); }
+  }
+}
+
 async function waitForReady(origin: string, token: string, signal?: AbortSignal): Promise<number> {
   const deadline = Date.now() + 15_000;
   do {
@@ -81,7 +99,7 @@ async function waitForReady(origin: string, token: string, signal?: AbortSignal)
       const response = await fetch(new URL('/ready', origin), {
         headers: token ? { authorization: `Bearer ${token}` } : {},
         signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
-      const body = new Uint8Array(await response.arrayBuffer());
+      const body = await readReadinessBody(response);
       const pid = Number(response.headers.get('x-framerize-server-pid'));
       if (classifyReadiness(response.status, body).state === 'ready'
         && Number.isSafeInteger(pid) && pid > 0) return pid;
