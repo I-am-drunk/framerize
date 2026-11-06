@@ -8,7 +8,7 @@ export const SERVE_HELP = `Usage: frm serve [options]
   --config FILE              Use a saved profile
   --host ADDRESS             Override the listen host for this run
   --port NUMBER              Override the port, or use 0 for an assigned port
-  --allow-non-loopback        Allow listening outside loopback for this run
+  --allow-non-loopback        Accepted for older profiles; no longer required
   --json                     Emit machine-readable JSON
 
 Overrides never change the saved profile. FRM_REMOTE, FRM_HOST and FRM_PORT
