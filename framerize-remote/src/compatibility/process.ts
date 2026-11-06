@@ -179,6 +179,7 @@ function runCancellable(command: ClientCommand, env: NodeJS.ProcessEnv, signal: 
       if (finish()) reject(stopError ?? new RemoteDiagnosticError('client_start_failed', error.message));
     });
     child.once('close', async (code, exitSignal) => {
+      if (code !== 0 || exitSignal) stopGroup();
       await treeStopped;
       if (!finish()) return;
       if (stopError) reject(stopError);
