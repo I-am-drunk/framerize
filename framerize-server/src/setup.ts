@@ -160,14 +160,33 @@ export async function runSetupCommand(argv: readonly string[], dependencies: Set
   return configureAndPair(command, action, flags, tailscalePort, values, plan, dependencies);
 }
 
+async function settingsExist(path: string, signal?: AbortSignal): Promise<boolean> {
+  signal?.throwIfAborted();
+  const pending = access(path).then(() => true, (error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  });
+  if (!signal) return pending;
+  let abort = (): void => {};
+  try {
+    const exists = await Promise.race([pending, new Promise<never>((_resolve, reject) => {
+      abort = () => reject(signal.reason);
+      signal.addEventListener('abort', abort, { once: true });
+      if (signal.aborted) abort();
+    })]);
+    signal.throwIfAborted();
+    return exists;
+  } catch (error) {
+    signal.throwIfAborted();
+    throw error;
+  } finally { signal.removeEventListener('abort', abort); }
+}
+
 async function uninstall(plan: ServicePlan, run?: StepRunner, signal?: AbortSignal): Promise<'done' | 'missing'> {
   const status = await serviceStatus(plan, run);
   if (status.otherHome) throw new ServerSetupError('The Server service belongs to another FRAMERIZE_SERVER_HOME.');
   const path = join(plan.home, 'server.json');
-  const exists = await access(path).then(() => true, error => {
-    if (error.code === 'ENOENT') return false;
-    throw error;
-  });
+  const exists = await settingsExist(path, signal);
   const saved = exists ? await readSettings(path, signal) : undefined;
   if (saved?.access) {
     const config = loadConfig(saved.config, saved.environment);
@@ -191,10 +210,7 @@ async function configureAndPair(command: string | undefined, action: string | un
     throw new ServerSetupError('Use up, pair, status, or service install|start|stop|restart|uninstall.');
   }
   const path = values.config ?? join(plan.home, 'server.json');
-  const exists = await access(path).then(() => true, error => {
-    if (error.code === 'ENOENT') return false;
-    throw error;
-  });
+  const exists = await settingsExist(path, signal);
   const explicitPath = values.config !== undefined;
   delete values.config;
   const env = dependencies.env ?? process.env;
@@ -242,7 +258,7 @@ async function configureAndPair(command: string | undefined, action: string | un
     oldRoute = await prepareTailscale(previous.port, loaded.saved.access.tailscalePort,
       dependencies.run, previousLocal.host, undefined, signal);
   }
-  const accounts = await loadAccounts(config.accountsFile);
+  const accounts = await loadAccounts(config.accountsFile, signal);
   const names = accounts.flatMap(account => typeof account.session === 'object' && account.session.env
     ? [account.session.env] : []);
   const settings = { ...captureSettings(config, loaded.env, names),
