@@ -135,11 +135,25 @@ async function succeeds(context: ServiceContext, step: ServiceStep | undefined):
   return succeeded;
 }
 
-async function readUnit(path: string): Promise<string | undefined> {
-  try { return await readFile(path, 'utf8'); }
+async function readUnit(path: string, signal?: AbortSignal): Promise<string | undefined> {
+  if (signal?.aborted) throw new RemoteDiagnosticError('aborted');
+  let onAbort: (() => void) | undefined;
+  try {
+    const reading = readFile(path, { encoding: 'utf8', signal });
+    const text = signal ? await Promise.race([reading, new Promise<never>((_resolve, reject) => {
+      onAbort = () => reject(new RemoteDiagnosticError('aborted'));
+      signal.addEventListener('abort', onAbort, { once: true });
+      if (signal.aborted) onAbort();
+    })]) : await reading;
+    if (signal?.aborted) throw new RemoteDiagnosticError('aborted');
+    return text;
+  }
   catch (error) {
+    if (signal?.aborted) throw new RemoteDiagnosticError('aborted');
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
     throw new RemoteDiagnosticError('service_failed');
+  } finally {
+    if (onAbort) signal?.removeEventListener('abort', onAbort);
   }
 }
 
@@ -163,7 +177,7 @@ export async function installService(context: ServiceContext,
   await requireServiceProfile(context.home, context.signal);
   await requireServicePrerequisites(context);
   const plan = servicePlan(context);
-  const unit = await readUnit(manager.unitPath);
+  const unit = await readUnit(manager.unitPath, context.signal);
   if (unit !== undefined && !servesHome(unit, context.home)) throw new RemoteDiagnosticError('service_other_home');
   if (unit !== undefined) await runSteps(context, manager.stop);
   await beforeStart();
@@ -182,7 +196,7 @@ export type ServiceAction = 'start' | 'stop' | 'restart';
 /** Acts only on a unit that serves this FRM_HOME; another home's service resolves `skipped`. */
 export async function controlService(context: ServiceContext, action: ServiceAction): Promise<'done' | 'skipped'> {
   const manager = requireManager(context);
-  const unit = await readUnit(manager.unitPath);
+  const unit = await readUnit(manager.unitPath, context.signal);
   if (unit === undefined || !servesHome(unit, context.home)) return 'skipped';
   await runSteps(context, manager[action]);
   return 'done';
@@ -190,7 +204,7 @@ export async function controlService(context: ServiceContext, action: ServiceAct
 
 export async function uninstallService(context: ServiceContext): Promise<'removed' | 'missing' | 'skipped'> {
   const manager = requireManager(context);
-  const unit = await readUnit(manager.unitPath);
+  const unit = await readUnit(manager.unitPath, context.signal);
   if (unit === undefined) return 'missing';
   // An unreadable home stays removable; only a unit known to serve another home is kept.
   const installed = serviceHomeOf(unit);
@@ -207,7 +221,7 @@ export async function serviceStatus(context: ServiceContext): Promise<ServiceSta
   const logPath = servicePlan(context).logPath;
   if (!manager) return { supported: false, installed: false, running: false, enabled: false, current: false,
     otherHome: false, unitPath: '', logPath };
-  const unit = await readUnit(manager.unitPath);
+  const unit = await readUnit(manager.unitPath, context.signal);
   const base = { supported: true, unitPath: manager.unitPath, logPath };
   if (unit === undefined) return { ...base, installed: false, running: false, enabled: false, current: false, otherHome: false };
   const ours = servesHome(unit, context.home);
@@ -235,7 +249,7 @@ export interface ServiceSnapshot {
 
 export async function snapshotService(context: ServiceContext): Promise<ServiceSnapshot> {
   const manager = requireManager(context);
-  const unit = await readUnit(manager.unitPath);
+  const unit = await readUnit(manager.unitPath, context.signal);
   if (unit === undefined) return { unit, enabled: false, running: false };
   const status = await serviceStatus(context);
   return { unit, enabled: status.enabled, running: status.running };
