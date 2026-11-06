@@ -5,6 +5,19 @@ import { RemoteDiagnosticError } from './diagnostics.js';
 export const FRM_SERVER_TOKEN = 'FRM_SERVER_TOKEN';
 export const FRM_LOCAL_TOKEN = 'FRM_LOCAL_TOKEN';
 
+/** Preserve native lookups while keeping variables enumerable for child processes. */
+export function withEnvOverrides(env: NodeJS.ProcessEnv, overrides: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return new Proxy({ ...env, ...overrides }, {
+    get(target, name, receiver) {
+      if (typeof name === 'string' && !Object.hasOwn(overrides, name)) {
+        const value = env[name];
+        if (typeof value === 'string' || Object.hasOwn(env, name)) return value;
+      }
+      return Reflect.get(target, name, receiver);
+    },
+  });
+}
+
 type Settings = { -readonly [Key in keyof PersistedConfig]?: PersistedConfig[Key] };
 
 /** Run settings from FRM_* variables. Flags override them; they never change a saved profile. */

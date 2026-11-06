@@ -125,7 +125,7 @@ export async function run(argv: readonly string[] = process.argv.slice(2),
       ? (question: string) => terminalAsk(question, controller.signal) : undefined);
     try {
       return await (await import('./setup.js')).runSetupCommand(argv, { stdout: events.stdout,
-        env: { ...(dependencies.env ?? process.env) }, ...dependencies.setup,
+        env: dependencies.env ?? process.env, ...dependencies.setup,
         signal: controller.signal, ...(ask ? { ask } : {}) });
     } finally {
       events.off('SIGINT', stop);
