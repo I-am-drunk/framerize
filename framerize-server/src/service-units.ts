@@ -41,7 +41,8 @@ const xml = (value: string) => value.replaceAll('&', '&amp;').replaceAll('<', '&
 const fromXml = (value: string) => value.replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&');
 
 export function serviceHomeOf(contents: string): string | undefined {
-  const value = /^Environment=FRAMERIZE_SERVER_HOME=(.*)$/m.exec(contents)?.[1];
+  // Only physical line breaks delimit unit directives; Unicode separators are path text.
+  const value = /(?:^|[\r\n])Environment=FRAMERIZE_SERVER_HOME=([^\r\n]*)/.exec(contents)?.[1];
   if (value !== undefined) return (value.startsWith('"') ? value.slice(1, -1)
     .replaceAll('\\"', '"').replaceAll('\\\\', '\\') : value).replaceAll('%%', '%');
   const plist = /<key>FRAMERIZE_SERVER_HOME<\/key>\s*<string>([^<]*)<\/string>/.exec(contents)?.[1];

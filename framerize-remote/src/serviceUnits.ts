@@ -30,7 +30,8 @@ const unescapeXmlText = (value: string) =>
 
 /** The FRM_HOME an installed unit or plist serves, so another home's service is left alone. */
 export function serviceHomeOf(contents: string): string | undefined {
-  const systemd = /^Environment=FRM_HOME=(.*)$/m.exec(contents)?.[1];
+  // Only physical line breaks delimit unit directives; Unicode separators are path text.
+  const systemd = /(?:^|[\r\n])Environment=FRM_HOME=([^\r\n]*)/.exec(contents)?.[1];
   if (systemd !== undefined) return unquoteSystemdValue(systemd.trim());
   const plist = /<key>FRM_HOME<\/key>\s*<string>([^<]*)<\/string>/.exec(contents)?.[1];
   return plist === undefined ? undefined : unescapeXmlText(plist);
