@@ -240,7 +240,9 @@ async function startBrowser(spawn: SpawnBrowser, signal: SignalProcess, executab
     }
     commands?.destroy();
     replies?.destroy();
-    return !running && !groupAlive();
+    const stopped = !running && !groupAlive();
+    if (!stopped) child.unref();
+    return stopped;
   };
   const pipe = commands && replies ? devtoolsPipe(commands, replies, onFailure) : undefined;
   if (!pipe) {
