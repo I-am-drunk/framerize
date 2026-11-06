@@ -124,7 +124,11 @@ export async function setUp(input: string | undefined, io: CliIo, options: UpOpt
   }
   if (signal?.aborted) throw new RemoteDiagnosticError('aborted');
   validateConfigForSave(nextProfile(initial.config, connection(input, initial.config, options.env), options.env));
-  return withProfileLock(options.configPath, () => setUpLocked(input, options));
+  try { return await withProfileLock(options.configPath, () => setUpLocked(input, options), signal); }
+  catch (error) {
+    if (signal?.aborted && error === signal.reason) throw new RemoteDiagnosticError('aborted');
+    throw error;
+  }
 }
 
 async function setUpLocked(input: string | undefined, options: UpOptions): Promise<UpResult> {

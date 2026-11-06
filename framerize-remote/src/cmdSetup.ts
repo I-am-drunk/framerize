@@ -68,6 +68,6 @@ export async function runSetup(argv: readonly string[], configPath: string,
   await withProfileLock(configPath, async () => {
     signal?.throwIfAborted();
     await saveConfigFile(configPath, config);
-  });
+  }, signal);
   return flags;
 }
