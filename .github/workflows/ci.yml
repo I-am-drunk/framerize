@@ -97,9 +97,12 @@ jobs:
       - name: Package application
         run: |
           if [ '${{ matrix.app }}' = 'framerize-native' ]; then
-            node scripts/offline_worker/bundle.mjs --output target/native-worker
+            worker_bundle="$RUNNER_TEMP/framerize-native-worker-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            node scripts/offline_worker/bundle.mjs --output "$worker_bundle"
+            python scripts/package.py framerize-native --worker-bundle "$worker_bundle"
+          else
+            python scripts/package.py framerize
           fi
-          python scripts/package.py ${{ matrix.app }}
       - name: Check browser package lifecycle with empty state
         if: matrix.app == 'framerize'
         run: python -I -B scripts/smoke_browser_package.py dist/framerize-linux-*.tar.gz
