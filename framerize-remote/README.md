@@ -246,6 +246,12 @@ Saves are atomic and owner-only on POSIX. New file references become absolute
 paths; relative references in existing profiles resolve beside the profile.
 Omit `--start` to save without loading credentials or contacting the server.
 
+When `setup` starts Remote or offers client setup in the same invocation,
+it uses the remote URL and token references just saved. Ambient
+`FRM_SERVER_TOKEN` and `FRM_LOCAL_TOKEN` still apply when the profile has no
+corresponding reference. Later `serve`, `check` and `client` commands use the
+usual `FRM_*` overrides.
+
 Setup errors identify a missing server address, invalid token reference,
 invalid listen setting or time limit, or a profile that could not be saved.
 Each includes a repair step. With `--json`, failures include an error code.

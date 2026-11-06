@@ -73,7 +73,7 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
           ...(overrides.host !== undefined ? { FRM_HOST: undefined } : {}),
           ...(overrides.port !== undefined ? { FRM_PORT: undefined } : {}),
         });
-        const offer = await offerClientSetup(configPath, io, clientEnv, undefined, controller.signal);
+        const offer = await offerClientSetup(configPath, io, clientEnv, undefined, controller.signal, true);
         if (offer === 'cancelled' || controller.signal.aborted) throw new RemoteDiagnosticError('aborted');
         io.stdout('Next: frm serve\n');
       }
@@ -108,7 +108,7 @@ export async function run(argv: readonly string[], io: CliIo): Promise<number> {
 }
 
 export async function serve(configPath: string, io: CliIo, json: boolean,
-  overrides: ListenOverrides = {}, setupClients = false): Promise<number> {
+  overrides: ListenOverrides = {}, afterSetup = false): Promise<number> {
   const controller = new AbortController();
   let handle: ServeHandle | undefined;
   let stoppedCleanly = false;
@@ -118,7 +118,7 @@ export async function serve(configPath: string, io: CliIo, json: boolean,
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
   try {
-    handle = await startServe(configPath, process.env, controller.signal, overrides);
+    handle = await startServe(configPath, process.env, controller.signal, overrides, afterSetup);
     const { host, port } = handle.address;
     const address = host === '0.0.0.0' ? '127.0.0.1' : host === '::' ? '[::1]'
       : host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;
@@ -127,10 +127,10 @@ export async function serve(configPath: string, io: CliIo, json: boolean,
     io.stdout(json ? `${JSON.stringify({ ready: true, listening: { host, port },
       ...(exposed ? { exposure: 'non-loopback-http' } : {}) })}\n`
       : `Remote readiness passed.\n${warning}Local API: http://${address}:${port}/v1\nStop: Ctrl+C\n`);
-    if (setupClients && !json) {
+    if (afterSetup && !json) {
       const offer = await offerClientSetup(configPath, io, withEnvOverrides(process.env,
         { FRM_HOST: host, FRM_PORT: String(port) }),
-        undefined, controller.signal);
+        undefined, controller.signal, true);
       if (offer === 'cancelled') stop();
     }
     await stopped;
