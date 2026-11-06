@@ -1,4 +1,7 @@
 # Unified patches require a space on empty context lines.
 *.sh text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.mjs text eol=lf
 runtime/framerize_host/browser/patches/*.patch text eol=lf whitespace=-blank-at-eol
 runtime/framerize_host/browser/page_creation_guard.js text eol=lf
