@@ -7,8 +7,8 @@ const root = path.resolve(__dirname, "../..");
 
 // Root and docs Markdown ship in no package. Package READMEs stay owned.
 const INERT = [/^docs\//, /^\.agents\//, /^[^/]+\.md$/, /^LICENSE$/];
-// These files cannot change the measured request path. A dependency test checks
-// that the runtime entry points never import a skipped source or test file.
+// Listed CLI files skip performance but retain source checks.
+// The dependency test checks request entry points, not every bundled module.
 const PERFORMANCE_INERT = [...INERT,
   /^framerize-(?:core|remote|server)\/(?:test\/|.*\.md$)/,
   /^framerize-server\/src\/(?:cli|setup|service-control|service-units)\.ts$/,
