@@ -1,7 +1,12 @@
 import { isIP } from 'node:net';
 
 export function normalizeHostname(host: string): string {
-  return host.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/u, '');
+  const bare = host.replace(/^\[|\]$/g, '');
+  const scope = bare.indexOf('%');
+  if (scope >= 0 && isIP(bare) === 6) {
+    return bare.slice(0, scope).toLowerCase() + bare.slice(scope);
+  }
+  return bare.toLowerCase().replace(/\.+$/u, '');
 }
 
 function parseIpv4(host: string): readonly number[] | null {
