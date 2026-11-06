@@ -228,7 +228,9 @@ export async function run(argv: readonly string[] = process.argv.slice(2),
     provider = config.upstream || config.backend === 'framer'
       ? await makeProvider(config, { signal: controller.signal, env }) : undefined;
     if (controller.signal.aborted) return 0;
-    app = await (dependencies.createServer ?? createServer)(serverConfig, { provider, logger });
+    app = await (dependencies.createServer ?? createServer)(serverConfig, {
+      provider, logger, signal: controller.signal,
+    });
     if (controller.signal.aborted) return 0;
     if (command === 'check') {
       await close();
