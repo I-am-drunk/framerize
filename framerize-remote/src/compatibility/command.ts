@@ -137,7 +137,7 @@ export async function runClient(argv: readonly string[], deps: ClientSetupDeps):
   if (options.check) return check(options, deps);
   try {
     if (options.undo) {
-      const result = await undoClaudeSettings(deps.stateDir);
+      const result = await undoClaudeSettings(deps.stateDir, deps.platform);
       deps.io.stdout(result === 'restored' ? 'Removed the Remote values from Claude settings.\n'
         : result === 'changed_since' ? 'Claude settings changed since Framerize wrote them; left them unchanged.\n'
           : 'Framerize has not written Claude settings.\n');
@@ -145,7 +145,7 @@ export async function runClient(argv: readonly string[], deps: ClientSetupDeps):
     }
     if (options.persist) {
       const path = claudeSettingsPath(deps.env, deps.home);
-      await writeClaudeSettings(path, deps.stateDir, deps.target);
+      await writeClaudeSettings(path, deps.stateDir, deps.target, deps.platform);
       const undo = options.config === undefined ? 'frm client claude --undo'
         : 'use --undo instead of --persist, keeping the same --config';
       deps.io.stdout(`Claude settings now use ${claudeBaseUrl(deps.target.origin)}: ${path}\nUndo: ${undo}\n`);
