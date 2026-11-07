@@ -48,6 +48,7 @@ pub(super) async fn serve(state: AppState, payload: Value, model: String, max_to
                 }
             };
             let mut tried = Vec::new();
+            let mut tried_scopes = vec![attempt.scope.team.0.clone()];
             let content_seen = Arc::new(AtomicBool::new(false));
             let result = loop {
                 let chat = explicit_session.clone()
@@ -82,6 +83,31 @@ pub(super) async fn serve(state: AppState, payload: Value, model: String, max_to
                     Err(error) if pool_control::cleanup_unconfirmed(error));
                 config.admission.as_ref().unwrap()
                     .finished(result.as_ref().err().map(String::as_str)).await;
+
+                let exhausted = result.as_ref().err().is_some_and(|error|
+                    framer_core::error::chain_error_cause(error) == "credits-exhausted");
+                if cleanup && !content_seen.load(Ordering::SeqCst)
+                    && !overflow.load(Ordering::SeqCst) && exhausted {
+                    if let Some(scope) = super::pick_alternate_scope(
+                        &state, &attempt.account, &tried_scopes) {
+                        tried_scopes.push(scope.team.0.clone());
+                        let key = format!("{}:{log_model}", scope.team.0);
+                        let permit = loop {
+                            if cancelled() { break None; }
+                            tokio::select! {
+                                permit = state.gate.acquire(&key) => break Some(permit),
+                                _ = tokio::time::sleep(Duration::from_millis(100)) => {},
+                            }
+                        };
+                        let Some(permit) = permit else { break Err("client cancelled".into()); };
+                        if let Err(error) = current_account(&state, attempt.account.id).await {
+                            break Err(chain_admission_error(error));
+                        }
+                        attempt.scope = scope;
+                        attempt.permit = permit;
+                        continue;
+                    }
+                }
 
                 let retry_account = requested.is_none() && cleanup
                     && !content_seen.load(Ordering::SeqCst)
@@ -119,6 +145,7 @@ pub(super) async fn serve(state: AppState, payload: Value, model: String, max_to
                             .field("reason", framer_core::error::chain_error_cause(&original_error))
                             .emit();
                         attempt = next;
+                        tried_scopes = vec![attempt.scope.team.0.clone()];
                     }
                     Err(_) => break Err(original_error),
                 }

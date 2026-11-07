@@ -107,6 +107,65 @@ async fn buffered_custom_responses_route_retries_credit_exhaustion_on_another_ac
 }
 
 #[tokio::test]
+async fn buffered_custom_responses_try_sibling_workspace_before_another_account() {
+    let mut f = fixture::Fixture::new();
+    for original in &f.accounts {
+        let mut account = original.clone();
+        account.extra_workspaces = vec![framer_core::account::WorkspaceScope {
+            team: framer_core::ids::TeamId(format!("{}-alternate", original.current_team.as_ref().unwrap().0)),
+            project: framer_core::ids::ProjectId(format!("{}-alternate-project", original.id.0)),
+        }];
+        framer_core::port::StateStore::upsert(f.state.state.as_ref(), &account).await.unwrap();
+    }
+    let payload = serde_json::json!({"model":"gpt-4.1", "stream":false, "input":"fixture"});
+    let app = crate::router(f.state.clone(), "/nonexistent-fixture-web");
+    let task = tokio::spawn(app.oneshot(Request::builder().method("POST")
+        .uri("/openai/v1/responses").header("content-type", "application/json")
+        .header("x-framerize-account", f.accounts[0].id.0.to_string())
+        .body(Body::from(payload.to_string())).unwrap()));
+
+    let first = f.next().await;
+    let first_account = first.account.clone();
+    first.reply.send(Err("credits-exhausted".into())).ok().unwrap();
+    let second = f.next().await;
+    assert_eq!(second.account, first_account, "try this account's other workspace first");
+    second.reply.send(Ok(fixture::success("responses"))).ok().unwrap();
+    let response = tokio::time::timeout(std::time::Duration::from_secs(3), task)
+        .await.unwrap().unwrap().unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    f.no_call();
+}
+
+#[tokio::test]
+async fn streaming_custom_responses_try_sibling_workspace_before_another_account() {
+    let mut f = fixture::Fixture::new();
+    for original in &f.accounts {
+        let mut account = original.clone();
+        account.extra_workspaces = vec![framer_core::account::WorkspaceScope {
+            team: framer_core::ids::TeamId(format!("{}-alternate", original.current_team.as_ref().unwrap().0)),
+            project: framer_core::ids::ProjectId(format!("{}-alternate-project", original.id.0)),
+        }];
+        framer_core::port::StateStore::upsert(f.state.state.as_ref(), &account).await.unwrap();
+    }
+    let payload = serde_json::json!({"model":"gpt-4.1", "stream":true, "input":"fixture"});
+    let app = crate::router(f.state.clone(), "/nonexistent-fixture-web");
+    let response = app.oneshot(Request::builder().method("POST")
+        .uri("/openai/v1/responses").header("content-type", "application/json")
+        .header("x-framerize-account", f.accounts[0].id.0.to_string())
+        .body(Body::from(payload.to_string())).unwrap()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let first = f.next().await;
+    let first_account = first.account.clone();
+    first.reply.send(Err("credits-exhausted".into())).ok().unwrap();
+    let second = f.next().await;
+    assert_eq!(second.account, first_account, "try this account's other workspace first");
+    second.reply.send(Ok(fixture::success("responses"))).ok().unwrap();
+    let wire = to_bytes(response.into_body(), 65536).await.unwrap();
+    assert!(String::from_utf8_lossy(&wire).contains("response.completed"));
+    f.no_call();
+}
+
+#[tokio::test]
 async fn anthropic_stream_retries_credit_exhaustion_before_publishing_content() {
     let mut f = fixture::Fixture::new();
     let payload = serde_json::json!({"model":"claude-fable-5-1", "stream":true,
@@ -135,5 +194,37 @@ async fn anthropic_stream_retries_credit_exhaustion_before_publishing_content() 
     let wire = std::str::from_utf8(&bytes).unwrap();
     assert!(wire.contains("message_stop"));
     assert!(!wire.contains("insufficient_quota"));
+    f.no_call();
+}
+
+#[tokio::test]
+async fn pinned_anthropic_stream_tries_sibling_workspace_before_returning_402() {
+    let mut f = fixture::Fixture::new();
+    let mut account = f.accounts[0].clone();
+    account.extra_workspaces = vec![framer_core::account::WorkspaceScope {
+        team: framer_core::ids::TeamId(format!("{}-alternate", account.current_team.as_ref().unwrap().0)),
+        project: framer_core::ids::ProjectId(format!("{}-alternate-project", account.id.0)),
+    }];
+    framer_core::port::StateStore::upsert(f.state.state.as_ref(), &account).await.unwrap();
+    let payload = serde_json::json!({"model":"claude-fable-5-1", "stream":true,
+        "max_tokens":256, "messages":[{"role":"user", "content":"fixture"}]});
+    let app = crate::router(f.state.clone(), "/nonexistent-fixture-web");
+    let response = app.oneshot(Request::builder().method("POST")
+        .uri("/anthropic/v1/messages").header("content-type", "application/json")
+        .header("x-framerize-account", account.id.0.to_string())
+        .body(Body::from(payload.to_string())).unwrap()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let first = f.next().await;
+    let first_account = first.account.clone();
+    first.reply.send(Ok(fixture::Reply::MessagesFailure {
+        chunks: vec![], error: "credits-exhausted".into(),
+    })).ok().unwrap();
+    let second = f.next().await;
+    assert_eq!(second.account, first_account);
+    second.reply.send(Ok(fixture::success("messages"))).ok().unwrap();
+    let wire = to_bytes(response.into_body(), 65536).await.unwrap();
+    assert!(String::from_utf8_lossy(&wire).contains("message_stop"));
+    assert!(!String::from_utf8_lossy(&wire).contains("insufficient_quota"));
     f.no_call();
 }

@@ -920,6 +920,22 @@ fn pick_scope(s: &AppState, account: &ManagedAccount) -> Result<framer_core::acc
     Ok(scopes[start].clone())
 }
 
+/// After a workspace returns 402, retry this account's other saved scopes
+/// before treating the entire account as exhausted. Scope failures are local
+/// to a workspace; they must not discard usable sibling workspace credits.
+fn pick_alternate_scope(s: &AppState, account: &ManagedAccount,
+    excluded: &[String]) -> Option<framer_core::account::WorkspaceScope> {
+    let scopes = account.all_scopes();
+    if scopes.is_empty() { return None; }
+    let start = s.serving_accounts.rotation().next_scope_idx(&account.id.0.to_string(), scopes.len());
+    (0..scopes.len()).map(|offset| &scopes[(start + offset) % scopes.len()])
+        .find(|scope| !excluded.contains(&scope.team.0)
+            && !s.serving_accounts.rotation().is_saturated(&scope.team.0))
+        .or_else(|| (0..scopes.len()).map(|offset| &scopes[(start + offset) % scopes.len()])
+            .find(|scope| !excluded.contains(&scope.team.0)))
+        .cloned()
+}
+
 /// Free mode, ANY client dialect, LOSSLESS: convert the client's request to
 /// Anthropic Messages shape with full fidelity (tools, system, tool_choice,
 /// content blocks — convert::to_anthropic_request), run the unmetered
@@ -1372,6 +1388,7 @@ async fn free_complete(
     };
     let mut project = scope.project.clone();
     let mut scope_team = scope.team.clone();
+    let mut tried_scopes = vec![scope_team.0.clone()];
     let mut chat_session = hdr(headers, "x-framerize-session")
         .unwrap_or_else(|| stable_session(&account.id));
     let mut gate_key = format!("{}:{gate_model}", scope_team.0);
@@ -1473,6 +1490,20 @@ async fn free_complete(
 
     // Local capacity recovery retains the existing ownership checks.
     if cfg.is_cancelled() { break; }
+    if framer_core::error::chain_error_cause(
+        result.as_ref().err().map(String::as_str).unwrap_or_default()) == "credits-exhausted" {
+        if let Some(next_scope) = pick_alternate_scope(&s, &account, &tried_scopes) {
+            tried_scopes.push(next_scope.team.0.clone());
+            project = next_scope.project;
+            scope_team = next_scope.team;
+            gate_key = format!("{}:{gate_model}", scope_team.0);
+            cfg = mk_cfg(&scope_team, &account);
+            cfg.cancelled = cancelled.clone();
+            chat_session = hdr(headers, "x-framerize-session")
+                .unwrap_or_else(|| stable_session(&account.id));
+            continue 'account_retry;
+        }
+    }
     if allow_account_repick && matches!(&result, Err(e) if should_retry_account(e)) {
         tried_accounts.push(account.id.0.to_string());
         drop(residency.take());
@@ -1501,6 +1532,7 @@ async fn free_complete(
                 scope = match pick_scope(&s, &account) { Ok(sc) => sc, Err(_) => break 'account_retry };
                 project = scope.project.clone();
                 scope_team = scope.team.clone();
+                tried_scopes = vec![scope_team.0.clone()];
                 gate_key = format!("{}:{gate_model}", scope_team.0);
                 cfg = mk_cfg(&scope_team, &account);
                 cfg.cancelled = cancelled.clone();
@@ -1781,7 +1813,7 @@ async fn native_complete(
     if wants_stream && dialect == ClientDialect::OpenAiResponses {
         return response_output::serve(response_output::FreeRequest {
             state: s, account, residency, session, project, config: cfg,
-            payload: native_payload, gate_model, gate_key, first_permit,
+            payload: native_payload, scope_team, gate_model, gate_key, first_permit,
             chat_session, explicit_session: hdr(headers, "x-framerize-session"),
             allow_repick: allow_account_repick, client_model, logical_id,
         }).await;
@@ -1796,6 +1828,7 @@ async fn native_complete(
         let s2 = s.clone();
         let account2 = account.clone();
         let project2 = project.clone();
+        let scope_team2 = scope_team.clone();
         let mut chat_session2 = chat_session.clone();
         let explicit_chat_session = hdr(headers, "x-framerize-session");
         let log_model = gate_model.clone();
@@ -1818,6 +1851,8 @@ async fn native_complete(
             let mut account = account2;
             let mut session = session;
             let mut project = project2;
+            let mut scope_team = scope_team2;
+            let mut tried_scopes = vec![scope_team.0.clone()];
             let mut cfg2 = cfg;
             let mut tried: Vec<String> = Vec::new();
             let mut cleanup_confirmed = true;
@@ -1857,7 +1892,23 @@ async fn native_complete(
                 }
                 if cfg2.is_cancelled() { break r; }
                 let refusal = matches!(&r, Err(e) if should_retry_account(e));
-                if allow_account_repick && refusal && !emitted_content.load(std::sync::atomic::Ordering::Relaxed) {
+                if refusal && !emitted_content.load(std::sync::atomic::Ordering::Relaxed) {
+                    if framer_core::error::chain_error_cause(r.as_ref().err().map(String::as_str).unwrap_or_default()) == "credits-exhausted" {
+                        if let Some(sc) = pick_alternate_scope(&s2, &account, &tried_scopes) {
+                            tried_scopes.push(sc.team.0.clone());
+                            project = sc.project;
+                            scope_team = sc.team;
+                            gate_key = format!("{}:{gate_model}", scope_team.0);
+                            chat_session2 = explicit_chat_session.clone().unwrap_or_else(|| stable_session(&account.id));
+                            let team = Some(scope_team.0.clone());
+                            let rotation = s2.serving_accounts.rotation().clone();
+                            cfg2.on_429 = Some(std::sync::Arc::new(move || {
+                                if let Some(t) = &team { rotation.mark_saturated(t, 45_000); }
+                            }));
+                            continue;
+                        }
+                    }
+                    if !allow_account_repick { break r; }
                     tried.push(account.id.0.to_string());
                     drop(residency.take());
                     let wait_for_cooldown = matches!(&r, Err(error) if should_wait_for_account_cooldown(error));
@@ -1882,6 +1933,8 @@ async fn native_complete(
                             };
                             let sc = match pick_scope(&s2, &account) { Ok(sc) => sc, Err(_) => break r };
                             project = sc.project.clone();
+                            scope_team = sc.team.clone();
+                            tried_scopes = vec![scope_team.0.clone()];
                             gate_key = format!("{}:{gate_model}", sc.team.0);
                             chat_session2 = explicit_chat_session.clone()
                                 .unwrap_or_else(|| stable_session(&account.id));
@@ -1989,6 +2042,7 @@ async fn native_complete(
 
     let t0 = std::time::Instant::now();
     let mut tried_accounts: Vec<String> = Vec::new();
+    let mut tried_scopes = vec![scope_team.0.clone()];
     let mut cleanup_confirmed = true;
     let result = 'account_retry: loop {
         if let Err(error) = cfg.check_cancelled() { break Err(error); }
@@ -2041,6 +2095,19 @@ async fn native_complete(
         // completes, so an unbound request may retry a Castle refusal on a
         // fresh account (the verdict follows the account, not the request).
         if cfg.is_cancelled() { break r; }
+        if framer_core::error::chain_error_cause(
+            r.as_ref().err().map(String::as_str).unwrap_or_default()) == "credits-exhausted" {
+            if let Some(sc) = pick_alternate_scope(&s, &account, &tried_scopes) {
+                tried_scopes.push(sc.team.0.clone());
+                project = sc.project;
+                scope_team = sc.team;
+                gate_key = format!("{}:{gate_model}", scope_team.0);
+                cfg = mk_cfg(&scope_team);
+                chat_session = hdr(headers, "x-framerize-session")
+                    .unwrap_or_else(|| stable_session(&account.id));
+                continue 'account_retry;
+            }
+        }
         if allow_account_repick && matches!(&r, Err(e) if should_retry_account(e)) {
             tried_accounts.push(account.id.0.to_string());
             drop(residency.take());
@@ -2068,6 +2135,7 @@ async fn native_complete(
                     scope = match pick_scope(&s, &account) { Ok(sc) => sc, Err(_) => break 'account_retry r };
                     project = scope.project.clone();
                     scope_team = scope.team.clone();
+                    tried_scopes = vec![scope_team.0.clone()];
                     gate_key = format!("{}:{gate_model}", scope_team.0);
                     cfg = mk_cfg(&scope_team);
                     chat_session = hdr(headers, "x-framerize-session")

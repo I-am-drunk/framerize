@@ -7,6 +7,7 @@ from .settings import (ROOT, LOGIN_URL, API, CASTLE_CHUNK, POOL_CAP,
     DEVICE_POOL, HEARTBEAT_S, RESERVE_PER_DAY, DEV_COOLDOWN_S, DEV_WINDOW_S,
     DEV_WINDOW_CAP, MINT_GAP_S)
 from .events import trace, emit, error_cause, error_message
+from .refusal import is_castle_refusal
 from framerize_runtime.wire import AsyncReplyWriter
 from .resources import (memory_snapshot, memory_pressure_message, trim_unused_heap, MemoryPressureError,
     BROWSER_STARTUP_RESERVE, prepared_memory_browser, prepared_memory_addon)
@@ -1452,6 +1453,7 @@ class Host:
                 if type(first) is not int or not 0 <= first < attempts:
                     raise ValueError("invalid browser attempt index")
                 r = None
+                castle_refusal = False
                 for attempt in range(first, first + 1 if defer_retries else attempts):
                     dev = self._pick_device_sticky(acc) or self._pick_device(acc, account)
                     if dev is None and acc.devices:
@@ -1523,7 +1525,8 @@ class Host:
                         self._token_release(acc, tid)
                     # A refusal must reach the caller. Do not try another
                     # device to make the same refused request succeed.
-                    if r["status"] == 403:
+                    castle_refusal = r["status"] == 403 and is_castle_refusal(r.get("body"))
+                    if castle_refusal:
                         self._cool_device(acc, used_dev, account)
                     break
             emit("ai.post", account=account[:8], path=req["path"], status=r["status"],
@@ -1531,6 +1534,8 @@ class Host:
                  queue_wait_ms=int(queue_wait*1000),
                  fetch_ms=r.get("_fetch_ms"),
                  response_timeout_s=r.get("_response_timeout_s"),
+                 refusal_class=("castle" if castle_refusal else "upstream_or_unattributed")
+                     if r["status"] == 403 else None,
                  outcome="ok" if 200 <= r["status"] < 300 else "error",
                  **self._take_ai_post_failure_facts(r, job))
             # queue_wait_ms lets the caller separate "we waited for a page" from

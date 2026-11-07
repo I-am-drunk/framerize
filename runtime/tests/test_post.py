@@ -83,6 +83,21 @@ class PostTests(unittest.IsolatedAsyncioTestCase):
     async def test_incomplete_403_body_does_not_retry_or_cool(self):
         await self.check_failure('body', 403)
 
+    async def test_provider_403_does_not_cool_browser_device(self):
+        body = '{"error":{"type":"not_found_error","message":"No endpoints found for model"},"request_id":"gen-fixture"}'
+        event = await self.dispatch(dict(status=403, usage=None, body=body))
+        self.host._cool_device.assert_not_called()
+        self.assertEqual(event['refusal_class'], 'upstream_or_unattributed')
+
+    async def test_framer_security_envelope_cools_only_the_refused_device(self):
+        self.host._cool_device = Mock()
+        body = ('{"error":{"status":403,"message":"This request was blocked by our security checks",'
+                '"data":{"reason":"request_blocked"},"ref":"fixture-ref",'
+                '"timestamp":"2026-11-06T00:00:00Z"}}')
+        event = await self.dispatch(dict(status=403, usage=None, body=body))
+        self.host._cool_device.assert_called_once_with(self.acc, 'device', 'fixture')
+        self.assertEqual(event['refusal_class'], 'castle')
+
     async def test_incomplete_200_body_is_an_error(self):
         await self.check_failure('body', 200)
 

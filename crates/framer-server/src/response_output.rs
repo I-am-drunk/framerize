@@ -484,6 +484,7 @@ fn output(lease: Arc<Lease>, model: &str, id: &str) -> (Emitter, Sink, OutputBod
 pub(super) struct FreeRequest {
     pub state: AppState, pub account: ManagedAccount, pub residency: RequestResidency,
     pub session: framer_core::port::Session, pub project: framer_core::ids::ProjectId,
+    pub scope_team: framer_core::ids::TeamId,
     pub config: framer_core::port::ChainConfig, pub payload: Value,
     pub gate_model: String, pub gate_key: String, pub first_permit: Option<OwnedSemaphorePermit>,
     pub chat_session: String, pub explicit_session: Option<String>, pub allow_repick: bool,
@@ -520,6 +521,7 @@ pub(super) async fn wait(state: AppState, payload: Value, client_model: String,
                 let chat_session = explicit_session.clone().unwrap_or_else(|| stable_session(&account.id));
                 let config = waiting_config(&state, max_tokens, scope.team.0.clone());
                 Ok(FreeRequest { state, account, residency, session, project: scope.project,
+                    scope_team: scope.team.clone(),
                     config, payload, gate_key: format!("{}:{gate_model}", scope.team.0),
                     gate_model, first_permit: None, chat_session, explicit_session,
                     allow_repick: true, client_model, logical_id: id })
@@ -636,6 +638,7 @@ impl FreeRequest {
     async fn drive(&mut self, sink: &Sink, cancel: &Cancel,
         published: &std::sync::atomic::AtomicBool) -> (ResponseResult, bool) {
         let mut tried = Vec::new();
+        let mut tried_scopes = vec![self.scope_team.0.clone()];
         let mut cleanup = true;
         let result = loop {
             if let Err(error) = self.config.check_cancelled() { break Err(error.into()); }
@@ -678,9 +681,25 @@ impl FreeRequest {
             }
             if self.config.is_cancelled() { break result.map_err(Into::into); }
             let refusal = matches!(&result, Err(error) if should_retry_account(error));
-            if !(self.allow_repick && refusal && !published.load(Ordering::SeqCst)) {
+            if !(refusal && !published.load(Ordering::SeqCst)) {
                 break result.map_err(Into::into);
             }
+            if framer_core::error::chain_error_cause(
+                result.as_ref().err().map(ToString::to_string).as_deref().unwrap_or_default())
+                == "credits-exhausted" {
+                if let Some(scope) = super::pick_alternate_scope(
+                    &self.state, &self.account, &tried_scopes) {
+                    tried_scopes.push(scope.team.0.clone());
+                    self.project = scope.project;
+                    self.scope_team = scope.team;
+                    self.gate_key = format!("{}:{}", self.scope_team.0, self.gate_model);
+                    let team = self.scope_team.0.clone();
+                    let rotation = self.state.serving_accounts.rotation().clone();
+                    self.config.on_429 = Some(Arc::new(move || rotation.mark_saturated(&team, 45_000)));
+                    continue;
+                }
+            }
+            if !self.allow_repick { break result.map_err(Into::into); }
             tried.push(self.account.id.0.to_string());
             drop(self.residency.take());
             let wait_for_cooldown = matches!(&result, Err(error)
@@ -699,6 +718,7 @@ impl FreeRequest {
                 .field("reason", result.as_ref().err().map(|e| error_excerpt(e, 120)).unwrap_or(""))
                 .emit();
             self.account = next;
+            tried_scopes.clear();
             self.session = match self.state.sessions.load(&self.account.framer_user_id).await {
                 Ok(Some(session)) => session, _ => break result.map_err(Into::into),
             };
@@ -706,6 +726,8 @@ impl FreeRequest {
                 Ok(scope) => scope, Err(_) => break result.map_err(Into::into),
             };
             self.project = scope.project.clone();
+            self.scope_team = scope.team.clone();
+            tried_scopes.push(self.scope_team.0.clone());
             self.gate_key = format!("{}:{}", scope.team.0, self.gate_model);
             self.chat_session = self.explicit_session.clone().unwrap_or_else(|| stable_session(&self.account.id));
             let team = scope.team.0.clone();
