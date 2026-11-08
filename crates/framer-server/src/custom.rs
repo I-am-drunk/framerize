@@ -792,9 +792,9 @@ mod tests {
         let script = {
             let mut s = script;
             s.insert(1, serde_json::json!({"cancelled": false, "reason": "no-stream"}));
-            s.insert(3, serde_json::json!({"present": true, "text": "", "done": false, "stopped": false, "error": ""}));
+            s.insert(3, serde_json::json!({"present": true, "text": "", "done": false, "stopped": false, "status": 200, "error": ""}));
             s.insert(10, serde_json::json!({"cancelled": false, "reason": "no-stream"}));
-            s.insert(12, serde_json::json!({"present": true, "text": "", "done": false, "stopped": false, "error": ""}));
+            s.insert(12, serde_json::json!({"present": true, "text": "", "done": false, "stopped": false, "status": 200, "error": ""}));
             s
         };
         let (state, ports) = test_state_with(script);

@@ -44,113 +44,109 @@ pub const SLOT: &str = "__customPS";
 /// mint pays the ~5s v3 race once, later mints ~1s v2 path); a failed mint
 /// fails the open LOUDLY (castle-unavailable) instead of firing bare.
 pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
+  // FIRE-AND-POLL OPEN (2026-11-08 live-hang fix): this eval must resolve
+  // INSTANTLY. The old shape minted Castle inline (~8s) and awaited fetch
+  // headers inside the eval; on the Camoufox sidecar every eval runs on the
+  // account's single ambient page, so a slow open wedged the whole account
+  // lane (resets on ai_post's own mint+fetch). The mint + fetch + stream
+  // pump all run in the DETACHED task below; drains observe buf/cursor/done
+  // and surface mint/fetch failures as loud leg errors (same messages).
   try {
     {
       const prev = window.__customPS;
       if (prev && prev.open && !prev.closed) {
         return { ok: false, status: 0, error: "slot-busy" };
       }
-      // A finished slot (closed by cancel, or done by a prior leg) must not
-      // be re-entered: reset it so this open owns a fresh pump/buffer.
-      // Window-scoped reset (NOT null): other pool pages may still hold a
-      // reference to this slot object, and nulling the property would make
-      // their drains report present=false forever while the pump keeps
-      // appending to the detached object. Reuse the same object instead.
       window.__customPS = { open: false, closed: true, done: true };
     }
-    if (!window.castlePublishableAPIKey) {
-      Object.defineProperty(window, "castlePublishableAPIKey", { value: Object.freeze("pk_xYqGbB61EcFiSh4LUshpT4DGoEQMKQMB") });
-    }
-    if (!window.__fzCastleM) { try { window.__fzCastleM = await import("%CHUNK%"); } catch (e) {} }
-    let tok = null;
-    if (window.__fzCastleM) {
-      for (let i = 0; i < 3 && !tok; i++) {
-        try {
-          const t = await window.__fzCastleM.a();
-          if (typeof t === "string" && t.length > 500) tok = t;
-        } catch (e) {}
-        if (!tok) await new Promise(r => setTimeout(r, 1200));
-      }
-    }
-    if (!tok) return { ok: false, status: 0, error: "castle-unavailable" };
-    body.castleToken = tok;
-    const ctl = new AbortController();
-    const r = await fetch("%API%%PATH%", {
-      method: "POST", credentials: "include", signal: ctl.signal,
-      headers: {
-        "content-type": "application/json; charset=utf-8",
-        "x-requested-by": "Framer",
-        "authorization": "Bearer %BEARER%",
-      },
-      body: JSON.stringify(body),
-    });
-    const status = r.status;
-    const usage = r.headers.get("x-framer-ai-usage");
-    if (!r.ok || !r.body) {
-      let errText = "";
-      try { errText = await r.text(); } catch (e) {}
-      return { ok: false, status: status, usage: usage, error: errText.slice(0, 400) };
-    }
-    const reader = r.body.getReader();
-    const dec = new TextDecoder();
-    const slot = { open: true, closed: false, status: status, usage: usage,
+    const slot = { open: true, closed: false, status: 0, usage: null,
       buf: "", cursor: 0, chunks: 0, stopped: false, stopAt: 0, done: false, error: "",
-      reader: reader, ctl: ctl };
+      reader: null, ctl: null };
     window.__customPS = slot;
-    // LIVE PUMP (drain-loop hang fix, 2026-11-08): flush decoded SSE text
-    // into slot.buf INCREMENTALLY per chunk-arrival (TextDecoder streaming
-    // handles multi-byte splits across chunk edges), count every parsed
-    // data: line as one framed delta, and cut the loop (abort+cancel)
-    // the same tick the stopAfter-th DATA LINE arrives -- before the
-    // usage/terminal frame is consumed. The previous pump buffered into a
-    // loop-local and only published at loop exit, so no drain ever saw
-    // text while the stream was live; and it counted only content-bearing
-    // lines, so a typical stream never reached the in-page stop and the
-    // Rust drain cursor sat at zero for the whole 600s leg.
     (async () => {
       try {
-        let carry = "", events = 0;
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) { try { slot.buf += dec.decode(); } catch (e) {} slot.done = true; break; }
-          carry += dec.decode(value, { stream: true });
-          const parts = carry.split("\n"); carry = parts.pop();
-          for (const ln of parts) {
-            const t = ln.trim();
-            if (!t.startsWith("data:")) continue;
-            const q = t.slice(5).trim();
-            if (q === "[DONE]") { try { slot.buf += dec.decode(); } catch (e) {} slot.done = true; break; }
-            let d = null;
-            try {
-              const j = JSON.parse(q);
-              const c = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content;
-              if (typeof c === "string") d = c;
-            } catch (e) { d = null; }
-            slot.buf += (d === null || d === "") ? "\u0000" : d;
-            slot.chunks++;
-            events++;
-            // THE STOP: same tick as the stopAfter-th DATA LINE (framed
-            // delta). The usage/terminal frame is the NEXT one -- never
-            // read, never billed. The sentinel keeps the drain cursor
-            // honest on empty deltas (see HostPageStream::drain, which
-            // maps each sentinel back to one empty Event::Delta).
-            if (events >= stopAfter) {
-              try { ctl.abort(); } catch (e) {}
-              try { await reader.cancel(); } catch (e) {}
-              slot.stopped = true; slot.stopAt = stopAfter;
-              slot.done = true; break;
-            }
-          }
-          if (slot.done) break;
+        if (!window.castlePublishableAPIKey) {
+          Object.defineProperty(window, "castlePublishableAPIKey", { value: Object.freeze("pk_xYqGbB61EcFiSh4LUshpT4DGoEQMKQMB") });
         }
-        try { slot.buf += dec.decode(); } catch (e) {}
-        slot.done = true;
-      } catch (e) { slot.error = String(e).slice(0, 400); slot.done = true; }
+        if (!window.__fzCastleM) { try { window.__fzCastleM = await import("%CHUNK%"); } catch (e) {} }
+        let tok = null;
+        if (window.__fzCastleM) {
+          for (let i = 0; i < 3 && !tok; i++) {
+            try {
+              const t = await window.__fzCastleM.a();
+              if (typeof t === "string" && t.length > 500) tok = t;
+            } catch (e) {}
+            if (!tok) await new Promise(r => setTimeout(r, 1200));
+          }
+        }
+        if (!tok) { slot.error = "castle-unavailable"; slot.done = true; return; }
+        body.castleToken = tok;
+        const ctl = new AbortController();
+        slot.ctl = ctl;
+        let r;
+        try {
+          r = await fetch("%API%%PATH%", {
+            method: "POST", credentials: "include", signal: ctl.signal,
+            headers: {
+              "content-type": "application/json; charset=utf-8",
+              "x-requested-by": "Framer",
+              "authorization": "Bearer %BEARER%",
+            },
+            body: JSON.stringify(body),
+          });
+        } catch (e) { slot.error = String(e && e.message || e).slice(0, 400); slot.done = true; return; }
+        slot.status = r.status;
+        try { slot.usage = r.headers.get("x-framer-ai-usage"); } catch (e) {}
+        if (!r.ok || !r.body) {
+          let errText = "";
+          try { errText = await r.text(); } catch (e) {}
+          slot.error = ("http " + r.status + ": " + errText).slice(0, 400);
+          slot.done = true; return;
+        }
+        const reader = r.body.getReader();
+        slot.reader = reader;
+        const dec = new TextDecoder();
+        try {
+          let carry = "", events = 0;
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) { try { slot.buf += dec.decode(); } catch (e) {} slot.done = true; break; }
+            carry += dec.decode(value, { stream: true });
+            const parts = carry.split("\n"); carry = parts.pop();
+            for (const ln of parts) {
+              const t = ln.trim();
+              if (!t.startsWith("data:")) continue;
+              const q = t.slice(5).trim();
+              if (q === "[DONE]") { try { slot.buf += dec.decode(); } catch (e) {} slot.done = true; break; }
+              let d = null;
+              try {
+                const j = JSON.parse(q);
+                const c = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content;
+                if (typeof c === "string") d = c;
+              } catch (e) { d = null; }
+              slot.buf += (d === null || d === "") ? "\u0000" : d;
+              slot.chunks++;
+              events++;
+              // THE STOP: same tick as the stopAfter-th DATA LINE (framed
+              // delta). The usage/terminal frame is the NEXT one -- never
+              // read, never billed.
+              if (events >= stopAfter) {
+                try { ctl.abort(); } catch (e) {}
+                try { await reader.cancel(); } catch (e) {}
+                slot.stopped = true; slot.stopAt = stopAfter;
+                slot.done = true; break;
+              }
+            }
+            if (slot.done) break;
+          }
+          try { slot.buf += dec.decode(); } catch (e) {}
+          slot.done = true;
+        } catch (e) { slot.error = String(e).slice(0, 400); slot.done = true; }
+      } catch (e) { slot.error = String(e && e.message || e).slice(0, 400); slot.done = true; }
     })();
-    return { ok: true, status: status, usage: usage };
+    return { ok: true, status: 0, usage: null };
   } catch (e) { return { ok: false, status: 0, error: String(e && e.message || e).slice(0, 400) }; }
 })(%BODY%, %STOP%)"#;
-
 /// SENTINEL CONTRACT (drain-loop hang fix, 2026-11-08): OPEN_SNIPPET appends
 /// exactly one unit per parsed data line -- the delta text, or a single
 /// U+0000 sentinel when the line carries no content. drain decodes the
@@ -328,6 +324,8 @@ impl<E: PageEval> framer_custom::PageStream for HostPageStream<E> {
                 .eval
                 .eval_small(&self.account, CANCEL_SNIPPET.to_string())
                 .await;
+            // Fire-and-poll open: the eval starts the detached pump and
+            // resolves instantly (mint + fetch headers happen off-eval).
             let v = self
                 .eval
                 .eval_small(&self.account, self.open_expr(payload, stop_after))
@@ -346,29 +344,58 @@ impl<E: PageEval> framer_custom::PageStream for HostPageStream<E> {
             // on a different pool page than this drain sees -- retry the
             // whole sequence on the next rotation instead of handing the
             // rung a stream that can never yield text.
-            match self
-                .eval
-                .eval_small(&self.account, DRAIN_SNIPPET.to_string())
-                .await
-            {
-                Ok(vv) if vv["present"].as_bool() == Some(true) => {
-                    // Mint the id only on the ACCEPTED rotation, so pool
-                    // retries never skip ids (ps1 first, no gaps).
-                    self.next_id += 1;
-                    let id = format!("ps{}", self.next_id);
-                    self.stream_id = Some(id.clone());
-                    return Ok(id);
-                }
-                _ => {
-                    last_err =
-                        "page stream opened on an unreachable pool page; retrying".to_string();
-                    continue;
+            //
+            // Then wait (bounded ~30s) for the detached pump to report its
+            // fetch outcome: headers arrived (status != 0), text flowing,
+            // terminal flags, or a loud error (castle-unavailable, http
+            // 4xx/5xx, network). A pump that never reports is a wedged
+            // page: fail loud, never hand the rung a silent stream.
+            // The id is minted only on the ACCEPTED rotation, so pool
+            // retries never skip ids (ps1 first, no gaps).
+            let mut attempts = 0;
+            loop {
+                attempts += 1;
+                match self
+                    .eval
+                    .eval_small(&self.account, DRAIN_SNIPPET.to_string())
+                    .await
+                {
+                    Ok(vv) if vv["present"].as_bool() == Some(true) => {
+                        if let Some(err) = vv["error"].as_str() {
+                            if !err.is_empty() {
+                                if err.starts_with("http ") {
+                                    return Err(format!("page stream open failed: {err}"));
+                                }
+                                return Err(format!("page stream open failed: {err}"));
+                            }
+                        }
+                        let reported = vv["status"].as_i64().unwrap_or(0) != 0
+                            || !vv["text"].as_str().unwrap_or("").is_empty()
+                            || vv["done"].as_bool().unwrap_or(false)
+                            || vv["stopped"].as_bool().unwrap_or(false);
+                        if reported {
+                            self.next_id += 1;
+                            let id = format!("ps{}", self.next_id);
+                            self.stream_id = Some(id.clone());
+                            return Ok(id);
+                        }
+                        if attempts >= 60 {
+                            last_err =
+                                "page stream pump never reported (page wedged?)".to_string();
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    }
+                    _ => {
+                        last_err =
+                            "page stream opened on an unreachable pool page; retrying".to_string();
+                        break;
+                    }
                 }
             }
         }
-        return Err(last_err);
+        Err(last_err)
     }
-
 
     async fn drain(&mut self, stream_id: &str) -> Result<framer_custom::StreamBatch, String> {
         if self.stream_id.as_deref() != Some(stream_id) {
@@ -531,8 +558,12 @@ mod tests {
         assert!(OPEN_SNIPPET.contains("%CHUNK%"));
         assert!(OPEN_SNIPPET.contains("if (events >= stopAfter)"));
         assert!(OPEN_SNIPPET.contains("reader.cancel()"));
+        // Fire-and-poll open: the pump (fetch + reader + decoder) runs
+        // detached; the eval itself only starts it and returns instantly.
         assert!(OPEN_SNIPPET.contains("getReader()"));
         assert!(OPEN_SNIPPET.contains("TextDecoder"));
+        assert!(OPEN_SNIPPET.contains("return { ok: true, status: 0"));
+        assert!(OPEN_SNIPPET.contains("slot.error = \"castle-unavailable\""));
         assert!(DRAIN_SNIPPET.contains("slot.cursor"));
         assert!(CANCEL_SNIPPET.contains("slot.ctl.abort()"));
         assert!(CANCEL_SNIPPET.contains("slot.reader.cancel()") || CANCEL_SNIPPET.contains("reader.cancel()"));
@@ -568,7 +599,7 @@ mod tests {
         let mut s = test_stream(vec![
             serde_json::json!({"cancelled": false, "reason": "no-stream"}),
             serde_json::json!({"ok": true, "status": 200}),
-            serde_json::json!({"present": true, "text": "", "done": false, "stopped": false, "error": ""}),
+            serde_json::json!({"present": true, "text": "", "done": false, "stopped": false, "status": 200, "error": ""}),
             serde_json::json!({"present": true, "text": "hello ", "done": false, "error": ""}),
             serde_json::json!({"present": true, "text": "", "done": true, "error": ""}),
             serde_json::json!({"cancelled": true}),
@@ -596,7 +627,7 @@ mod tests {
         let mut s = test_stream(vec![
             serde_json::json!({"cancelled": false, "reason": "no-stream"}),
             serde_json::json!({"ok": true, "status": 200}),
-            serde_json::json!({"present": true, "text": "", "done": false, "stopped": false, "error": ""}),
+            serde_json::json!({"present": true, "text": "", "done": false, "stopped": false, "status": 200, "error": ""}),
         ]);
         let id = s
             .open_stream(&serde_json::json!({}), framer_custom::Dialect::Chat, 200)
@@ -622,7 +653,7 @@ mod tests {
             let mut s = test_stream(vec![
                 serde_json::json!({"cancelled": false}),
                 serde_json::json!({"ok": true, "status": 200}),
-                serde_json::json!({"present": true, "text": "", "done": false, "stopped": false, "error": ""}),
+                serde_json::json!({"present": true, "text": "", "done": false, "stopped": false, "status": 200, "error": ""}),
             ]);
             s.open_stream(&serde_json::json!({}), framer_custom::Dialect::Chat, send)
                 .await
@@ -675,7 +706,7 @@ mod tests {
         let mut s = test_stream(vec![
             serde_json::json!({"cancelled": false, "reason": "no-stream"}),
             serde_json::json!({"ok": true, "status": 200}),
-            serde_json::json!({"present": true, "text": "", "done": false, "stopped": false, "error": ""}),
+            serde_json::json!({"present": true, "text": "", "done": false, "stopped": false, "status": 200, "error": ""}),
             serde_json::json!({"present": true, "text": "hello \0world \0partial", "done": false, "stopped": false, "error": ""}),
             serde_json::json!({"present": true, "text": "ial\0\0tail", "done": true, "stopped": true, "stopAt": 200, "error": ""}),
         ]);
@@ -716,7 +747,7 @@ mod tests {
             serde_json::json!({"present": false}),
             serde_json::json!({"cancelled": false, "reason": "no-stream"}),
             serde_json::json!({"ok": true, "status": 200}),
-            serde_json::json!({"present": true, "text": "", "done": false, "stopped": false, "error": ""}),
+            serde_json::json!({"present": true, "text": "", "done": false, "stopped": false, "status": 200, "error": ""}),
         ]);
         let id = s
             .open_stream(&serde_json::json!({}), framer_custom::Dialect::Chat, 200)
