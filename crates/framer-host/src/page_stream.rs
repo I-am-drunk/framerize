@@ -107,14 +107,23 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
         slot.reader = reader;
         const dec = new TextDecoder();
         try {
-          let carry = "", events = 0;
+          let carry = "", events = 0, rawLines = 0;
           for (;;) {
             const { done, value } = await reader.read();
             if (done) { try { slot.buf += dec.decode(); } catch (e) {} slot.done = true; break; }
             carry += dec.decode(value, { stream: true });
             const parts = carry.split("\n"); carry = parts.pop();
+            // WIRE-TAP (2026-11-08 stall hunt): the first 8 raw lines of
+            // the body are echoed into slot.error-prefixed diagnostics via
+            // slot.buf's sentinel channel is text-only, so stash them on a
+            // side field the drain reports (see DRAIN_SNIPPET wireTap).
             for (const ln of parts) {
               const t = ln.trim();
+              if (t === "" || t === ":") continue;
+              if (rawLines < 8) {
+                rawLines++;
+                try { slot.wireTap = (slot.wireTap || "") + "L" + rawLines + "=" + t.slice(0, 120) + " | "; } catch (e) {}
+              }
               if (!t.startsWith("data:")) continue;
               const q = t.slice(5).trim();
               if (q === "[DONE]") { try { slot.buf += dec.decode(); } catch (e) {} slot.done = true; break; }
@@ -165,9 +174,12 @@ pub const DRAIN_SNIPPET: &str = r#"(() => {
   if (!slot || (!slot.open && !slot.closed)) return { present: false };
   const text = slot.buf.slice(slot.cursor);
   slot.cursor = slot.buf.length;
+  const tap = slot.wireTap || "";
+  try { slot.wireTap = ""; } catch (e) {}
   return { present: true, text: text, done: !!slot.done,
     stopped: !!slot.stopped, stopAt: slot.stopAt || 0,
-    status: slot.status, usage: slot.usage, error: slot.error || "" };
+    status: slot.status, usage: slot.usage, error: slot.error || "",
+    chunks: slot.chunks || 0, wireTap: tap };
 })()"#;
 
 /// JS: BACKSTOP cancel only. The normal stop fires inside the page loop
@@ -367,13 +379,15 @@ impl<E: PageEval> framer_custom::PageStream for HostPageStream<E> {
                 {
                     Ok(vv) if vv["present"].as_bool() == Some(true) => {
                         eprintln!(
-                            "[custom-route] open-wait poll={} present=true status={} text_len={} done={} stopped={} err={:?}",
+                            "[custom-route] open-wait poll={} present=true status={} text_len={} done={} stopped={} chunks={} err={:?} tap={:?}",
                             attempts,
                             vv["status"].as_i64().unwrap_or(-1),
                             vv["text"].as_str().map(|t| t.len()).unwrap_or(0),
                             vv["done"].as_bool().unwrap_or(false),
                             vv["stopped"].as_bool().unwrap_or(false),
+                            vv["chunks"].as_i64().unwrap_or(-1),
                             vv["error"].as_str().unwrap_or(""),
+                            vv["wireTap"].as_str().unwrap_or(""),
                         );
                         if let Some(err) = vv["error"].as_str() {
                             if !err.is_empty() {
