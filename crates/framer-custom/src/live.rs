@@ -195,10 +195,12 @@ impl<P: PageStream> CustomTransport for BridgeStreamTransport<P> {
         let batch = match tokio::time::timeout(DRAIN_TIMEOUT, self.page.drain(id)).await {
             Ok(Ok(b)) => b,
             Ok(Err(e)) => {
+                eprintln!("[custom-route] live page drain error: {e}");
                 self.failed = Some(e);
                 return None;
             }
             Err(_) => {
+                eprintln!("[custom-route] live page drain timed out after 120s");
                 self.failed = Some("live: page drain timed out after 120s".into());
                 return None;
             }
@@ -225,6 +227,10 @@ impl<P: PageStream> CustomTransport for BridgeStreamTransport<P> {
             // Normal during slow generation -- only a long streak is a stall.
             self.empty_streak += 1;
             if self.empty_streak >= MAX_EMPTY_DRAINS {
+                eprintln!(
+                    "[custom-route] live page stream stalled: {} empty drains with no terminal",
+                    self.empty_streak
+                );
                 self.failed = Some(format!(
                     "live: page stream stalled: {} empty drains with no terminal",
                     self.empty_streak

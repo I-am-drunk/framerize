@@ -84,30 +84,46 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
     const reader = r.body.getReader();
     const dec = new TextDecoder();
     const slot = { open: true, closed: false, status: status, usage: usage,
-      buf: "", cursor: 0, stopped: false, stopAt: 0, done: false, error: "",
+      buf: "", cursor: 0, chunks: 0, stopped: false, stopAt: 0, done: false, error: "",
       reader: reader, ctl: ctl };
     window.__customPS = slot;
+    // LIVE PUMP (drain-loop hang fix, 2026-11-08): flush decoded SSE text
+    // into slot.buf INCREMENTALLY per chunk-arrival (TextDecoder streaming
+    // handles multi-byte splits across chunk edges), count every parsed
+    // data: line as one framed delta, and cut the loop (abort+cancel)
+    // the same tick the stopAfter-th DATA LINE arrives -- before the
+    // usage/terminal frame is consumed. The previous pump buffered into a
+    // loop-local and only published at loop exit, so no drain ever saw
+    // text while the stream was live; and it counted only content-bearing
+    // lines, so a typical stream never reached the in-page stop and the
+    // Rust drain cursor sat at zero for the whole 600s leg.
     (async () => {
       try {
-        let carry = "", events = 0, out = "";
+        let carry = "", events = 0;
         for (;;) {
           const { done, value } = await reader.read();
-          if (done) { slot.done = true; break; }
+          if (done) { try { slot.buf += dec.decode(); } catch (e) {} slot.done = true; break; }
           carry += dec.decode(value, { stream: true });
           const parts = carry.split("\n"); carry = parts.pop();
           for (const ln of parts) {
             const t = ln.trim();
             if (!t.startsWith("data:")) continue;
             const q = t.slice(5).trim();
-            if (q === "[DONE]") { slot.done = true; break; }
-            events++;
+            if (q === "[DONE]") { try { slot.buf += dec.decode(); } catch (e) {} slot.done = true; break; }
+            let d = null;
             try {
               const j = JSON.parse(q);
-              const d = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content;
-              if (typeof d === "string") out += d;
-            } catch (e) {}
-            // THE STOP: same tick as the stop chunk. The terminal/usage
-            // chunk is the NEXT one -- never read, never billed.
+              const c = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content;
+              if (typeof c === "string") d = c;
+            } catch (e) { d = null; }
+            slot.buf += (d === null || d === "") ? "\u0000" : d;
+            slot.chunks++;
+            events++;
+            // THE STOP: same tick as the stopAfter-th DATA LINE (framed
+            // delta). The usage/terminal frame is the NEXT one -- never
+            // read, never billed. The sentinel keeps the drain cursor
+            // honest on empty deltas (see HostPageStream::drain, which
+            // maps each sentinel back to one empty Event::Delta).
             if (events >= stopAfter) {
               try { ctl.abort(); } catch (e) {}
               try { await reader.cancel(); } catch (e) {}
@@ -117,7 +133,7 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
           }
           if (slot.done) break;
         }
-        try { slot.buf += out + dec.decode(); } catch (e) { slot.buf += out; }
+        try { slot.buf += dec.decode(); } catch (e) {}
         slot.done = true;
       } catch (e) { slot.error = String(e).slice(0, 400); slot.done = true; }
     })();
@@ -125,6 +141,13 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
   } catch (e) { return { ok: false, status: 0, error: String(e && e.message || e).slice(0, 400) }; }
 })(%BODY%, %STOP%)"#;
 
+/// SENTINEL CONTRACT (drain-loop hang fix, 2026-11-08): OPEN_SNIPPET appends
+/// exactly one unit per parsed data line -- the delta text, or a single
+/// U+0000 sentinel when the line carries no content. drain decodes the
+/// slice back into one Event-Delta per line (see decode_deltas), so the
+/// rung stop counts the same framed units the page counted at its stop.
+/// Without this, multi-line arrivals collapse into one delta and the rung
+/// never reaches its stop (the 600s silent hang).
 /// JS: read the unconsumed slice + state. Never blocks: resolves at once.
 /// `stopped` reports the in-page stop (the page aborted itself at stopAt);
 /// `done` reports natural terminal (raced: terminal beat the stop).
@@ -223,6 +246,36 @@ impl<E: PageEval> HostPageStream<E> {
     }
 }
 
+impl<E: PageEval> HostPageStream<E> {
+    // Decode one drain slice into one Delta per parsed page data line.
+    // The pump appends exactly one unit per line (delta text, or U+0000
+    // when the line carries no content); a U+0000 terminates the current
+    // run (pushed even when empty -- consecutive sentinels are consecutive
+    // empty lines), and a non-empty trailing run is the still-open line.
+    // Empty slice = no new lines = no events (a paced poll, not a delta).
+    // NUL bytes in genuine model text would split one line into two
+    // deltas (stop reached marginally early); LLM output never contains
+    // NUL, so the decode is exact in practice.
+    fn decode_deltas(text: &str) -> Vec<framer_custom::Event> {
+        if text.is_empty() {
+            return Vec::new();
+        }
+        let mut events = Vec::new();
+        let mut cur = String::new();
+        for ch in text.chars() {
+            if ch == '\0' {
+                events.push(framer_custom::Event::Delta(std::mem::take(&mut cur)));
+            } else {
+                cur.push(ch);
+            }
+        }
+        if !cur.is_empty() {
+            events.push(framer_custom::Event::Delta(cur));
+        }
+        events
+    }
+}
+
 #[async_trait]
 impl<E: PageEval> framer_custom::PageStream for HostPageStream<E> {
     async fn open_stream(
@@ -287,11 +340,10 @@ impl<E: PageEval> framer_custom::PageStream for HostPageStream<E> {
         // contract (raced => trailing Done) holds by construction.
         // STOPPED (page aborted itself at stopAfter, no terminal read):
         // plain text batch; the rung's own stop re-confirms the bound.
-        let mut events = if text.is_empty() {
-            vec![]
-        } else {
-            vec![framer_custom::Event::Delta(text)]
-        };
+        // One Delta PER parsed data line (sentinel-decoded): the page
+        // counted lines at its stop, so the rung must count lines too --
+        // collapsing the slice into one Delta starved the stop (600s hang).
+        let mut events = Self::decode_deltas(&text);
         let raced = page_done && !page_stopped;
         if raced {
             events.push(framer_custom::Event::Done);
@@ -519,6 +571,74 @@ mod tests {
                 &seen[1][seen[1].len().saturating_sub(120)..]
             );
         }
+    }
+
+    #[test]
+    fn decode_deltas_units() {
+        use framer_custom::Event;
+        // Empty slice = paced poll, not a delta.
+        assert_eq!(HostPageStream::<ScriptEval>::decode_deltas(""), Vec::<Event>::new());
+        // Partial line (no sentinel yet) = the still-open line, one delta.
+        assert_eq!(
+            HostPageStream::<ScriptEval>::decode_deltas("hello "),
+            vec![Event::Delta("hello ".into())]
+        );
+        // One delta PER parsed data line: sentinels terminate runs.
+        assert_eq!(
+            HostPageStream::<ScriptEval>::decode_deltas("a\0b\0"),
+            vec![Event::Delta("a".into()), Event::Delta("b".into())]
+        );
+        // Consecutive sentinels = consecutive empty lines = empty deltas
+        // (each counts toward the rung stop, matching the page count).
+        assert_eq!(
+            HostPageStream::<ScriptEval>::decode_deltas("\0\0"),
+            vec![Event::Delta("".into()), Event::Delta("".into())]
+        );
+        // Trailing open line after terminated runs.
+        assert_eq!(
+            HostPageStream::<ScriptEval>::decode_deltas("a\0partial"),
+            vec![Event::Delta("a".into()), Event::Delta("partial".into())]
+        );
+    }
+
+    #[tokio::test]
+    async fn drain_decodes_one_delta_per_line() {
+        use framer_custom::PageStream;
+        // Pump-side framing: "hello " + "world " complete lines, "partial"
+        // still open; then the stop lands ("ial" closes the line, two empty
+        // lines, "tail" open) with stopped=true.
+        let mut s = test_stream(vec![
+            serde_json::json!({"cancelled": false, "reason": "no-stream"}),
+            serde_json::json!({"ok": true, "status": 200}),
+            serde_json::json!({"present": true, "text": "hello \0world \0partial", "done": false, "stopped": false, "error": ""}),
+            serde_json::json!({"present": true, "text": "ial\0\0tail", "done": true, "stopped": true, "stopAt": 200, "error": ""}),
+        ]);
+        let id = s
+            .open_stream(&serde_json::json!({"stream": true}), framer_custom::Dialect::Chat, 200)
+            .await
+            .unwrap();
+        let b1 = s.drain(&id).await.unwrap();
+        assert_eq!(
+            b1.events,
+            vec![
+                framer_custom::Event::Delta("hello ".into()),
+                framer_custom::Event::Delta("world ".into()),
+                framer_custom::Event::Delta("partial".into()),
+            ]
+        );
+        assert!(!b1.raced && !b1.aborted);
+        let b2 = s.drain(&id).await.unwrap();
+        assert_eq!(
+            b2.events,
+            vec![
+                framer_custom::Event::Delta("ial".into()),
+                framer_custom::Event::Delta("".into()),
+                framer_custom::Event::Delta("tail".into()),
+            ]
+        );
+        // stopped (page aborted itself at the stop, no terminal read) is
+        // NOT a race: no Done appended, aborted set.
+        assert!(!b2.raced && b2.aborted);
     }
 
     #[tokio::test]
