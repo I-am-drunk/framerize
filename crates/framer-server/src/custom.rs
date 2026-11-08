@@ -782,15 +782,19 @@ mod tests {
             serde_json::json!({"present": true, "text": "tail ", "done": true, "stopped": false, "error": ""}),
             serde_json::json!({"status": 200, "available": 100.0}),
         ];
-        // NOTE: open() now pre-cancels the slot (stale-slot recovery), so
-        // the script leads each OPEN with one CANCEL reply.
+        // NOTE: open() now pre-cancels the slot (stale-slot recovery) and
+        // the page-pin path verifies the fresh slot with one DRAIN
+        // (present/absent check) before the engine drains: each OPEN costs
+        // one CANCEL reply + one verify-DRAIN reply. The script inserts one
+        // of each right after each before-credits read (credits, pre-cancel,
+        // open, verify-drain, ...). The verify drain reports the fresh slot
+        // (present, empty, not done) so open_stream proceeds to the engine.
         let script = {
             let mut s = script;
-            // open() pre-cancels the slot (stale-slot recovery): insert one
-            // CANCEL reply right after each before-credits read (script
-            // positions 1 and 8: credits, pre-cancel, open, ...).
             s.insert(1, serde_json::json!({"cancelled": false, "reason": "no-stream"}));
-            s.insert(9, serde_json::json!({"cancelled": false, "reason": "no-stream"}));
+            s.insert(3, serde_json::json!({"present": true, "text": "", "done": false, "stopped": false, "error": ""}));
+            s.insert(10, serde_json::json!({"cancelled": false, "reason": "no-stream"}));
+            s.insert(12, serde_json::json!({"present": true, "text": "", "done": false, "stopped": false, "error": ""}));
             s
         };
         let (state, ports) = test_state_with(script);
