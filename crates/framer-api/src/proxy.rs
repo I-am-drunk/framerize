@@ -41,16 +41,16 @@ impl Dialect {
 }
 
 impl Dialect {
-    /// Custom-route model id for this dialect (mirrors the probe models in
-    /// routes/: OpenRouter catalog ids for the passthroughs, unprefixed for
-    /// the direct Responses route, Anthropic id for Messages).
+    /// Custom-route model id for this dialect (GATEWAY form: unprefixed --
+    /// models.rs: the /ai/v3/* gateway 400s prefixed ids with "model pricing
+    /// is not configured").
     pub fn custom_model(self) -> &'static str {
         match self {
             Dialect::OpenAiResponses => "gpt-6-sol",
-            Dialect::OpenRouterChat => "openai/gpt-4.1",
+            Dialect::OpenRouterChat => "gpt-4.1",
             Dialect::AnthropicMessages => "claude-sonnet-4-5",
             Dialect::OpenRouterMessages => "google/gemini-2.5-flash",
-            Dialect::OpenRouterResponses => "openai/gpt-4.1",
+            Dialect::OpenRouterResponses => "gpt-4.1",
         }
     }
 }

@@ -124,7 +124,10 @@ struct RealDeps {
 }
 
 /// PageStream that wraps each engine leg payload in the Gq envelope before
-/// handing it to the host stream. The engine emits bare native payloads
+/// handing it to the host stream. The envelope MUST carry stream:true in the
+/// native request: streaming legs settle only at the usage/terminal frame
+/// (which the page abort never lets arrive); non-streaming legs bill at
+/// dispatch and no abort can un-bill them. The engine emits bare native payloads
 /// ({messages:[...]}, no model/stream); the envelope needs model (top-level
 /// gf() mirror) + stream:true, then envelope() builds the exact body
 /// attempt() would send. On a 401 open the bearer is evicted + reminted
@@ -143,6 +146,12 @@ impl EnvelopePageStream {
     fn wrap(&self, payload: &serde_json::Value) -> serde_json::Value {
         let mut native = payload.clone();
         native["model"] = serde_json::Value::String(self.model.clone());
+        // STREAMING keeps the leg on the metered path the page abort guards:
+        // the stop fires mid-stream before the usage/terminal frame, so the
+        // leg never settles. stream:false legs bill at dispatch (the meter
+        // settles the full leg price up front -- proven by the 402s above,
+        // where the debit arrived WITH the open, not after it). Never
+        // downgrade this: the whole $0 mechanism depends on it.
         native["stream"] = serde_json::Value::Bool(true);
         framer_api::proxy::envelope(
             &self.deps.project,
@@ -322,17 +331,33 @@ async fn custom_real(
         })?
         .map_err(ApiError::Internal)?
         .ok_or_else(|| ApiError::Internal("account has no session".into()))?;
-    let scope = pick_scope(&account)?;
-    let project = scope.project.clone();
-    let scope_team = scope.team.clone();
+    // Scope rule (matches the oracle the engine actually reads): the page
+    // credits fetch hits scope_team, so the scope MUST be the account's live
+    // current_team/current_project (the workspace the oracle + envelope bill
+    // against) -- never a rotated extra workspace. pick_scope's rotation is
+    // for the multi-workspace free chains; the custom route pins primary.
+    let (project, scope_team) = match (
+        account.current_team.clone(),
+        account.current_project.clone(),
+    ) {
+        (Some(team), Some(proj)) => (proj, team),
+        _ => {
+            let scope = pick_scope(&account)?;
+            (scope.project.clone(), scope.team.clone())
+        }
+    };
     let chat_session =
         hdr(headers, "x-framerize-session").unwrap_or_else(|| stable_session(&account.id));
 
     // Per (workspace x MODEL) concurrency, mirroring native_complete.
-    let model = if body.model.trim().is_empty() {
-        DIALECT.custom_model().to_string()
-    } else {
-        body.model.trim().to_string()
+    // Model id rule (models.rs registry): the /ai/v3/* gateway takes
+    // UNPREFIXED ids ("gpt-4.1", not "openai/gpt-4.1" -- the prefixed form
+    // 400s "model pricing is not configured"). Strip any provider prefix
+    // the caller sends so the envelope always carries the gateway form.
+    let model = {
+        let m = body.model.trim();
+        let m = if m.is_empty() { "gpt-4.1" } else { m };
+        m.rsplit('/').next().unwrap_or(m).to_string()
     };
     let gate_model = framer_core::convert::to_openrouter_id(&model);
     let gate_key = format!("{}:{gate_model}", scope_team.0);
@@ -386,6 +411,32 @@ async fn custom_real(
         chat_session: chat_session.clone(),
         path: DIALECT.path(),
     };
+    // No-spend preflight: the leased scope workspace must show a live
+    // balance before any page opens. The daemon's cached CreditSnapshot is
+    // advisory only (it went stale by 500 credits above); this GET costs
+    // nothing and fails the request loud instead of burning an OPEN.
+    {
+        let live_credits = s
+            .client
+            .usage(&session, &scope_team)
+            .await
+            .map(|snap| snap.available)
+            .unwrap_or(f64::NAN);
+        eprintln!(
+            "[custom-route] req={} stage=ledger account={} team={} live_credits={:.2}",
+            req_short,
+            &account.id.0.to_string()[..8.min(account.id.0.to_string().len())],
+            &scope_team.0[..8.min(scope_team.0.len())],
+            live_credits,
+        );
+        if !live_credits.is_finite() || live_credits < 25.0 {
+            return Err(ApiError::Internal(format!(
+                "custom-route: scope workspace {} shows live balance {:.2} (need >= 25); not opening a leg",
+                &scope_team.0[..8.min(scope_team.0.len())],
+                live_credits,
+            )));
+        }
+    }
     let page = framer_host::page_stream::HostPageStream::new(
         Arc::new(BridgePageEval {
             browser: s.browser.clone(),
@@ -470,11 +521,9 @@ async fn custom_real(
                     framer_core::rotation::mark_saturated(&team.0, 45_000);
                 }
             }
-            // A 402 means the leased account's scope workspace is truly out of
-            // credits (provider-verified, not a guess). Mark the scope team
-            // saturated for 5 minutes so this instance's picks (rotation first,
-            // then pick_scope's per-account scope walk) steer to a funded team
-            // instead of re-leasing the dead one.
+            // A 402 means the leased scope workspace is truly out of credits
+            // (provider-verified, not a guess). Mark the scope team saturated
+            // for 5 minutes so later picks steer away from the dead team.
             if e.contains("402") || e.contains("credit_balance_exhausted")
                 || e.contains("team_credit_balance_exhausted")
             {
@@ -638,7 +687,18 @@ mod tests {
         denied!(proxy<'b, 'c, 'd, 'e, 'f, 'g>(_session: &'b Session, _browser: &'c dyn BrowserBridge, _account: &'d AccountId, _project: &'e ProjectId, _dialect: &'f str, _payload: serde_json::Value, _chat: &'g str) -> Result<framer_core::port::ProxyResponse, String>);
         denied!(freechat_long<'b, 'c, 'd, 'e, 'f, 'g, 'h>(_session: &'b Session, _browser: &'c dyn BrowserBridge, _account: &'d AccountId, _project: &'e ProjectId, _payload: serde_json::Value, _cfg: &'f ChainConfig, _chat: &'g str, _events: Option<&'h (dyn Fn(ChainEvent) + Send + Sync)>) -> Result<AssembledResponse, String>);
         denied!(native_long<'b, 'c, 'd, 'e, 'f, 'g, 'h>(_session: &'b Session, _browser: &'c dyn BrowserBridge, _account: &'d AccountId, _project: &'e ProjectId, _payload: serde_json::Value, _cfg: &'f ChainConfig, _chat: &'g str, _events: Option<&'h (dyn Fn(ChainEvent) + Send + Sync)>) -> Result<AssembledResponses, String>);
-        denied!(usage<'b, 'c>(_session: &'b Session, _team: &'c TeamId) -> Result<CreditSnapshot, String>);
+        fn usage<'s, 'b, 'c, 'a>(
+            &'s self,
+            _session: &'b Session,
+            _team: &'c TeamId,
+        ) -> BoxFuture<'a, Result<CreditSnapshot, String>>
+        where 's: 'a, 'b: 'a, 'c: 'a, Self: 'a {
+            // Fixture live balance: comfortably above the preflight floor so
+            // the no-spend gate passes and legs run.
+            Box::pin(async move {
+                Ok(CreditSnapshot { available: 500.0, funds: 1, grants: 1, allocated: 500.0 })
+            })
+        }
         denied!(claim_workspace_grant<'b>(_session: &'b Session) -> Result<bool, String>);
         denied!(create_project<'b, 'c>(_session: &'b Session, _team: &'c TeamId) -> Result<ProjectId, String>);
         denied!(team_projects<'b, 'c>(_session: &'b Session, _team: &'c TeamId) -> Result<Vec<ProjectId>, String>);
@@ -757,7 +817,8 @@ mod tests {
         assert!(open.contains("custom-test-bearer"), "fetch bearer: {open}");
         assert!(open.contains("/ai/v3/chat/"), "chat route: {open}");
         assert!(open.contains("translation"), "category: {open}");
-        assert!(open.contains("openai/gpt-4.1"), "default chat model: {open}");
+        assert!(open.contains("gpt-4.1"), "default chat model: {open}");
+        assert!(!open.contains("openai/gpt-4.1"), "gateway form unprefixed: {open}");
         assert!(open.contains("explain X"), "leg prompt inside request: {open}");
         assert!(open.contains("request"), "native payload nested under request: {open}");
         assert!(open.contains(", 200)"), "rung stop baked into page open: {open}");
