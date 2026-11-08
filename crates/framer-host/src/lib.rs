@@ -15,6 +15,7 @@
 //! `--remote-debugging-port=0`, read `DevToolsActivePort` from the profile dir,
 //! attach to the page target, `Runtime.evaluate` with awaitPromise.
 
+pub mod page_stream;
 pub mod sidecar;
 mod cdp_proxy_registration;
 use cdp_proxy_registration::CdpAccountRoute;

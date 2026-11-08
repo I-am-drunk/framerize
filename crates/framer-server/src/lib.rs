@@ -18,6 +18,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_http::services::ServeDir;
 
+mod custom;
 mod serving_accounts;
 mod pool_config;
 mod pool_control;
@@ -176,12 +177,14 @@ pub fn router(state: AppState, web_dir: &str) -> Router {
     let paid = Router::new()
         .nest("/anthropic", anthropic_paid)
         .nest("/openai", openai_paid);
+    let custom = custom::custom_routes();
 
     Router::new()
         .nest("/api", api)
         .nest("/anthropic", anthropic)
         .nest("/openai", openai)
         .nest("/paid", paid)
+        .nest("/api/custom", custom)
         .fallback_service(ServeDir::new(web_dir))
         .layer(axum::middleware::from_fn(access_log))
         // Claude Code sends multi-MB contexts (images, long histories) — axum's
