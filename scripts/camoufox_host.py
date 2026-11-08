@@ -2235,19 +2235,17 @@ class Host:
             # custom-route stream to the account's ambient page so open,
             # drain, cancel and credits all share one window.
             if "window.__customPS" in req.get("expr", ""):
+                # AFFINITY WITHOUT NAVIGATION (2026-11-08 fix): the old
+                # _ensure_editor call here navigated the ambient page on
+                # EVERY custom-route eval (open + each 0.5s drain). Each
+                # navigation wiped window.__customPS (open ok, then every
+                # drain present=false) AND raced ai_post's own editor
+                # residency (connection resets on the account lane). The
+                # pump inherits the ambient page's existing context as-is;
+                # no navigation -- affinity is what matters.
                 acc = await self._account(account)
                 if acc.page is None or acc.page.is_closed():
                     raise RuntimeError("custom page unavailable (ambient page closed)")
-                # The ambient page may sit on /login while the account's
-                # editor residency matured elsewhere; the pump's fetch
-                # inherits this page's Referer/context, so keep it on the
-                # editor like every other AI call (best-effort: a failed
-                # navigation still runs the eval on this page -- affinity
-                # is what matters, residency is a bonus).
-                try:
-                    await self._ensure_editor(acc, acc.page, account)
-                except Exception:
-                    pass
                 return await acc.page.evaluate(req["expr"])
             async with self._page(account) as page:
                 return await page.evaluate(req["expr"])
