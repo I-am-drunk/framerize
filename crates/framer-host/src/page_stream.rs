@@ -105,12 +105,13 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
         }
         const reader = r.body.getReader();
         slot.reader = reader;
+        slot.streamLive = true;
         const dec = new TextDecoder();
         try {
           let carry = "", events = 0, rawLines = 0;
           for (;;) {
             const { done, value } = await reader.read();
-            if (done) { try { slot.buf += dec.decode(); } catch (e) {} slot.done = true; break; }
+            if (done) { try { slot.buf += dec.decode(); } catch (e) {} slot.streamLive = false; slot.done = true; break; }
             carry += dec.decode(value, { stream: true });
             const parts = carry.split("\n"); carry = parts.pop();
             // WIRE-TAP (2026-11-08 stall hunt): the first 8 raw lines of
@@ -126,7 +127,7 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
               }
               if (!t.startsWith("data:")) continue;
               const q = t.slice(5).trim();
-              if (q === "[DONE]") { try { slot.buf += dec.decode(); } catch (e) {} slot.done = true; break; }
+              if (q === "[DONE]") { try { slot.buf += dec.decode(); } catch (e) {} slot.streamLive = false; slot.done = true; break; }
               let d = null;
               try {
                 const j = JSON.parse(q);
@@ -143,14 +144,14 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
                 try { ctl.abort(); } catch (e) {}
                 try { await reader.cancel(); } catch (e) {}
                 slot.stopped = true; slot.stopAt = stopAfter;
-                slot.done = true; break;
+                slot.streamLive = false; slot.done = true; break;
               }
             }
             if (slot.done) break;
           }
           try { slot.buf += dec.decode(); } catch (e) {}
-          slot.done = true;
-        } catch (e) { slot.error = String(e).slice(0, 400); slot.done = true; }
+          slot.streamLive = false; slot.done = true;
+        } catch (e) { slot.error = String(e).slice(0, 400); slot.streamLive = false; slot.done = true; }
       } catch (e) { slot.error = String(e && e.message || e).slice(0, 400); slot.done = true; }
     })();
     return { ok: true, status: 0, usage: null };
@@ -179,7 +180,8 @@ pub const DRAIN_SNIPPET: &str = r#"(() => {
   return { present: true, text: text, done: !!slot.done,
     stopped: !!slot.stopped, stopAt: slot.stopAt || 0,
     status: slot.status, usage: slot.usage, error: slot.error || "",
-    chunks: slot.chunks || 0, wireTap: tap };
+    chunks: slot.chunks || 0, wireTap: tap,
+    streamLive: !!slot.streamLive };
 })()"#;
 
 /// JS: BACKSTOP cancel only. The normal stop fires inside the page loop
@@ -379,13 +381,14 @@ impl<E: PageEval> framer_custom::PageStream for HostPageStream<E> {
                 {
                     Ok(vv) if vv["present"].as_bool() == Some(true) => {
                         eprintln!(
-                            "[custom-route] open-wait poll={} present=true status={} text_len={} done={} stopped={} chunks={} err={:?} tap={:?}",
+                            "[custom-route] open-wait poll={} present=true status={} text_len={} done={} stopped={} chunks={} live={} err={:?} tap={:?}",
                             attempts,
                             vv["status"].as_i64().unwrap_or(-1),
                             vv["text"].as_str().map(|t| t.len()).unwrap_or(0),
                             vv["done"].as_bool().unwrap_or(false),
                             vv["stopped"].as_bool().unwrap_or(false),
                             vv["chunks"].as_i64().unwrap_or(-1),
+                            vv["streamLive"].as_bool().unwrap_or(false),
                             vv["error"].as_str().unwrap_or(""),
                             vv["wireTap"].as_str().unwrap_or(""),
                         );
