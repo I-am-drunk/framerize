@@ -116,10 +116,12 @@ pub struct BridgeStreamTransport<P: PageStream> {
     empty_streak: u32,
 }
 
-/// Empty drains before the leg is declared stalled. Sized for slow models:
-/// 600 x ~0.5s polls = ~5 minutes of true silence beneath the 120s hung-drain
-/// bound and the 600s leg bound.
-pub const MAX_EMPTY_DRAINS: u32 = 600;
+/// Empty drains before the leg is declared stalled. Sized for slow models
+/// but well beneath the 600s leg bound: 100 x ~0.5s polls ~= 50s of true
+/// silence. (600 here used to BURY every leg failure: 2000 rung polls x
+/// ~0.6s ~= 20min of silence budget meant the 600s LEG_TIMEOUT always fired
+/// first with a bare timeout and no drain/stall line ever named the cause.)
+pub const MAX_EMPTY_DRAINS: u32 = 100;
 
 impl<P: PageStream> BridgeStreamTransport<P> {
     /// New live transport. The debug_assert pins the tail table: every

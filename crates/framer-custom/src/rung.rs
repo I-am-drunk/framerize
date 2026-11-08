@@ -33,11 +33,15 @@ pub const CANCEL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1
 /// stream below the stop (or the stop is misconfigured). 200KB holds ~2x the
 /// largest proven leg with headroom; hitting it is a typed error, not a trim.
 pub const MAX_CAPTURE: usize = 200_000;
-/// Consecutive post-text silent polls before a LIVE leg is declared stalled.
+/// Consecutive silent polls before a LIVE leg is declared stalled.
 /// Scripted transports are unaffected (their trailing None closes the leg).
-/// 2000 polls x ~0.5s pacing ~= 16 minutes, past the transport's own stall
-/// bound: defense in depth, this one should never fire first.
-pub const MAX_SILENT_POLLS: u32 = 2000;
+/// 240 polls x ~0.6s pacing ~= 2.5 minutes: past the transport's own stall
+/// bound (100 paced empties ~= 50s), well beneath the 600s LEG_TIMEOUT, so
+/// a silent leg fails LOUD with a named stall (not a bare leg timeout).
+/// Pre-text silence counts too: a stream that never yields text is stalled,
+/// not slow (proven legs flow text in seconds; the page aborts at the stop
+/// and delivers the batch -- endless pre-text silence is a dead pump).
+pub const MAX_SILENT_POLLS: u32 = 240;
 
 
 /// One leg's outcome.
