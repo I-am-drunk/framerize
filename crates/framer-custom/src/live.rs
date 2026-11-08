@@ -230,13 +230,16 @@ impl<P: PageStream> CustomTransport for BridgeStreamTransport<P> {
             self.terminal_seen = true;
         }
         // The page stopped itself at the stop (graceful abort, no terminal
-        // will ever arrive): an empty batch on a stopped stream is
-        // end-of-stream, not silence. Without this the drain loop polls a
-        // finished stream until the stall bound fires (the 600s hang: the
-        // page had stopped at 200 lines in seconds, Rust polled empties
-        // for 10 minutes and reported a stall with deltas=4).
-        if batch.aborted && batch.events.is_empty() {
-            return None;
+        // will ever arrive BY DESIGN): queue the batch text, then yield
+        // Event::Aborted BEHIND it so the rung ends the leg cleanly
+        // (raced=false, nothing billed). Live proof 2026-11-08: the pump
+        // stopped at 200 lines with text flowing (813 + 43 + 11 chars
+        // across the last drains); without an explicit terminal the rung
+        // starved 240 polls with deltas=3 on the finished stream.
+        if batch.aborted {
+            self.pending.extend(batch.events);
+            self.pending.push_back(Event::Aborted);
+            return self.pending.pop_front();
         }
         if batch.events.is_empty() {
             // Empty batch, no terminal: the page had nothing new THIS poll.
@@ -341,6 +344,17 @@ mod tests {
     }
 
     fn batch(texts: &[&str], raced: bool) -> StreamBatch {
+        // Legacy helper: raced batches are OBSERVED terminals (Done flows
+        // in the batch, aborted=false); non-raced batches are plain text
+        // (aborted=false here -- the stopped-text path uses batch_full).
+        batch_full(texts, raced, false)
+    }
+
+    /// Full constructor: the legacy batch() couples aborted=!raced, but the
+    /// live page reports them independently (stopped-text batches are
+    /// aborted=true with events; raced batches carry Done). Tests for the
+    /// stopped-text path need aborted WITHOUT raced.
+    fn batch_full(texts: &[&str], raced: bool, aborted: bool) -> StreamBatch {
         let mut events: Vec<Event> =
             texts.iter().map(|t| Event::Delta(t.to_string())).collect();
         if raced {
@@ -349,7 +363,7 @@ mod tests {
         StreamBatch {
             events,
             raced,
-            aborted: !raced,
+            aborted,
         }
     }
 
@@ -517,9 +531,10 @@ mod tests {
     #[tokio::test]
     async fn aborted_empty_batch_closes_stream() {
         // Regression: the page stops itself at the stop (aborted, no
-        // terminal ever arrives). An empty aborted batch is end-of-stream;
-        // yielding None lets the rung return the captured prefix instead
-        // of polling a finished stream into the stall bound (600s hang).
+        // terminal ever arrives BY DESIGN). An empty aborted batch yields
+        // the explicit Aborted terminal (not None): the rung ends the leg
+        // cleanly (raced=false) instead of polling a finished stream into
+        // the stall bound (600s hang).
         let page = ScriptPage::new(
             vec![
                 batch(&["hello "], false),
@@ -530,8 +545,29 @@ mod tests {
         let mut t = BridgeStreamTransport::new(page, Dialect::Chat);
         t.stream_reply(&serde_json::json!({})).await.unwrap();
         assert_eq!(t.next_event().await, Some(Event::Delta("hello ".into())));
+        assert_eq!(t.next_event().await, Some(Event::Aborted));
         assert_eq!(t.next_event().await, None);
         assert!(t.failed.is_none(), "aborted close is clean: {:?}", t.failed);
+    }
+
+    #[tokio::test]
+    async fn stopped_text_batch_flows_then_aborts() {
+        // THE live shape: page stopped itself at the stop WITH a final text
+        // slice (aborted=true, events non-empty, no Done). The batch text
+        // flows, then Aborted ends the stream (no 240-poll starvation).
+        let page = ScriptPage::new(
+            vec![batch_full(&["final text "], false, true)],
+            100.0,
+        );
+        let mut t = BridgeStreamTransport::new(page, Dialect::Chat);
+        t.stream_reply(&serde_json::json!({})).await.unwrap();
+        assert_eq!(
+            t.next_event().await,
+            Some(Event::Delta("final text ".into()))
+        );
+        assert_eq!(t.next_event().await, Some(Event::Aborted));
+        assert_eq!(t.next_event().await, None);
+        assert!(t.failed.is_none(), "clean end, not failure: {:?}", t.failed);
     }
 
     #[tokio::test]

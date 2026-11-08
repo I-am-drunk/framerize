@@ -33,6 +33,14 @@ pub enum Event {
     /// The usage-bearing terminal arrived (Anthropic message_delta, the chat
     /// usage chunk, response.completed, ...). After this the ledger may settle.
     Done,
+    /// The page stopped itself at the stop (graceful abort): no terminal
+    /// will ever arrive BY DESIGN (it was never read, so nothing bills),
+    /// and the stream is over. Distinct from Done (which means "the
+    /// terminal arrived, check the ledger") and from None (which means
+    /// "nothing yet, poll again"). Live proof 2026-11-08: without this,
+    /// the transport could only say None on a finished stream and the rung
+    /// starved 240 polls with deltas=3 while text sat delivered.
+    Aborted,
 }
 
 /// Upstream transport for one custom-route leg. Implemented by framer-host
@@ -47,7 +55,9 @@ pub trait CustomTransport: Send + Sync {
     ///
     /// None means "nothing available RIGHT NOW" (poll again) on live
     /// transports, or end-of-script on scripted ones. End-of-stream arrives
-    /// ONLY as Event::Done or Err -- except a scripted transport ending its
+    /// as Event::Done (terminal observed, may have billed), Event::Aborted
+    /// (page stopped itself at the stop, terminal never read, nothing
+    /// billed), or Err -- except a scripted transport ending its
     /// script with None on an untouched stream (clean close, no terminal),
     /// which the rung accepts as a dry leg. The rung distinguishes the two
     /// via is_live: live Nones (even pre-first-event) are liveness polls and

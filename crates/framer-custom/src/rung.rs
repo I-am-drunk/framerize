@@ -7,7 +7,9 @@
 //!
 //! STOP CONTRACT (read before changing): the stop counts FRAMED DELTAS --
 //! every Event::Delta increments, including empty keep-alive deltas from
-//! scripted transports. This matches the proven driver, which counted every
+//! scripted transports. Event::Aborted ends the leg cleanly (raced=false)
+//! WITHOUT counting as a delta: it is the page reporting "I already
+//! stopped at the stop", not new content. This matches the proven driver, which counted every
 //! `data:` line (many carrying zero text) against stopAfter. Live transports
 //! signal silence with None (paced, non-consuming, bounded by
 //! MAX_SILENT_POLLS) instead of empty deltas, so slow streams never cancel
@@ -141,6 +143,16 @@ async fn run_inner<T: CustomTransport>(
                 events = events.saturating_add(1);
                 return Ok(RungResult { captured, raced: true, events });
             }
+            Some(Event::Aborted) => {
+                // The page stopped itself at the stop (graceful abort, no
+                // terminal ever arrives BY DESIGN). Clean end with raced=false
+                // (nothing billed: the terminal/usage frame was never read).
+                // The rung's own cancel is a backstop on an already-stopped
+                // stream (harmless); the ledger assert still verifies $0.
+                events = events.saturating_add(1);
+                cancel_bounded(transport, stop_steps, deltas).await;
+                return Ok(RungResult { captured, raced: false, events });
+            }
             None => {
                 if !live {
                     // Scripted: only an untouched stream may close on None.
@@ -208,6 +220,39 @@ mod tests {
         fn is_live(&self) -> bool {
             true
         }
+    }
+
+    /// Aborted transport ends the leg cleanly with raced=false (the page
+    /// stopped itself at the stop; the terminal was never read, nothing
+    /// billed). Deltas before the abort are kept.
+    #[tokio::test]
+    async fn aborted_ends_leg_clean() {
+        struct AbortAfter {
+            n: u32,
+        }
+        #[async_trait::async_trait]
+        impl CustomTransport for AbortAfter {
+            async fn stream_reply(&mut self, _: &serde_json::Value) -> Result<(), String> {
+                Ok(())
+            }
+            async fn next_event(&mut self) -> Option<Event> {
+                self.n += 1;
+                match self.n {
+                    1 => Some(Event::Delta("hello ".into())),
+                    2 => Some(Event::Aborted),
+                    _ => panic!("rung must stop at Aborted"),
+                }
+            }
+            async fn cancel(&mut self) {}
+            async fn read_credits(&self) -> Result<f64, String> {
+                Ok(1.0)
+            }
+        }
+        let mut t = AbortAfter { n: 0 };
+        let r = run_rung(&mut t, &payload(), 200).await.unwrap();
+        assert_eq!(r.captured, "hello ");
+        assert!(!r.raced);
+        assert_eq!(r.events, 2);
     }
 
     /// Hanging transport: next_event never resolves (timeout path).

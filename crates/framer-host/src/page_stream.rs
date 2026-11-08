@@ -468,18 +468,6 @@ impl<E: PageEval> framer_custom::PageStream for HostPageStream<E> {
         // here is READY text: decode per line. (No second JSON parse: the
         // slice is decoded delta text, not envelopes.)
         //
-        // DIAGNOSTIC (stall hunt): log what each drain actually saw until
-        // the live leg flows (a handful of lines per leg while broken;
-        // remove or gate once green -- drains run every ~0.5s per leg).
-        eprintln!(
-            "[custom-route] drain text_len={} done={} stopped={} chunks={} live={} head={:?}",
-            text.len(),
-            page_done,
-            page_stopped,
-            v["chunks"].as_i64().unwrap_or(-1),
-            v["streamLive"].as_bool().unwrap_or(false),
-            text.chars().take(80).collect::<String>(),
-        );
         // DONE without stopped (page_done, terminal arrived first): RACED.
         // The page consumed the terminal chunk, so Done is OBSERVED here,
         // not synthesized: append the terminal to the batch so the trust
