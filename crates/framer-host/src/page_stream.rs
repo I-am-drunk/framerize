@@ -345,13 +345,18 @@ impl<E: PageEval> framer_custom::PageStream for HostPageStream<E> {
             // whole sequence on the next rotation instead of handing the
             // rung a stream that can never yield text.
             //
-            // Then wait (bounded ~30s) for the detached pump to report its
+            // Then wait (bounded ~75s: slow mint ~8s + cold fetch
+            // headers +.poll slack) for the detached pump to report its
             // fetch outcome: headers arrived (status != 0), text flowing,
             // terminal flags, or a loud error (castle-unavailable, http
             // 4xx/5xx, network). A pump that never reports is a wedged
             // page: fail loud, never hand the rung a silent stream.
             // The id is minted only on the ACCEPTED rotation, so pool
             // retries never skip ids (ps1 first, no gaps).
+            // OPEN DIAGNOSTIC (2026-11-08 stall hunt): one line per wait
+            // poll (max ~150 lines/leg) naming present/status/text/done/
+            // stopped/error, so the next swap log shows exactly what the
+            // pump reported while the rung starved.
             let mut attempts = 0;
             loop {
                 attempts += 1;
@@ -361,6 +366,15 @@ impl<E: PageEval> framer_custom::PageStream for HostPageStream<E> {
                     .await
                 {
                     Ok(vv) if vv["present"].as_bool() == Some(true) => {
+                        eprintln!(
+                            "[custom-route] open-wait poll={} present=true status={} text_len={} done={} stopped={} err={:?}",
+                            attempts,
+                            vv["status"].as_i64().unwrap_or(-1),
+                            vv["text"].as_str().map(|t| t.len()).unwrap_or(0),
+                            vv["done"].as_bool().unwrap_or(false),
+                            vv["stopped"].as_bool().unwrap_or(false),
+                            vv["error"].as_str().unwrap_or(""),
+                        );
                         if let Some(err) = vv["error"].as_str() {
                             if !err.is_empty() {
                                 if err.starts_with("http ") {
@@ -379,14 +393,22 @@ impl<E: PageEval> framer_custom::PageStream for HostPageStream<E> {
                             self.stream_id = Some(id.clone());
                             return Ok(id);
                         }
-                        if attempts >= 60 {
+                        if attempts >= 150 {
                             last_err =
                                 "page stream pump never reported (page wedged?)".to_string();
                             break;
                         }
                         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                     }
-                    _ => {
+                    other => {
+                        eprintln!(
+                            "[custom-route] open-wait poll={} present=false ({:?})",
+                            attempts,
+                            other
+                                .as_ref()
+                                .map(|v| v.to_string())
+                                .unwrap_or_else(|e| e.clone()),
+                        );
                         last_err =
                             "page stream opened on an unreachable pool page; retrying".to_string();
                         break;
