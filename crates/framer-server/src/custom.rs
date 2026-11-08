@@ -69,7 +69,30 @@ fn chain_step(category: &str) -> &'static str {
 pub fn custom_routes(state: AppState) -> Router {
     Router::new()
         .route("/complete", post(custom_complete_handler))
+        .route(
+            "/complete/",
+            post(custom_complete_handler).get(hint_handler).put(hint_handler),
+        )
+        .route("/complete/status", axum::routing::get(status_handler))
         .with_state(state)
+}
+
+/// Loud hint for wrong-method/wrong-path callers (T3 compat): tells them
+/// the exact working shape instead of a bare 404/405.
+async fn hint_handler() -> Response {
+    (
+        StatusCode::METHOD_NOT_ALLOWED,
+        Json(serde_json::json!({
+            "error": "use POST /api/custom/complete with JSON {prompt, model, max_legs}",
+        })),
+    )
+        .into_response()
+}
+
+/// Liveness for the route behind the handler (the daemon /api/health only
+/// proves the listener; this proves the custom handler is mounted).
+async fn status_handler() -> Response {
+    Json(serde_json::json!({"custom_route": "ok"})).into_response()
 }
 
 #[derive(Deserialize)]
@@ -145,7 +168,18 @@ struct EnvelopePageStream {
 impl EnvelopePageStream {
     fn wrap(&self, payload: &serde_json::Value) -> serde_json::Value {
         let mut native = payload.clone();
-        native["model"] = serde_json::Value::String(self.model.clone());
+        // T3 sends bare chat shape (no stream, no max_tokens, sometimes a
+        // prefixed model id). Normalize EVERYTHING the meter keys on here,
+        // at the boundary, so no caller shape can silently downgrade a leg
+        // to the bill-at-dispatch path (proven by the instant-402s: the
+        // debit arrives WITH the open, and no abort can un-bill it).
+        // Gateway form is UNPREFIXED (see custom_real model rule above).
+        let model = self.model.clone();
+        let model = model.rsplit('/').next().unwrap_or(&model).to_string();
+        native["model"] = serde_json::Value::String(model);
+        if native.get("max_tokens").and_then(|v| v.as_u64()).is_none() {
+            native["max_tokens"] = serde_json::Value::Number(serde_json::Number::from(4000));
+        }
         // STREAMING keeps the leg on the metered path the page abort guards:
         // the stop fires mid-stream before the usage/terminal frame, so the
         // leg never settles. stream:false legs bill at dispatch (the meter
@@ -350,17 +384,14 @@ async fn custom_real(
         hdr(headers, "x-framerize-session").unwrap_or_else(|| stable_session(&account.id));
 
     // Per (workspace x MODEL) concurrency, mirroring native_complete.
-    // Model id rule: the OPENROUTER routes (/ai/v3/chat/, /ai/v3/messages/)
-    // take the CATALOG form ("openai/gpt-4.1" -- the registry probe_model;
-    // the stripped form 400s "model pricing is not configured" there).
-    // Keep any caller-supplied provider prefix; default to the catalog id.
+    // Model id rule (models.rs + live PROOF legs 21:26Z which streamed $0
+    // with model=gpt-4.1): the /ai/v3/* gateway takes the UNPREFIXED form.
+    // Strip any caller-supplied provider prefix at the boundary so the
+    // envelope always carries the gateway form, whatever T3 sends.
     let model = {
         let m = body.model.trim();
-        if m.is_empty() {
-            "openai/gpt-4.1".to_string()
-        } else {
-            m.to_string()
-        }
+        let m = if m.is_empty() { "gpt-4.1" } else { m };
+        m.rsplit('/').next().unwrap_or(m).to_string()
     };
     let gate_model = framer_core::convert::to_openrouter_id(&model);
     let gate_key = format!("{}:{gate_model}", scope_team.0);
@@ -824,7 +855,8 @@ mod tests {
         assert!(open.contains("custom-test-bearer"), "fetch bearer: {open}");
         assert!(open.contains("/ai/v3/chat/"), "chat route: {open}");
         assert!(open.contains("translation"), "category: {open}");
-        assert!(open.contains("openai/gpt-4.1"), "catalog chat model: {open}");
+        assert!(open.contains("gpt-4.1"), "gateway model: {open}");
+        assert!(!open.contains("openai/gpt-4.1"), "gateway form unprefixed: {open}");
         assert!(open.contains("explain X"), "leg prompt inside request: {open}");
         assert!(open.contains("request"), "native payload nested under request: {open}");
         assert!(open.contains(", 200)"), "rung stop baked into page open: {open}");
