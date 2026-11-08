@@ -460,6 +460,26 @@ impl<E: PageEval> framer_custom::PageStream for HostPageStream<E> {
         let text = v["text"].as_str().unwrap_or("").to_string();
         let page_done = v["done"].as_bool().unwrap_or(false);
         let page_stopped = v["stopped"].as_bool().unwrap_or(false);
+        // OPENROUTER WIRE SHAPE (2026-11-08 live proof): the gateway streams
+        // RAW OpenAI chat chunks (one JSON object per data: line, content in
+        // choices[0].delta.content) -- NOT {delta:{text}} envelopes. The
+        // page pump already extracts choices[0].delta.content per line and
+        // appends raw text (+ U+0000 per empty line) to buf, so a text slice
+        // here is READY text: decode per line. (No second JSON parse: the
+        // slice is decoded delta text, not envelopes.)
+        //
+        // DIAGNOSTIC (stall hunt): log what each drain actually saw until
+        // the live leg flows (a handful of lines per leg while broken;
+        // remove or gate once green -- drains run every ~0.5s per leg).
+        eprintln!(
+            "[custom-route] drain text_len={} done={} stopped={} chunks={} live={} head={:?}",
+            text.len(),
+            page_done,
+            page_stopped,
+            v["chunks"].as_i64().unwrap_or(-1),
+            v["streamLive"].as_bool().unwrap_or(false),
+            text.chars().take(80).collect::<String>(),
+        );
         // DONE without stopped (page_done, terminal arrived first): RACED.
         // The page consumed the terminal chunk, so Done is OBSERVED here,
         // not synthesized: append the terminal to the batch so the trust
