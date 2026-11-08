@@ -6,6 +6,7 @@ members = [
     "crates/framer-store",
     "crates/framer-server",
     "crates/framer-host",
+    "crates/framer-custom",
     "crates/framerize",
 ]
 

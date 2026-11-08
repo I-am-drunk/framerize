@@ -1,0 +1,453 @@
+//! Live custom-route transport (streaming read + graceful cancel + oracle).
+//!
+//! The honest streaming path (`fetch` + `reader.read()` chunks +
+//! `reader.cancel()` at the stop) is the proven page mechanism: the in-page
+//! stream runner opens the chat POST with `stream:true`, frames `data:`
+//! lines, pulls delta text, and at `events >= stopAfter` runs `ctl.abort()`
+//! + `reader.cancel()` -- before the terminal/usage chunk.
+//!
+//! `PageStream` is the host seam framer-host implements (follow-on 6B):
+//! `open_stream` starts the page fetch and returns a stream id; `drain`
+//! pulls newly arrived framed batches; `cancel` performs the page-side
+//! graceful `reader.cancel()`; `credits` reads the ledger.
+//!
+//! `BridgeStreamTransport` drives that seam and stays honest: when no
+//! `PageStream` is wired it fails closed (`live page stream not wired`),
+//! never hangs (every drain runs under DRAIN_TIMEOUT), never serves
+//! scripted text as real data.
+//!
+//! TRUST CONTRACT on StreamBatch (documented for the host impl): `raced`
+//! must be true if and only if the batch's events end with the terminal.
+//! The transport enforces this -- a batch violating it is rejected as a
+//! protocol error rather than trusted (see check_batch).
+
+use super::format::{format_tail, Dialect};
+use super::transport::{CustomTransport, Event};
+use async_trait::async_trait;
+
+/// Bound on one page drain: a hung host call fails the leg, never the daemon.
+pub const DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Pace between empty page polls: the rung awaits real framed text, and a
+/// tight loop would burn CPU plus CDP round-trips while the model thinks.
+pub const DRAIN_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// One drained page-side batch: framed text events plus stream state.
+/// `raced` = the terminal arrived before any cancel (the abort window was
+/// missed); `aborted` = the page cancelled mid-stream at the stop.
+/// INVARIANT: raced => events ends with Done. The transport checks this.
+#[derive(Debug)]
+pub struct StreamBatch {
+    /// Framed events in arrival order.
+    pub events: Vec<Event>,
+    /// Terminal arrived before cancel (must match a trailing Done).
+    pub raced: bool,
+    /// Page cancelled mid-stream at the stop.
+    pub aborted: bool,
+}
+
+impl StreamBatch {
+    /// Protocol check: raced batches must carry the terminal; a batch
+    /// claiming both raced and aborted is contradictory.
+    pub fn check(&self) -> Result<(), String> {
+        if self.raced && self.aborted {
+            return Err("page batch claims raced and aborted at once".to_string());
+        }
+        if self.raced && !matches!(self.events.last(), Some(Event::Done)) {
+            return Err("page batch claims raced with no terminal Done".to_string());
+        }
+        Ok(())
+    }
+}
+
+/// The host capability the live runner needs.
+#[async_trait]
+pub trait PageStream: Send + Sync {
+    /// Start the page fetch WITH the stop baked in (stop_after content
+    /// deltas). The page aborts itself in-loop at the stop -- see
+    /// OPEN_SNIPPET -- so the terminal/usage chunk is never read. Returns a
+    /// stream id for drain/cancel (cancel remains a backstop only).
+    async fn open_stream(
+        &mut self,
+        payload: &serde_json::Value,
+        dialect: Dialect,
+        stop_after: u32,
+    ) -> Result<String, String>;
+    /// Pull newly arrived framed batches (ALWAYS non-blocking: empty batch
+    /// when nothing arrived yet; raced batches carry the terminal).
+    async fn drain(&mut self, stream_id: &str) -> Result<StreamBatch, String>;
+    /// Page-side graceful `reader.cancel()`. Returns true when the page
+    /// confirms the reader was open and is now cancelled.
+    async fn cancel(&mut self, stream_id: &str) -> Result<bool, String>;
+    /// Ledger read via the in-page credits GET.
+    async fn credits(&self) -> Result<f64, String>;
+}
+
+/// Live transport over a `PageStream`. `dialect` pins which tail rule from
+/// `format_tail` governs the run (kept for the host impl + honest logs).
+#[derive(Debug)]
+pub struct BridgeStreamTransport<P: PageStream> {
+    page: P,
+    dialect: Dialect,
+    /// Stop baked into the NEXT open_stream call (content deltas). Set via
+    /// set_stop_after; defaults to u32::MAX (page runs to terminal -- only
+    /// for drains that never set it, never the rung path).
+    stop_after: u32,
+    stream_id: Option<String>,
+    pending: std::collections::VecDeque<Event>,
+    terminal_seen: bool,
+    failed: Option<String>,
+    /// Consecutive empty drains: stall detection needs MANY in a row (a live
+    /// model pauses between tokens); one empty batch is normal, not failure.
+    empty_streak: u32,
+}
+
+/// Empty drains before the leg is declared stalled. Sized for slow models:
+/// 600 x ~0.5s polls = ~5 minutes of true silence beneath the 120s hung-drain
+/// bound and the 600s leg bound.
+pub const MAX_EMPTY_DRAINS: u32 = 600;
+
+impl<P: PageStream> BridgeStreamTransport<P> {
+    /// New live transport. The debug_assert pins the tail table: every
+    /// dialect the engine can run must name its usage event.
+    pub fn new(page: P, dialect: Dialect) -> Self {
+        let tail = format_tail(dialect);
+        debug_assert!(
+            !tail.usage_event.is_empty(),
+            "dialect tail must name its usage event"
+        );
+        Self {
+            page,
+            dialect,
+            stop_after: u32::MAX,
+            stream_id: None,
+            pending: std::collections::VecDeque::new(),
+            terminal_seen: false,
+            failed: None,
+            empty_streak: 0,
+        }
+    }
+
+    /// Current dialect (for host-impl logging).
+    pub fn dialect(&self) -> Dialect {
+        self.dialect
+    }
+
+    /// Bake the stop into the next open_stream: the page aborts itself
+    /// in-loop at stop_after content deltas. The rung path sets this before
+    /// every leg (see run_rung_with_stop); without it the page would run to
+    /// terminal and the leg would bill.
+    pub fn set_stop_after(&mut self, stop_after: u32) {
+        self.stop_after = stop_after.max(1);
+    }
+}
+
+#[async_trait]
+impl<P: PageStream> CustomTransport for BridgeStreamTransport<P> {
+    async fn stream_reply(&mut self, payload: &serde_json::Value) -> Result<(), String> {
+        self.pending.clear();
+        self.terminal_seen = false;
+        self.failed = None;
+        self.empty_streak = 0;
+        let id = self
+            .page
+            .open_stream(payload, self.dialect, self.stop_after)
+            .await?;
+        self.stream_id = Some(id);
+        Ok(())
+    }
+
+    async fn next_event(&mut self) -> Option<Event> {
+        if let Some(ev) = self.pending.pop_front() {
+            if ev == Event::Done {
+                self.terminal_seen = true;
+            }
+            return Some(ev);
+        }
+        if self.terminal_seen || self.failed.is_some() {
+            return None;
+        }
+        let id = self.stream_id.as_deref()?;
+        let batch = match tokio::time::timeout(DRAIN_TIMEOUT, self.page.drain(id)).await {
+            Ok(Ok(b)) => b,
+            Ok(Err(e)) => {
+                self.failed = Some(e);
+                return None;
+            }
+            Err(_) => {
+                self.failed = Some("page drain timed out after 120s".into());
+                return None;
+            }
+        };
+        if let Err(e) = batch.check() {
+            // Protocol violation by the host impl: fail the leg LOUDLY with
+            // the reason preserved, never silently trust the batch.
+            self.failed = Some(format!("page protocol violation: {e}"));
+            return None;
+        }
+        if batch.raced {
+            self.terminal_seen = true;
+        }
+        if batch.events.is_empty() {
+            // Empty batch, no terminal: the page had nothing new THIS poll.
+            // Normal during slow generation -- only a long streak is a stall.
+            self.empty_streak += 1;
+            if self.empty_streak >= MAX_EMPTY_DRAINS {
+                self.failed = Some(format!(
+                    "page stream stalled: {} empty drains with no terminal",
+                    self.empty_streak
+                ));
+                return None;
+            }
+            // Pace the poll loop (no busy spin) and yield NO event: the
+            // rung's stop counts REAL framed text only. An empty keep-alive
+            // must never consume stop budget -- a slow stream would
+            // otherwise cancel itself on silence, not on length.
+            tokio::time::sleep(DRAIN_POLL_INTERVAL).await;
+            return None;
+        }
+        self.empty_streak = 0;
+        self.pending.extend(batch.events);
+        self.pending.pop_front()
+    }
+
+    async fn cancel(&mut self) {
+        if let Some(id) = self.stream_id.as_deref() {
+            // Outcome intentionally ignored (fire-and-forget contract): a
+            // failed page-cancel after our stop is a host-impl matter, and
+            // the ledger assert is the real safety net. Logged at the host.
+            let _ = self.page.cancel(id).await;
+        }
+    }
+
+    async fn read_credits(&self) -> Result<f64, String> {
+        self.page.credits().await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::VecDeque;
+
+    /// Scripted PageStream: open/drain/cancel/credits from queues.
+    struct ScriptPage {
+        batches: VecDeque<StreamBatch>,
+        credits: f64,
+        cancels: usize,
+        fail_open: bool,
+    }
+
+    impl ScriptPage {
+        fn new(batches: Vec<StreamBatch>, credits: f64) -> Self {
+            Self {
+                batches: batches.into(),
+                credits,
+                cancels: 0,
+                fail_open: false,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl PageStream for ScriptPage {
+        async fn open_stream(
+            &mut self,
+            _payload: &serde_json::Value,
+            _dialect: Dialect,
+            stop_after: u32,
+        ) -> Result<String, String> {
+            assert!(stop_after >= 1, "stop baked in-page must be >= 1");
+            if self.fail_open {
+                return Err("live page stream not wired".into());
+            }
+            Ok("s1".into())
+        }
+
+        async fn drain(&mut self, _stream_id: &str) -> Result<StreamBatch, String> {
+            Ok(self.batches.pop_front().unwrap_or(StreamBatch {
+                events: vec![],
+                raced: false,
+                aborted: false,
+            }))
+        }
+
+        async fn cancel(&mut self, _stream_id: &str) -> Result<bool, String> {
+            self.cancels += 1;
+            Ok(true)
+        }
+
+        async fn credits(&self) -> Result<f64, String> {
+            Ok(self.credits)
+        }
+    }
+
+    fn batch(texts: &[&str], raced: bool) -> StreamBatch {
+        let mut events: Vec<Event> =
+            texts.iter().map(|t| Event::Delta(t.to_string())).collect();
+        if raced {
+            events.push(Event::Done);
+        }
+        StreamBatch {
+            events,
+            raced,
+            aborted: !raced,
+        }
+    }
+
+    #[tokio::test]
+    async fn streams_batches_then_ends() {
+        // batch() appends Done when raced=true, so the terminal batch is
+        // honest: two deltas, then Done, then end-of-stream.
+        let page = ScriptPage::new(
+            vec![batch(&["hello ", "world "], false), batch(&[], true)],
+            100.0,
+        );
+        let mut t = BridgeStreamTransport::new(page, Dialect::Chat);
+        t.stream_reply(&serde_json::json!({})).await.unwrap();
+        assert_eq!(
+            t.next_event().await,
+            Some(Event::Delta("hello ".into()))
+        );
+        assert_eq!(
+            t.next_event().await,
+            Some(Event::Delta("world ".into()))
+        );
+        assert_eq!(t.next_event().await, Some(Event::Done));
+        assert_eq!(t.next_event().await, None);
+        assert_eq!(t.read_credits().await.unwrap(), 100.0);
+    }
+
+    #[tokio::test]
+    async fn raced_without_terminal_rejected() {
+        // A host batch claiming raced but carrying NO Done violates the
+        // trust contract: the leg fails loudly, no silent terminal.
+        let page = ScriptPage::new(
+            vec![StreamBatch {
+                events: vec![Event::Delta("x ".into())],
+                raced: true,
+                aborted: false,
+            }],
+            100.0,
+        );
+        let mut t = BridgeStreamTransport::new(page, Dialect::Chat);
+        t.stream_reply(&serde_json::json!({})).await.unwrap();
+        assert_eq!(t.next_event().await, None);
+        assert!(t.failed.as_deref().unwrap_or("").contains("protocol violation"));
+    }
+
+    #[tokio::test]
+    async fn honest_raced_batch_flows() {
+        let page = ScriptPage::new(
+            vec![batch(&["hello "], false), batch(&["world "], true)],
+            100.0,
+        );
+        let mut t = BridgeStreamTransport::new(page, Dialect::Chat);
+        t.stream_reply(&serde_json::json!({})).await.unwrap();
+        assert_eq!(t.next_event().await, Some(Event::Delta("hello ".into())));
+        assert_eq!(t.next_event().await, Some(Event::Delta("world ".into())));
+        assert_eq!(t.next_event().await, Some(Event::Done));
+        assert_eq!(t.next_event().await, None);
+    }
+
+    #[tokio::test]
+    async fn empty_batches_yield_nothing_then_stall() {
+        // Empty batches yield NOTHING (paced polls), not fake closure and
+        // not stop-consuming keep-alives.
+        struct FewEmpty {
+            n: u32,
+        }
+        #[async_trait]
+        impl PageStream for FewEmpty {
+            async fn open_stream(&mut self, _: &serde_json::Value, _: Dialect, _: u32) -> Result<String, String> {
+                Ok("s".into())
+            }
+            async fn drain(&mut self, _: &str) -> Result<StreamBatch, String> {
+                if self.n == 0 {
+                    return Ok(batch(&["late text "], false));
+                }
+                self.n -= 1;
+                Ok(StreamBatch { events: vec![], raced: false, aborted: false })
+            }
+            async fn cancel(&mut self, _: &str) -> Result<bool, String> {
+                Ok(true)
+            }
+            async fn credits(&self) -> Result<f64, String> {
+                Ok(1.0)
+            }
+        }
+        let mut t = BridgeStreamTransport::new(FewEmpty { n: 3 }, Dialect::Chat);
+        t.stream_reply(&serde_json::json!({})).await.unwrap();
+        // Empty page polls yield NO event (paced 500ms sleeps), so the
+        // rung's stop counts only real framed text; the late text still
+        // arrives on the fourth poll.
+        assert_eq!(t.next_event().await, None);
+        assert_eq!(t.next_event().await, None);
+        assert_eq!(t.next_event().await, None);
+        assert_eq!(t.next_event().await, Some(Event::Delta("late text ".into())));
+    }
+
+    #[tokio::test]
+    async fn contradictory_batch_rejected() {
+        let page = ScriptPage::new(
+            vec![StreamBatch { events: vec![Event::Delta("x ".into())], raced: true, aborted: true }],
+            100.0,
+        );
+        let mut t = BridgeStreamTransport::new(page, Dialect::Chat);
+        t.stream_reply(&serde_json::json!({})).await.unwrap();
+        assert_eq!(t.next_event().await, None);
+        assert!(t.failed.as_deref().unwrap_or("").contains("protocol violation"));
+    }
+
+    #[tokio::test]
+    async fn stop_after_reaches_open() {
+        // The stop MUST be baked into open_stream: the page aborts itself
+        // in-loop, so the terminal is never read. Assert the plumbing, not
+        // just the default.
+        use std::sync::Mutex as StdMutex;
+        struct RecStop {
+            got: StdMutex<Vec<u32>>,
+        }
+        #[async_trait]
+        impl PageStream for RecStop {
+            async fn open_stream(&mut self, _: &serde_json::Value, _: Dialect, stop_after: u32) -> Result<String, String> {
+                self.got.lock().unwrap().push(stop_after);
+                Ok("s".into())
+            }
+            async fn drain(&mut self, _: &str) -> Result<StreamBatch, String> {
+                Ok(StreamBatch { events: vec![], raced: false, aborted: false })
+            }
+            async fn cancel(&mut self, _: &str) -> Result<bool, String> {
+                Ok(true)
+            }
+            async fn credits(&self) -> Result<f64, String> {
+                Ok(1.0)
+            }
+        }
+        let mut t = BridgeStreamTransport::new(RecStop { got: StdMutex::new(Vec::new()) }, Dialect::Chat);
+        t.set_stop_after(200);
+        t.stream_reply(&serde_json::json!({})).await.unwrap();
+        assert_eq!(*t.page.got.lock().unwrap(), vec![200]);
+    }
+
+    #[tokio::test]
+    async fn unwired_page_fails_closed() {
+        let mut page = ScriptPage::new(vec![], 100.0);
+        page.fail_open = true;
+        let mut t = BridgeStreamTransport::new(page, Dialect::Responses);
+        assert_eq!(
+            t.stream_reply(&serde_json::json!({})).await,
+            Err("live page stream not wired".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn cancel_reaches_page() {
+        let page = ScriptPage::new(vec![batch(&["a "], false)], 100.0);
+        let mut t = BridgeStreamTransport::new(page, Dialect::Messages);
+        t.stream_reply(&serde_json::json!({})).await.unwrap();
+        t.next_event().await;
+        t.cancel().await;
+        assert_eq!(t.page.cancels, 1);
+    }
+}

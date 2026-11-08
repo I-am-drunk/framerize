@@ -1,0 +1,531 @@
+//! Tail-context leg loop: the custom-route engine's coordinator.
+//!
+//! One leg = one streaming-abort rung (see rung) framed by the prompt
+//! templates (see stop): leg 1 carries the length guarantee, later legs
+//! carry the tail anchor of everything captured so far. After every leg the
+//! credits ledger is asserted (see ledger); a debit or a race routes through
+//! the retry/quarantine policy instead of flowing silently onward.
+//!
+//! Pure and mock-testable: the only upstream contact is CustomTransport.
+//!
+//! Sequential-accounting assumption: legs run one at a time and nothing else
+//! spends between the before/after reads, so summing per-leg deltas equals
+//! the end-to-end balance move. If the daemon ever parallelizes legs, switch
+//! total_debit to a single before-first/after-last comparison.
+
+use crate::ledger;
+use crate::merge;
+use crate::rung;
+use crate::stop;
+use crate::transport::CustomTransport;
+
+/// Knobs for [`complete`]. Defaults mirror the proven driver: stop depth
+/// 200, at most 8 legs, 2 halved retries per leg, a 350-char tail anchor.
+#[derive(Debug, Clone)]
+pub struct ChainSettings {
+    /// Abort depth per leg (clamped into [MIN_STOP, MAX_STOP] at run time).
+    pub stop: u32,
+    /// Leg cap: 0 means "no legs" (empty chain), otherwise the max ACCEPTED
+    /// legs; retries do not consume this budget.
+    pub max_legs: u32,
+    /// Halved-stop retries per leg before quarantine.
+    pub quarantine_retries: u32,
+    /// Tail-anchor width in chars. 0 = anchorless continuations (degenerate;
+    /// allowed for tests, never for production).
+    pub anchor_chars: usize,
+}
+
+impl Default for ChainSettings {
+    fn default() -> Self {
+        Self {
+            stop: stop::DEFAULT_STOP,
+            max_legs: 8,
+            quarantine_retries: 2,
+            anchor_chars: 350,
+        }
+    }
+}
+
+/// One finished leg as the engine records it.
+#[derive(Debug)]
+pub struct Leg {
+    /// Text kept from this leg (trimmed growth; empty on a raced debit or
+    /// a near-zero finish leg).
+    pub text: String,
+    /// True when the terminal arrived before the stop point.
+    pub raced: bool,
+    /// True when the ledger moved across this leg.
+    pub debited: bool,
+    /// Stop depth the rung ran at.
+    pub stop_used: u32,
+    /// Ledger delta (after - before) observed across this leg, retries
+    /// included. Sums to Assembled.total_debit.
+    pub debit: f64,
+    /// Stream events consumed on the ACCEPTED attempt (deltas + terminal),
+    /// for per-leg diagnostics.
+    pub events: u32,
+}
+
+/// A finished chain: assembled text, per-leg record, and the honesty footer.
+#[derive(Debug)]
+pub struct Assembled {
+    /// Joined kept growth across accepted legs (echo-trimmed).
+    pub text: String,
+    /// Per-leg record in run order (finish leg included, quarantined if any).
+    pub legs: Vec<Leg>,
+    /// Sum of per-leg debits. 0.0 on the proven path.
+    pub total_debit: f64,
+    /// How the chain ended: leg cap, model dry, or quarantine.
+    pub outcome: ChainOutcome,
+}
+
+/// Terminal state of a chain run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChainOutcome {
+    /// Stopped on near-zero growth: the model ran dry. The normal ending.
+    Capped,
+    /// Hit max_legs with growth still arriving: raise the cap or the stop.
+    LegCap,
+    /// A leg kept debiting past its retry budget: text is partial, debit>0.
+    Quarantined,
+}
+
+/// Last `n` chars of `text`, widened forward to a char boundary so
+/// multi-byte content is never split. Returns what exists when shorter.
+/// `n == 0` yields an empty anchor (no clamping surprise).
+pub fn last_anchor_chars(n: usize, text: &str) -> &str {
+    if n == 0 || text.is_empty() {
+        return "";
+    }
+    if text.len() <= n {
+        return text;
+    }
+    let mut start = text.len() - n;
+    while start < text.len() && !text.is_char_boundary(start) {
+        start += 1;
+    }
+    &text[start..]
+}
+
+/// Leg-1 payload: length guarantee FIRST, topic second (instruction-first:
+/// models obey a leading directive more reliably than a trailing one).
+fn leg1_payload(prompt: &str) -> serde_json::Value {
+    serde_json::json!({
+        "messages": [
+            {"role": "user", "content": format!("{}\n\n{}", stop::length_guarantee_suffix(1800, 14), prompt)}
+        ]
+    })
+}
+
+/// Continuation payload: directive, then the tail anchor, then an empty
+/// closer so the anchor is never the message's last line (some models treat
+/// trailing quoted text as the thing to repeat).
+fn continue_payload(accumulated: &str, anchor_chars: usize) -> serde_json::Value {
+    serde_json::json!({
+        "messages": [
+            {"role": "user", "content": format!("{}{}\n\n{}", stop::continue_suffix(), last_anchor_chars(anchor_chars, accumulated), "")}
+        ]
+    })
+}
+
+/// Per-leg trace line for daemon logs: everything needed to diagnose a
+/// billed or short leg without re-running it.
+fn leg_line(tag: &str, leg_index: u32, stop: u32, r: &rung::RungResult, before: f64, after: f64) -> String {
+    format!(
+        "[custom-route] {tag} leg={} stop={} events={} captured={} raced={} credits {:.6} -> {:.6} (delta {:+.6})",
+        leg_index,
+        stop,
+        r.events,
+        r.captured.len(),
+        r.raced,
+        before,
+        after,
+        after - before
+    )
+}
+
+/// Run the full chain: stream legs until near-zero growth or `max_legs`.
+///
+/// Per leg: snapshot credits, run the rung at the current stop, snapshot
+/// credits again. A `RetryHalved` policy reruns THIS leg verbatim (the
+/// accumulated text is untouched, so the rebuilt payload is identical) at
+/// a halved stop while the per-leg retry budget lasts; once spent, the leg
+/// is recorded debited-and-quarantined and chaining stops. Accepted legs
+/// append their trimmed growth; near-zero growth ends the chain (Capped).
+/// `total_debit` sums the recorded legs' ledger deltas.
+///
+/// DIAGNOSTICS: every leg attempt emits one `[custom-route]` eprintln line
+/// (leg, stop, events, captured bytes, raced, credit before/after/delta) so
+/// a billed, short, or raced leg is diagnosable from daemon logs alone.
+pub async fn complete<T: CustomTransport>(
+    transport: &mut T,
+    leg1_prompt: &str,
+    chain: &ChainSettings,
+) -> Result<Assembled, String> {
+    let mut legs: Vec<Leg> = Vec::new();
+    let mut kept: Vec<String> = Vec::new();
+    let mut accumulated = String::new();
+    let mut total_debit = 0.0f64;
+    // Chain-level stop: restored to default after every Accept so one
+    // recovered race (halved stop) cannot permanently shrink later legs.
+    let base_stop = stop::clamped_stop(chain.stop);
+    let mut stop = base_stop;
+    let mut retries_this_leg: u32 = 0;
+    let mut leg_debit = 0.0f64;
+    let mut outcome = ChainOutcome::Capped;
+
+    let mut leg_index: u32 = 0;
+    while leg_index < chain.max_legs {
+        let payload = if leg_index == 0 {
+            leg1_payload(leg1_prompt)
+        } else {
+            continue_payload(&accumulated, chain.anchor_chars)
+        };
+
+        let before = transport.read_credits().await?;
+        let rung_out = rung::run_rung(transport, &payload, stop).await?;
+        let after = transport.read_credits().await?;
+        let delta = ledger::signed_delta(before, after);
+        let debited = !ledger::is_settled(before, after);
+        leg_debit += delta;
+        eprintln!("{}", leg_line("attempt", leg_index + 1, stop, &rung_out, before, after));
+
+        match ledger::after_leg(rung_out.raced, debited) {
+            ledger::Policy::RetryHalved | ledger::Policy::QuarantineAndReport
+                if retries_this_leg >= chain.quarantine_retries =>
+            {
+                total_debit += leg_debit;
+                eprintln!(
+                    "[custom-route] quarantine leg={} after {} retries (raced={} debited={} debit={:+.6})",
+                    leg_index + 1,
+                    retries_this_leg,
+                    rung_out.raced,
+                    debited,
+                    leg_debit
+                );
+                legs.push(Leg {
+                    text: merge::trim_overlap(&rung_out.captured, &accumulated).to_string(),
+                    raced: rung_out.raced,
+                    debited,
+                    stop_used: stop,
+                    debit: leg_debit,
+                    events: rung_out.events,
+                });
+                outcome = ChainOutcome::Quarantined;
+                break;
+            }
+            ledger::Policy::RetryHalved | ledger::Policy::QuarantineAndReport => {
+                retries_this_leg += 1;
+                let next = stop::halt_after_race(stop).max(1);
+                eprintln!(
+                    "[custom-route] retry leg={} attempt={} stop {} -> {} (raced={} debited={})",
+                    leg_index + 1,
+                    retries_this_leg + 1,
+                    stop,
+                    next,
+                    rung_out.raced,
+                    debited
+                );
+                stop = next;
+                continue;
+            }
+            ledger::Policy::Accept => {
+                let growth = merge::trim_overlap(&rung_out.captured, &accumulated).to_string();
+                total_debit += leg_debit;
+                let leg_total = leg_debit;
+                leg_debit = 0.0;
+                if merge::is_near_zero(&growth) {
+                    eprintln!(
+                        "[custom-route] accept leg={} stop={} events={} captured={} raced={} debited={} FINISH (near-zero growth)",
+                        leg_index + 1,
+                        stop,
+                        rung_out.events,
+                        rung_out.captured.len(),
+                        rung_out.raced,
+                        debited
+                    );
+                    legs.push(Leg {
+                        text: String::new(),
+                        raced: rung_out.raced,
+                        debited,
+                        stop_used: stop,
+                        debit: 0.0,
+                        events: rung_out.events,
+                    });
+                    outcome = ChainOutcome::Capped;
+                    break;
+                }
+                eprintln!(
+                    "[custom-route] accept leg={} stop={} events={} captured={} kept={} raced={} debited={}",
+                    leg_index + 1,
+                    stop,
+                    rung_out.events,
+                    rung_out.captured.len(),
+                    growth.len(),
+                    rung_out.raced,
+                    debited
+                );
+                accumulated.push_str(&growth);
+                kept.push(growth.clone());
+                legs.push(Leg {
+                    text: growth,
+                    raced: rung_out.raced,
+                    debited,
+                    stop_used: stop,
+                    // The leg absorbs the whole attempt series (a recovered
+                    // race's failed attempt settled for real); total_debit
+                    // already absorbed the same sum above.
+                    debit: leg_total,
+                    events: rung_out.events,
+                });
+                retries_this_leg = 0;
+                stop = base_stop;
+                leg_index += 1;
+            }
+        }
+    }
+
+    if leg_index >= chain.max_legs && outcome == ChainOutcome::Capped && !legs.is_empty() {
+        // Ran out of legs while still growing: only Capped-worthy if the
+        // last leg was the near-zero finisher; otherwise the cap cut us off.
+        let last_empty = legs.last().map(|l| l.text.is_empty()).unwrap_or(false);
+        if !last_empty {
+            outcome = ChainOutcome::LegCap;
+            eprintln!(
+                "[custom-route] leg cap reached (max_legs={}): growth still arriving",
+                chain.max_legs
+            );
+        }
+    }
+
+    eprintln!(
+        "[custom-route] done legs={} kept_chars={} total_debit={:+.6} outcome={:?}",
+        legs.len(),
+        accumulated.len(),
+        total_debit,
+        outcome
+    );
+    Ok(Assembled {
+        text: merge::assemble(&kept),
+        legs,
+        total_debit,
+        outcome,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::transport::Event;
+    use async_trait::async_trait;
+    use std::collections::VecDeque;
+
+    /// Leg-aware script transport: each stream_reply pops the next queued
+    /// (events, credit-after) pair. The staged balance applies when the
+    /// terminal is consumed or the script runs dry -- modelling "the ledger
+    /// moves when the leg settles" -- so the after-read sees the new value.
+    struct ChainMock {
+        queue: VecDeque<(Vec<Event>, f64)>,
+        current: Vec<Event>,
+        pos: usize,
+        credits: f64,
+        staged: Option<f64>,
+        payloads: Vec<serde_json::Value>,
+    }
+
+    impl ChainMock {
+        fn new(legs: Vec<(Vec<Event>, f64)>, credits: f64) -> Self {
+            Self {
+                queue: legs.into(),
+                current: Vec::new(),
+                pos: 0,
+                credits,
+                staged: None,
+                payloads: Vec::new(),
+            }
+        }
+
+        fn settle(&mut self) {
+            if let Some(v) = self.staged.take() {
+                self.credits = v;
+            }
+        }
+    }
+
+    #[async_trait]
+    impl CustomTransport for ChainMock {
+        async fn stream_reply(&mut self, payload: &serde_json::Value) -> Result<(), String> {
+            self.payloads.push(payload.clone());
+            let (events, after) = self.queue.pop_front().unwrap_or((vec![], self.credits));
+            self.current = events;
+            self.pos = 0;
+            self.staged = Some(after);
+            Ok(())
+        }
+
+        async fn next_event(&mut self) -> Option<Event> {
+            match self.current.get(self.pos).cloned() {
+                Some(Event::Done) => {
+                    self.pos += 1;
+                    self.settle();
+                    Some(Event::Done)
+                }
+                Some(ev) => {
+                    self.pos += 1;
+                    Some(ev)
+                }
+                None => {
+                    self.settle();
+                    None
+                }
+            }
+        }
+
+        async fn cancel(&mut self) {}
+
+        async fn read_credits(&self) -> Result<f64, String> {
+            Ok(self.credits)
+        }
+    }
+
+    fn numbered(from: usize, n: usize) -> Vec<Event> {
+        (from..from + n)
+            .map(|i| Event::Delta(format!("word{i} ")))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn three_leg_chain_with_retry_then_finish() {
+        // Leg 1: long stream, clean abort at stop 200, no debit.
+        // Leg 2 attempt 1: short stream racing Done WITH a debit -> RetryHalved.
+        // Leg 2 attempt 2 (verbatim rerun, stop 100): long stream, clean -> Accept.
+        // Leg 3: immediate Done -> near-zero -> chain stops Capped.
+        let mut leg1 = numbered(0, 250);
+        leg1.push(Event::Done);
+        let mut leg2a = numbered(1000, 3);
+        leg2a.push(Event::Done);
+        let mut leg2b = numbered(200, 150);
+        leg2b.push(Event::Done);
+        let leg3 = vec![Event::Done];
+        let mut t = ChainMock::new(
+            vec![(leg1, 100.0), (leg2a, 99.5), (leg2b, 99.5), (leg3, 99.5)],
+            100.0,
+        );
+        let settings = ChainSettings::default();
+        let out = complete(&mut t, "explain ships", &settings).await.unwrap();
+
+        assert_eq!(out.legs.len(), 3);
+        // The failed leg-2a attempt settled -0.5 before the halved retry
+        // recovered: honest accounting keeps it (money moved, money counted).
+        assert_eq!(out.total_debit, -0.5);
+        assert_eq!(out.legs[1].debit, -0.5);
+        assert_eq!(out.outcome, ChainOutcome::Capped);
+        // leg 1 kept words 0..200, leg 2 kept 200..300, leg 3 empty finisher
+        assert!(!out.legs[0].raced && !out.legs[0].debited);
+        assert_eq!(out.legs[0].stop_used, 200);
+        assert!(!out.legs[1].raced && !out.legs[1].debited);
+        assert_eq!(out.legs[1].stop_used, 100);
+        assert!(out.legs[2].text.is_empty());
+        assert!(out.text.contains("word0 "));
+        assert!(out.text.contains("word199 "));
+        assert!(out.text.contains("word200 "));
+        assert!(out.text.contains("word299 "));
+        assert!(!out.text.contains("word1000 "));
+        // the halved rerun was verbatim: same payload, continuation shape
+        assert_eq!(t.payloads.len(), 4);
+        assert_eq!(t.payloads[1], t.payloads[2]);
+        let c1 = t.payloads[0]["messages"][0]["content"].as_str().unwrap();
+        assert!(c1.contains("explain ships"));
+        assert!(c1.contains(&stop::length_guarantee_suffix(1800, 14)));
+        let c2 = t.payloads[1]["messages"][0]["content"].as_str().unwrap();
+        assert!(c2.contains(&stop::continue_suffix()));
+        assert!(c2.contains("word199 "));
+    }
+
+    #[tokio::test]
+    async fn stop_restores_after_recovery() {
+        // Race on leg 1 halves the stop; leg 2 must run at the base stop again.
+        let mut l1a = numbered(0, 3);
+        l1a.push(Event::Done);
+        let mut l1b = numbered(0, 150);
+        l1b.push(Event::Done);
+        let mut l2 = numbered(500, 250);
+        l2.push(Event::Done);
+        let fin = vec![Event::Done];
+        let mut t = ChainMock::new(
+            vec![(l1a, 49.5), (l1b, 49.5), (l2, 49.5), (fin, 49.5)],
+            50.0,
+        );
+        let out = complete(&mut t, "probe", &ChainSettings::default()).await.unwrap();
+        assert_eq!(out.legs[0].stop_used, 100);
+        assert_eq!(out.legs[1].stop_used, 200);
+    }
+
+    #[tokio::test]
+    async fn quarantine_path_records_and_stops() {
+        // Every attempt races WITH debit: budget (2) spent -> quarantine leg,
+        // chain stops Quarantined, debit accounted.
+        let mk = || {
+            let mut v = numbered(900, 2);
+            v.push(Event::Done);
+            v
+        };
+        let mut t = ChainMock::new(
+            vec![(mk(), 49.0), (mk(), 48.0), (mk(), 47.0)],
+            50.0,
+        );
+        let out = complete(&mut t, "probe", &ChainSettings::default()).await.unwrap();
+        assert_eq!(out.legs.len(), 1);
+        assert!(out.legs[0].debited && out.legs[0].raced);
+        assert!((out.total_debit - -3.0).abs() < 1e-9);
+        assert!((out.legs[0].debit - -3.0).abs() < 1e-9);
+        assert_eq!(out.outcome, ChainOutcome::Quarantined);
+    }
+
+    #[tokio::test]
+    async fn leg_cap_outcome_when_still_growing() {
+        let mk = |from: usize| {
+            let mut v = numbered(from, 250);
+            v.push(Event::Done);
+            v
+        };
+        let mut t = ChainMock::new(
+            vec![(mk(0), 10.0), (mk(1000), 10.0), (mk(2000), 10.0)],
+            10.0,
+        );
+        let settings = ChainSettings { max_legs: 2, ..ChainSettings::default() };
+        let out = complete(&mut t, "probe", &settings).await.unwrap();
+        assert_eq!(out.outcome, ChainOutcome::LegCap);
+        assert_eq!(out.legs.len(), 2);
+    }
+
+    #[test]
+    fn anchor_never_splits_char() {
+        let text = format!("{}é{}", "x".repeat(400), "y".repeat(10));
+        let a = last_anchor_chars(350, &text);
+        assert!(a.ends_with(&"y".repeat(10)));
+        assert!(text.is_char_boundary(text.len() - a.len()));
+        assert_eq!(last_anchor_chars(350, "short"), "short");
+        // cut landing inside a 2-byte char widens forward past it
+        let t2 = format!("{}é{}", "a".repeat(349), "b".repeat(10));
+        let a2 = last_anchor_chars(350, &t2);
+        assert!(t2.is_char_boundary(t2.len() - a2.len()));
+        assert!(!a2.starts_with('�'));
+        assert_eq!(last_anchor_chars(0, "anything"), "");
+        assert_eq!(last_anchor_chars(10, ""), "");
+    }
+
+    #[test]
+    fn payload_shapes() {
+        let p1 = leg1_payload("explain ships");
+        let c1 = p1["messages"][0]["content"].as_str().unwrap();
+        assert!(c1.contains("explain ships"));
+        assert!(c1.contains(&stop::length_guarantee_suffix(1800, 14)));
+        // instruction-first: guarantee opens, topic follows
+        assert!(c1.find(&stop::length_guarantee_suffix(1800, 14)).unwrap() < c1.find("explain ships").unwrap());
+        let p2 = continue_payload("prior tail text here", 350);
+        let c2 = p2["messages"][0]["content"].as_str().unwrap();
+        assert!(c2.contains(&stop::continue_suffix()));
+        assert!(c2.contains("prior tail text here"));
+    }
+}
