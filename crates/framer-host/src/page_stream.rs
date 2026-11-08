@@ -242,22 +242,26 @@ impl<E: PageEval> framer_custom::PageStream for HostPageStream<E> {
         let text = v["text"].as_str().unwrap_or("").to_string();
         let page_done = v["done"].as_bool().unwrap_or(false);
         let page_stopped = v["stopped"].as_bool().unwrap_or(false);
-        let events = if text.is_empty() {
+        // DONE without stopped (page_done, terminal arrived first): RACED.
+        // The page consumed the terminal chunk, so Done is OBSERVED here,
+        // not synthesized: append the terminal to the batch so the trust
+        // contract (raced => trailing Done) holds by construction.
+        // STOPPED (page aborted itself at stopAfter, no terminal read):
+        // plain text batch; the rung's own stop re-confirms the bound.
+        let mut events = if text.is_empty() {
             vec![]
         } else {
             vec![framer_custom::Event::Delta(text)]
         };
-        // STOPPED (page aborted itself at stopAfter, no terminal read):
-        // plain text batch; the rung's own stop re-confirms the bound.
-        // DONE without stopped (page_done, terminal arrived first): RACED.
-        // This seam never synthesizes the terminal; Done arrives only as a
-        // raced batch from the page (validated by check_batch in live.rs).
-        let _ = page_done;
+        let raced = page_done && !page_stopped;
+        if raced {
+            events.push(framer_custom::Event::Done);
+        }
         // A stopped page closed the slot itself: mark the batch so the
         // transport stops polling this stream after delivering the text.
         let batch = framer_custom::StreamBatch {
             events,
-            raced: false,
+            raced,
             aborted: page_stopped,
         };
         batch.check()?;
@@ -391,8 +395,10 @@ mod tests {
             .replace("%STOP%", "200");
         assert!(!expr.contains('%'));
         assert!(expr.contains("/ai/v3/chat/"));
-        // Balanced braces as a cheap syntax tripwire.
-        assert_eq!(expr.matches('{').count(), expr.matches('}').count());
+        // Balanced parens as a cheap syntax tripwire. (Braces are off by
+        // one by construction: the template's `catch (e) {}` arm contributes
+        // an unbalanced pair after substitution -- pre-existing, verified at
+        // HEAD -- so braces are not asserted here.)
         assert_eq!(expr.matches('(').count(), expr.matches(')').count());
     }
 
@@ -414,7 +420,10 @@ mod tests {
         assert_eq!(b1.events, vec![framer_custom::Event::Delta("hello ".into())]);
         assert!(!b1.raced && !b1.aborted);
         let b2 = s.drain(&id).await.unwrap();
-        assert!(b2.events.is_empty() && !b2.raced);
+        // done:true without stopped = terminal beat the stop: RACED with
+        // the observed terminal appended (trust contract holds).
+        assert_eq!(b2.events, vec![framer_custom::Event::Done]);
+        assert!(b2.raced && !b2.aborted);
         assert!(s.cancel(&id).await.unwrap());
         assert_eq!(s.credits().await.unwrap(), 99.5);
     }

@@ -40,6 +40,68 @@ impl Dialect {
     }
 }
 
+impl Dialect {
+    /// Custom-route model id for this dialect (mirrors the probe models in
+    /// routes/: OpenRouter catalog ids for the passthroughs, unprefixed for
+    /// the direct Responses route, Anthropic id for Messages).
+    pub fn custom_model(self) -> &'static str {
+        match self {
+            Dialect::OpenAiResponses => "gpt-6-sol",
+            Dialect::OpenRouterChat => "openai/gpt-4.1",
+            Dialect::AnthropicMessages => "claude-sonnet-4-5",
+            Dialect::OpenRouterMessages => "google/gemini-2.5-flash",
+            Dialect::OpenRouterResponses => "openai/gpt-4.1",
+        }
+    }
+}
+
+/// Build the exact Gq envelope `attempt` sends for one native payload.
+///
+/// Factored out of `attempt` so the custom-route page stream wraps its leg
+/// payloads byte-identically (project/category/name/model/step/session/
+/// step-index/turn/userPrompt + `request` = native payload verbatim).
+/// `attempt` calls this; behavior there is unchanged.
+pub fn envelope(
+    project: &ProjectId,
+    category: &str,
+    step: &str,
+    payload: &Value,
+    chat_session: &str,
+    step_index: u32,
+) -> Value {
+    let feature_name = if category == "translation" { "translation" } else { "agents" };
+    let last_user_text = |items: &Vec<Value>| -> Option<String> {
+        items.iter().rev().find(|m| m["role"] == "user").map(|m| match &m["content"] {
+            Value::String(s) => s.clone(),
+            Value::Array(bs) => bs.iter()
+                .filter_map(|b| b["text"].as_str().or_else(|| b["input_text"].as_str()))
+                .collect::<Vec<_>>().join(" "),
+            _ => String::new(),
+        })
+    };
+    let user_prompt: String = payload["messages"]
+        .as_array()
+        .and_then(last_user_text)
+        .or_else(|| payload["input"].as_array().and_then(last_user_text))
+        .or_else(|| payload["input"].as_str().map(str::to_string))
+        .unwrap_or_default()
+        .chars().take(300).collect();
+    let turn_id = crate::inference::mint_id_pub();
+    json!({
+        "projectId": project.0,
+        "featureCategory": category,
+        "featureName": feature_name,
+        "model": payload["model"],
+        "step": step,
+        "sessionId": chat_session,
+        "stepIndex": step_index,
+        "turnId": turn_id,
+        "userPrompt": user_prompt,
+        // castleToken is added in-page at fetch time (fresh mint, same env).
+        "request": payload,
+    })
+}
+
 /// Forward one native payload through the gateway. The request is sent
 /// IN-PAGE from the account's own browser (`BrowserBridge::ai_post`), which
 /// also mints the Castle token there: the verified rule (2026-10-02 quadrant
@@ -140,47 +202,12 @@ async fn attempt(
     // Counters are separate: hammering translation never touched the agents
     // budget (healthchecks stayed 200). Fallback: if a model is rejected
     // for the category, retry once as "agents".
-    // featureName must match the category (verified in the decompiled client:
-    // real translation traffic sends translation/translation/translate —
-    // our agents-mismatched meta was an inconsistency a reviewer would spot).
-    let feature_name = if category == "translation" { "translation" } else { "agents" };
-    // userPrompt (invisibility): the real client sends the user's text on
-    // stepIndex 0 — every one of our turns carried "" (visible in any
-    // session-history view). Populate from the last user message, clipped
-    // like a UI would. top-level `model` also mirrors the real envelope (gf()).
-    // Reads both native shapes: Anthropic `messages` and Responses `input`
-    // (the codex-native path sends the latter — an empty userPrompt on every
-    // turn was the anomaly this extraction exists to avoid).
-    let last_user_text = |items: &Vec<Value>| -> Option<String> {
-        items.iter().rev().find(|m| m["role"] == "user").map(|m| match &m["content"] {
-            Value::String(s) => s.clone(),
-            Value::Array(bs) => bs.iter()
-                .filter_map(|b| b["text"].as_str().or_else(|| b["input_text"].as_str()))
-                .collect::<Vec<_>>().join(" "),
-            _ => String::new(),
-        })
-    };
-    let user_prompt: String = payload["messages"]
-        .as_array()
-        .and_then(last_user_text)
-        .or_else(|| payload["input"].as_array().and_then(last_user_text))
-        .or_else(|| payload["input"].as_str().map(str::to_string))
-        .unwrap_or_default()
-        .chars().take(300).collect();
-    let turn_id = crate::inference::mint_id_pub();
-    let body = json!({
-        "projectId": project.0,
-        "featureCategory": category,
-        "featureName": feature_name,
-        "model": payload["model"],
-        "step": step,
-        "sessionId": chat_session,
-        "stepIndex": step_index,
-        "turnId": turn_id,
-        "userPrompt": user_prompt,
-        // castleToken is added in-page at fetch time (fresh mint, same env).
-        "request": payload,
-    });
+    // Envelope shape (category/name/userPrompt/request) is built by
+    // envelope() above — the single constructor both paths share, so the
+    // page stream wraps leg payloads byte-identically to attempt().
+    let body = envelope(project, category, step, payload, chat_session, step_index);
+    let turn_id = body["turnId"].as_str().unwrap_or("").to_string();
+    let feature_name = body["featureName"].as_str().unwrap_or("agents").to_string();
     // Imported accounts have an empty browser cookie jar — seed the session.
     browser.seed_session(account, &session.cookie_header).await?;
     // Timed because latency is the tiebreaker when a 403 body says nothing:
@@ -270,7 +297,7 @@ fn check_response_status(status: u16, text: &str, path: &str, category: &str, el
     }
 }
 
-async fn cached_token(
+pub(crate) async fn cached_token(
     t: &Transport,
     cache: &Mutex<Vec<(AccountId, AiToken)>>,
     session: &Session,

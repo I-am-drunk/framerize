@@ -640,6 +640,18 @@ fn body_preview(v: &Value) -> String {
 
 #[async_trait]
 impl BrowserBridge for CdpBridge {
+    async fn eval_small(&self, account: &AccountId, expr: &str) -> Result<Value, String> {
+        // One small eval per call; the per-account Mutex is held only for
+        // this eval and released before returning. Callers (the custom-route
+        // page stream's open/drain/cancel/credits) never hold it across
+        // polls, so streaming legs interleave with ai_post instead of
+        // blocking it. Bounded by CdpInstance::cmd's deadline; a hung page
+        // fails this eval, never the daemon.
+        let inst = self.instance(account).await?;
+        let mut guard = inst.lock().await;
+        guard.eval(expr.to_string()).await
+    }
+
     async fn seed_session(&self, account: &AccountId, cookie_header: &str) -> Result<(), String> {
         // Imported accounts: the browser profile never saw the login flow, so
         // its cookie jar is empty. In-page fetches authenticate via that jar —

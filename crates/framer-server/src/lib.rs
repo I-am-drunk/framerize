@@ -177,7 +177,7 @@ pub fn router(state: AppState, web_dir: &str) -> Router {
     let paid = Router::new()
         .nest("/anthropic", anthropic_paid)
         .nest("/openai", openai_paid);
-    let custom = custom::custom_routes();
+    let custom = custom::custom_routes(state.clone());
 
     Router::new()
         .nest("/api", api)

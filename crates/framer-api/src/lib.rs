@@ -93,6 +93,34 @@ impl HttpFramerClient {
         .await
     }
 
+    /// Mint (or reuse the cached) AI bearer JWT for one account: the same
+    /// per-account cached token `proxy::forward` uses, exposed so the
+    /// custom-route page stream can authorize its in-page fetches without
+    /// duplicating the mint path. No account call happens here beyond the
+    /// mint itself; callers seed the session and build the envelope.
+    pub async fn custom_bearer(
+        &self,
+        session: &Session,
+        account: &AccountId,
+    ) -> Result<String, String> {
+        proxy::cached_token(&self.transport, &self.ai_token, session, account)
+            .await
+            .map(|t| t.bearer)
+    }
+
+    /// Evict the cached JWT for one account, then mint fresh (the 401 path:
+    /// mirrors proxy::forward's one-retry eviction exactly).
+    pub async fn custom_bearer_fresh(
+        &self,
+        session: &Session,
+        account: &AccountId,
+    ) -> Result<String, String> {
+        if let Ok(mut guard) = self.ai_token.lock() {
+            guard.retain(|(id, _)| id != account);
+        }
+        self.custom_bearer(session, account).await
+    }
+
 }
 
 fn parse_dialect(d: &str) -> Result<proxy::Dialect, String> {
@@ -136,6 +164,14 @@ impl FramerClient for HttpFramerClient {
 
     async fn usage(&self, session: &Session, team: &TeamId) -> Result<CreditSnapshot, String> {
         credits::usage(&self.transport, session, team).await
+    }
+
+    async fn custom_bearer(&self, session: &Session, account: &AccountId) -> Result<String, String> {
+        self.custom_bearer(session, account).await
+    }
+
+    async fn custom_bearer_fresh(&self, session: &Session, account: &AccountId) -> Result<String, String> {
+        self.custom_bearer_fresh(session, account).await
     }
 
     async fn proxy(
