@@ -24,8 +24,12 @@ impl Transport {
 
     /// Used by tests to point at the mock server.
     pub fn with_base(base: String) -> Self {
+        // Bounded client: an unbounded default has no total deadline, so a
+        // stalled upstream socket wedges the caller with no error. 60s
+        // covers the slowest legitimate mint; nothing here streams bodies.
         let http = reqwest::Client::builder()
             .user_agent("Framerize/0.1")
+            .timeout(std::time::Duration::from_secs(60))
             .build()
             .expect("reqwest client");
         Self { http, base }

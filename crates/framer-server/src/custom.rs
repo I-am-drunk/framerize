@@ -42,6 +42,15 @@ use std::sync::Arc;
 
 pub const TRANSPORT_ENV: &str = "FRAMERIZE_CUSTOM_TRANSPORT";
 
+/// Per-stage budgets for the real-mode dep assembly. Every one of these
+/// awaits was unbounded; a stall in any of them used to wedge the request
+/// with no log line until the client gave up. Each stage now fails loud with
+/// the request id so the next hang report names its stage.
+const STAGE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
+/// Whole-request budget for the engine run. Must stay under the tightest
+/// client timeout so the response is always typed.
+const ENGINE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(540);
+
 /// Upstream dialect for custom-route legs: the engine emits OpenAI
 /// chat-shaped `{messages: [...]}` payloads, so legs ride /ai/v3/chat/
 /// (OpenRouterChat), the same route freechat's chat-shaped chunks use.
@@ -274,6 +283,10 @@ fn sse_response(assembled: &framer_custom::Assembled, req_id: &str) -> Response 
 
 /// Real mode: assemble per-request deps mirroring native_complete, run the
 /// engine over the live page stream, record health, answer SSE.
+fn short_id(id: &AccountId) -> String {
+    id.0.to_string()[..8.min(id.0.to_string().len())].to_string()
+}
+
 async fn custom_real(
     s: AppState,
     headers: &HeaderMap,
@@ -290,12 +303,23 @@ async fn custom_real(
     let account = s
         .serving_accounts
         .select(pool, hdr(headers, "x-framerize-account").as_deref())?;
-    let residency = RequestResidency::new(lease_account(&s, account.id).await?);
+    eprintln!("[custom-route] req={req_short} stage=lease account={}", short_id(&account.id));
+    let residency = RequestResidency::new(
+        tokio::time::timeout(STAGE_TIMEOUT, lease_account(&s, account.id))
+            .await
+            .map_err(|_| {
+                eprintln!("[custom-route] req={req_short} stage=lease timed out after 90s");
+                ApiError::Internal("custom route: account lease timed out after 90s".into())
+            })??,
+    );
     let account = current_account(&s, account.id).await?;
-    let session = s
-        .sessions
-        .load(&account.framer_user_id)
+    eprintln!("[custom-route] req={req_short} stage=session account={}", short_id(&account.id));
+    let session = tokio::time::timeout(STAGE_TIMEOUT, s.sessions.load(&account.framer_user_id))
         .await
+        .map_err(|_| {
+            eprintln!("[custom-route] req={req_short} stage=session timed out after 90s");
+            ApiError::Internal("custom route: session load timed out after 90s".into())
+        })?
         .map_err(ApiError::Internal)?
         .ok_or_else(|| ApiError::Internal("account has no session".into()))?;
     let scope = pick_scope(&account)?;
@@ -327,17 +351,27 @@ async fn custom_real(
     current_account(&s, account.id).await?;
 
     // AI bearer JWT: the same per-account cached mint forward() uses.
-    let bearer = s
-        .client
-        .custom_bearer(&session, &account.id)
+    eprintln!("[custom-route] req={req_short} stage=bearer account={}", short_id(&account.id));
+    let bearer = tokio::time::timeout(STAGE_TIMEOUT, s.client.custom_bearer(&session, &account.id))
         .await
+        .map_err(|_| {
+            eprintln!("[custom-route] req={req_short} stage=bearer timed out after 90s");
+            ApiError::Internal("custom route: bearer mint timed out after 90s".into())
+        })?
         .map_err(ApiError::Internal)?;
     // Seed the browser cookie jar (mirrors attempt: imported accounts start
     // with an empty jar; in-page fetches authenticate from it).
-    s.browser
-        .seed_session(&account.id, &session.cookie_header)
-        .await
-        .map_err(ApiError::Internal)?;
+    eprintln!("[custom-route] req={req_short} stage=seed account={}", short_id(&account.id));
+    tokio::time::timeout(
+        STAGE_TIMEOUT,
+        s.browser.seed_session(&account.id, &session.cookie_header),
+    )
+    .await
+    .map_err(|_| {
+        eprintln!("[custom-route] req={req_short} stage=seed timed out after 90s");
+        ApiError::Internal("custom route: session seed timed out after 90s".into())
+    })?
+    .map_err(ApiError::Internal)?;
 
     let category = std::env::var("FRAMERIZE_FEATURE_CATEGORY")
         .unwrap_or_else(|_| "translation".to_string());
@@ -384,7 +418,21 @@ async fn custom_real(
         },
         framer_custom::Dialect::Chat,
     );
-    let result = framer_custom::complete(&mut transport, &body.prompt, &settings).await;
+    eprintln!(
+        "[custom-route] req={req_short} stage=open account={} model={model_log}",
+        short_id(&account.id)
+    );
+    let result = tokio::time::timeout(
+        ENGINE_TIMEOUT,
+        framer_custom::complete(&mut transport, &body.prompt, &settings),
+    )
+    .await
+    .map_err(|_| {
+        ApiError::Internal(format!(
+            "chain: engine run exceeded {}s with no terminal or stop (req {req_short})",
+            ENGINE_TIMEOUT.as_secs()
+        ))
+    })?;
     let result = residency.observe_result(account.id, result);
     record_account_health(&s, &account, &result).await;
     match result {
