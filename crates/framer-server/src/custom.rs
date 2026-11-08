@@ -350,14 +350,17 @@ async fn custom_real(
         hdr(headers, "x-framerize-session").unwrap_or_else(|| stable_session(&account.id));
 
     // Per (workspace x MODEL) concurrency, mirroring native_complete.
-    // Model id rule (models.rs registry): the /ai/v3/* gateway takes
-    // UNPREFIXED ids ("gpt-4.1", not "openai/gpt-4.1" -- the prefixed form
-    // 400s "model pricing is not configured"). Strip any provider prefix
-    // the caller sends so the envelope always carries the gateway form.
+    // Model id rule: the OPENROUTER routes (/ai/v3/chat/, /ai/v3/messages/)
+    // take the CATALOG form ("openai/gpt-4.1" -- the registry probe_model;
+    // the stripped form 400s "model pricing is not configured" there).
+    // Keep any caller-supplied provider prefix; default to the catalog id.
     let model = {
         let m = body.model.trim();
-        let m = if m.is_empty() { "gpt-4.1" } else { m };
-        m.rsplit('/').next().unwrap_or(m).to_string()
+        if m.is_empty() {
+            "openai/gpt-4.1".to_string()
+        } else {
+            m.to_string()
+        }
     };
     let gate_model = framer_core::convert::to_openrouter_id(&model);
     let gate_key = format!("{}:{gate_model}", scope_team.0);
@@ -821,8 +824,7 @@ mod tests {
         assert!(open.contains("custom-test-bearer"), "fetch bearer: {open}");
         assert!(open.contains("/ai/v3/chat/"), "chat route: {open}");
         assert!(open.contains("translation"), "category: {open}");
-        assert!(open.contains("gpt-4.1"), "default chat model: {open}");
-        assert!(!open.contains("openai/gpt-4.1"), "gateway form unprefixed: {open}");
+        assert!(open.contains("openai/gpt-4.1"), "catalog chat model: {open}");
         assert!(open.contains("explain X"), "leg prompt inside request: {open}");
         assert!(open.contains("request"), "native payload nested under request: {open}");
         assert!(open.contains(", 200)"), "rung stop baked into page open: {open}");

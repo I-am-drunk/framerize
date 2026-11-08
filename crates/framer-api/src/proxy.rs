@@ -41,16 +41,18 @@ impl Dialect {
 }
 
 impl Dialect {
-    /// Custom-route model id for this dialect (GATEWAY form: unprefixed --
-    /// models.rs: the /ai/v3/* gateway 400s prefixed ids with "model pricing
-    /// is not configured").
+    /// Custom-route model id for this dialect (OPENROUTER CATALOG form:
+    /// the route registry probe_model, e.g. "openai/gpt-4.1" on
+    /// /ai/v3/chat/ -- the stripped form 400s "model pricing is not
+    /// configured" there; the unprefixed rule in models.rs covers the
+    /// direct Responses route only).
     pub fn custom_model(self) -> &'static str {
         match self {
             Dialect::OpenAiResponses => "gpt-6-sol",
-            Dialect::OpenRouterChat => "gpt-4.1",
+            Dialect::OpenRouterChat => "openai/gpt-4.1",
             Dialect::AnthropicMessages => "claude-sonnet-4-5",
             Dialect::OpenRouterMessages => "google/gemini-2.5-flash",
-            Dialect::OpenRouterResponses => "gpt-4.1",
+            Dialect::OpenRouterResponses => "openai/gpt-4.1",
         }
     }
 }
