@@ -52,10 +52,11 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
       }
       // A finished slot (closed by cancel, or done by a prior leg) must not
       // be re-entered: reset it so this open owns a fresh pump/buffer.
-      // Without this, an open racing a stale done/stopped slot inherits its
-      // terminal flags and every drain reads end-of-stream (the empty-drain
-      // stall: open ok, then 2000 empty polls with deltas=1).
-      window.__customPS = null;
+      // Window-scoped reset (NOT null): other pool pages may still hold a
+      // reference to this slot object, and nulling the property would make
+      // their drains report present=false forever while the pump keeps
+      // appending to the detached object. Reuse the same object instead.
+      window.__customPS = { open: false, closed: true, done: true };
     }
     if (!window.castlePublishableAPIKey) {
       Object.defineProperty(window, "castlePublishableAPIKey", { value: Object.freeze("pk_xYqGbB61EcFiSh4LUshpT4DGoEQMKQMB") });
@@ -162,7 +163,10 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
 /// `done` reports natural terminal (raced: terminal beat the stop).
 pub const DRAIN_SNIPPET: &str = r#"(() => {
   const slot = window.__customPS;
-  if (!slot || !slot.open) return { present: false };
+  // CLOSED-BY-CANCEL IS STILL READABLE: cancel marks closed+done but keeps
+  // buf/cursor, so post-stop drains consume the captured prefix. Only a
+  // missing slot (page reset/navigation) is unreadable.
+  if (!slot || (!slot.open && !slot.closed)) return { present: false };
   const text = slot.buf.slice(slot.cursor);
   slot.cursor = slot.buf.length;
   return { present: true, text: text, done: !!slot.done,
