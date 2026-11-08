@@ -493,12 +493,26 @@ async fn uncertain_observation_does_not_drop_an_existing_request_lease() {
 
 #[tokio::test]
 async fn failed_or_mismatched_status_cannot_admit_a_resident() {
-    for mode in [StatusMode::WrongAccount, StatusMode::Error] {
+    // WrongAccount (answered check naming the wrong identity) is genuine
+    // confusion: fence Uncertain (sticky, needs a proved close).
+    {
         let (state, ports) = fixture(1, 2);
         activated(&state, 1).await;
-        *ports.status_mode.lock().unwrap() = mode;
+        *ports.status_mode.lock().unwrap() = StatusMode::WrongAccount;
         assert!(lease_account(&state, id(1)).await.is_err());
         assert!(slot(&state, id(1)).uncertain);
+        assert_eq!(state.serving_accounts.residents.snapshot().unwrap().occupied, 1);
+    }
+    // Error (sidecar returned an error string = NO information, same class
+    // as timeout/starting): fail loud WITHOUT fencing. Fencing on "no
+    // information" wedges the slot forever (the 6D 503 loop: first probe
+    // raced the launch, every later acquire failed on the poison).
+    {
+        let (state, ports) = fixture(1, 2);
+        activated(&state, 1).await;
+        *ports.status_mode.lock().unwrap() = StatusMode::Error;
+        assert!(lease_account(&state, id(1)).await.is_err());
+        assert!(!slot(&state, id(1)).uncertain);
         assert_eq!(state.serving_accounts.residents.snapshot().unwrap().occupied, 1);
     }
 }
