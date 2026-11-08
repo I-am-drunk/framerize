@@ -207,7 +207,21 @@ impl ServingAccountPolicy {
                     ResidentStatus::Active | ResidentStatus::Idle))
         }).cloned().collect();
         if !ready_residents.is_empty() {
-            return framer_core::rotation::pick_at(&ready_residents, now).cloned()
+            // Prefer funded snapshots: a READY resident whose cached ledger
+            // still shows credits beats one known-exhausted at the account
+            // level. Fall back to all ready residents (never starve fresh or
+            // newly-provisioned accounts whose snapshot has not landed yet).
+            let funded: Vec<_> = ready_residents
+                .iter()
+                .filter(|a| a.credit.as_ref().map(|c| c.available).unwrap_or(0.0) > 0.0)
+                .cloned()
+                .collect();
+            let pool_ref: &[ManagedAccount] = if funded.is_empty() {
+                &ready_residents
+            } else {
+                &funded
+            };
+            return framer_core::rotation::pick_at(pool_ref, now).cloned()
                 .ok_or_else(|| self.no_eligible_account());
         }
         // The general selector can fall back to a cooling account. HTTP

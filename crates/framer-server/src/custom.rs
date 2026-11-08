@@ -422,6 +422,16 @@ async fn custom_real(
                     framer_core::rotation::mark_saturated(&team.0, 45_000);
                 }
             }
+            // A 402 means the leased account's scope workspace is truly out of
+            // credits (provider-verified, not a guess). Mark the scope team
+            // saturated for 5 minutes so this instance's picks (rotation first,
+            // then pick_scope's per-account scope walk) steer to a funded team
+            // instead of re-leasing the dead one.
+            if e.contains("402") || e.contains("credit_balance_exhausted")
+                || e.contains("team_credit_balance_exhausted")
+            {
+                framer_core::rotation::mark_saturated(&scope_team.0, 300_000);
+            }
             Err(ApiError::Internal(e))
         }
     }

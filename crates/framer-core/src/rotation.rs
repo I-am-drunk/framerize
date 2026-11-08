@@ -130,9 +130,20 @@ pub fn pick_at(pool: &[ManagedAccount], now: u64) -> Option<&ManagedAccount> {
     // never picked => count never clears). Accounts failing WITHOUT a cooldown
     // -- transport errors, say -- are still deprioritized.
     let best = candidates.iter().map(|a| a.effective_failures(now)).min()?;
+    // Tie-break on RAW failures before the round-robin cursor: effective_failures
+    // forgives a served cooldown (used in is_available_at already), so without
+    // this a post-cooldown account with unresolved upstream credit risk (0 eff /
+    // N raw) ties a never-failed funded account (0 eff / 0 raw) and the cursor
+    // can lease the dead one. Never-failed wins; the cursor still rotates
+    // among the cleanest. Never starves: this only reorders the tied set.
+    let best_raw = candidates
+        .iter()
+        .filter(|a| a.effective_failures(now) == best)
+        .map(|a| a.consecutive_failures)
+        .min()?;
     let tied: Vec<&ManagedAccount> = candidates
         .into_iter()
-        .filter(|a| a.effective_failures(now) == best)
+        .filter(|a| a.effective_failures(now) == best && a.consecutive_failures == best_raw)
         .collect();
 
     // `tied` is non-empty: `best` came from the same filtered set.
