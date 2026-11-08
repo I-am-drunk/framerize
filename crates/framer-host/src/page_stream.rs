@@ -45,8 +45,17 @@ pub const SLOT: &str = "__customPS";
 /// fails the open LOUDLY (castle-unavailable) instead of firing bare.
 pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
   try {
-    if (window.__customPS && window.__customPS.open && !window.__customPS.closed) {
-      return { ok: false, status: 0, error: "slot-busy" };
+    {
+      const prev = window.__customPS;
+      if (prev && prev.open && !prev.closed) {
+        return { ok: false, status: 0, error: "slot-busy" };
+      }
+      // A finished slot (closed by cancel, or done by a prior leg) must not
+      // be re-entered: reset it so this open owns a fresh pump/buffer.
+      // Without this, an open racing a stale done/stopped slot inherits its
+      // terminal flags and every drain reads end-of-stream (the empty-drain
+      // stall: open ok, then 2000 empty polls with deltas=1).
+      window.__customPS = null;
     }
     if (!window.castlePublishableAPIKey) {
       Object.defineProperty(window, "castlePublishableAPIKey", { value: Object.freeze("pk_xYqGbB61EcFiSh4LUshpT4DGoEQMKQMB") });
@@ -177,6 +186,7 @@ pub const CANCEL_SNIPPET: &str = r#"(async () => {
   try { slot.ctl.abort(); } catch (e) {}
   try { await slot.reader.cancel(); } catch (e) {}
   try { slot.done = true; } catch (e) {}
+  try { slot.open = false; } catch (e) {}
   return { cancelled: true, reason: "cancelled" };
 })()"#;
 
