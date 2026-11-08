@@ -2226,6 +2226,29 @@ class Host:
                             pass
             return True
         if cmd == "eval":
+            # EVAL-AFFINITY FIX (2026-11-08): the custom-route page stream
+            # keeps its pump state on window.__customPS of ONE page (open
+            # starts the pump there, drains read it back there). The pool
+            # hands out arbitrary pages, so open and drain routinely landed
+            # on different pages: open ok, then every drain read an empty
+            # slot (the 2000-empty-poll stall with deltas=1). Pin the whole
+            # custom-route stream to the account's ambient page so open,
+            # drain, cancel and credits all share one window.
+            if "window.__customPS" in req.get("expr", ""):
+                acc = await self._account(account)
+                if acc.page is None or acc.page.is_closed():
+                    raise RuntimeError("custom page unavailable (ambient page closed)")
+                # The ambient page may sit on /login while the account's
+                # editor residency matured elsewhere; the pump's fetch
+                # inherits this page's Referer/context, so keep it on the
+                # editor like every other AI call (best-effort: a failed
+                # navigation still runs the eval on this page -- affinity
+                # is what matters, residency is a bonus).
+                try:
+                    await self._ensure_editor(acc, acc.page, account)
+                except Exception:
+                    pass
+                return await acc.page.evaluate(req["expr"])
             async with self._page(account) as page:
                 return await page.evaluate(req["expr"])
         raise RuntimeError("unknown cmd %s" % cmd)
