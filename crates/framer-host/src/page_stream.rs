@@ -169,6 +169,10 @@ pub const CANCEL_SNIPPET: &str = r#"(async () => {
   const slot = window.__customPS;
   if (!slot || !slot.open) return { cancelled: false, reason: "no-stream" };
   if (slot.closed) return { cancelled: true, reason: "already-closed" };
+  // DRAIN-VISIBILITY FIX (2026-11-08): never blank the buffer. The pump
+  // publishes decoded text into slot.buf incrementally; a stale-slot
+  // pre-cancel that cleared buf/cursor would erase already-arrived text
+  // that drains had not consumed yet. close+abort+cancel only.
   slot.closed = true;
   try { slot.ctl.abort(); } catch (e) {}
   try { await slot.reader.cancel(); } catch (e) {}
@@ -325,8 +329,15 @@ impl<E: PageEval> framer_custom::PageStream for HostPageStream<E> {
             .eval
             .eval_small(&self.account, DRAIN_SNIPPET.to_string())
             .await?;
+        // DRAIN-VISIBILITY FIX (2026-11-08): a missing slot right after a
+        // successful open is a page-side reset (navigation/GC), not a
+        // transport bug: fail the LEG loudly here so the chain aborts with
+        // a named cause instead of converting one missed poll into two
+        // thousand silent Nones and a 16-minute stall mystery. (Live proof:
+        // open ok -> exactly one present=false -> "slot empty" -> the old
+        // code mapped Err to None and the rung stalled 2000 polls.)
         if v["present"].as_bool() != Some(true) {
-            return Err("page stream slot empty".into());
+            return Err("page stream slot empty right after open (page reset?)".into());
         }
         if !v["error"].as_str().unwrap_or("").is_empty() {
             return Err(format!("page stream error: {}", v["error"].as_str().unwrap_or("")));

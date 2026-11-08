@@ -195,8 +195,13 @@ impl<P: PageStream> CustomTransport for BridgeStreamTransport<P> {
         let batch = match tokio::time::timeout(DRAIN_TIMEOUT, self.page.drain(id)).await {
             Ok(Ok(b)) => b,
             Ok(Err(e)) => {
+                // DRAIN-VISIBILITY FIX (2026-11-08): a drain ERROR is a leg
+                // failure, not a silent poll. Failing here (instead of
+                // yielding None) makes a page-side reset surface as a loud
+                // named chain error within one poll instead of 2000 silent
+                // Nones and a 16-minute stall mystery.
                 eprintln!("[custom-route] live page drain error: {e}");
-                self.failed = Some(e);
+                self.failed = Some(format!("live: page drain failed: {e}"));
                 return None;
             }
             Err(_) => {
@@ -221,6 +226,15 @@ impl<P: PageStream> CustomTransport for BridgeStreamTransport<P> {
         }
         if batch.raced {
             self.terminal_seen = true;
+        }
+        // The page stopped itself at the stop (graceful abort, no terminal
+        // will ever arrive): an empty batch on a stopped stream is
+        // end-of-stream, not silence. Without this the drain loop polls a
+        // finished stream until the stall bound fires (the 600s hang: the
+        // page had stopped at 200 lines in seconds, Rust polled empties
+        // for 10 minutes and reported a stall with deltas=4).
+        if batch.aborted && batch.events.is_empty() {
+            return None;
         }
         if batch.events.is_empty() {
             // Empty batch, no terminal: the page had nothing new THIS poll.
@@ -496,6 +510,26 @@ mod tests {
             t.stream_reply(&serde_json::json!({})).await,
             Err("live page stream not wired".into())
         );
+    }
+
+    #[tokio::test]
+    async fn aborted_empty_batch_closes_stream() {
+        // Regression: the page stops itself at the stop (aborted, no
+        // terminal ever arrives). An empty aborted batch is end-of-stream;
+        // yielding None lets the rung return the captured prefix instead
+        // of polling a finished stream into the stall bound (600s hang).
+        let page = ScriptPage::new(
+            vec![
+                batch(&["hello "], false),
+                StreamBatch { events: vec![], raced: false, aborted: true },
+            ],
+            100.0,
+        );
+        let mut t = BridgeStreamTransport::new(page, Dialect::Chat);
+        t.stream_reply(&serde_json::json!({})).await.unwrap();
+        assert_eq!(t.next_event().await, Some(Event::Delta("hello ".into())));
+        assert_eq!(t.next_event().await, None);
+        assert!(t.failed.is_none(), "aborted close is clean: {:?}", t.failed);
     }
 
     #[tokio::test]
