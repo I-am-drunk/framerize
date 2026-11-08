@@ -302,34 +302,69 @@ impl<E: PageEval> framer_custom::PageStream for HostPageStream<E> {
         // cancel (timeout kill, daemon restart mid-leg) leaves the page slot
         // open and every future open fails "slot-busy" forever. Best-effort
         // cancel first; its failure is harmless (no slot or already closed).
-        let _ = self
-            .eval
-            .eval_small(&self.account, CANCEL_SNIPPET.to_string())
-            .await;
-        // Clamp into engine bounds at the boundary: a 0 stop would bake
-        // "never stop" into the page loop, u32::MAX likewise. The engine
-        // always sends clamped values; this is defense for direct callers.
+        //
+        // PAGE-PIN FIX (2026-11-08 root cause of the live drain hang): the
+        // sidecar serves evals from a POOL of pages (round-robin, not one
+        // page per account). A pre-cancel on page A followed by an open on
+        // page B leaves B's live slot "busy" (open fails), or -- worse --
+        // opens the pump on B while later drains land on A/C (present=false
+        // forever, the 2000-poll silent stall). So the WHOLE open sequence
+        // (pre-cancel, open, verify) retries across pool pages: on
+        // slot-busy, cancel-then-reopen (the busy page may be ours now);
+        // the verify drain immediately after open proves the pump is on a
+        // page drains can see. Bounded: 3 pages x (cancel+open+verify).
         let stop_after = stop_after.clamp(
             framer_custom::MIN_STOP,
             framer_custom::MAX_STOP,
         );
-        let v = self
-            .eval
-            .eval_small(&self.account, self.open_expr(payload, stop_after))
-            .await?;
-        if v["ok"].as_bool() != Some(true) {
-            let status = v["status"].as_i64().unwrap_or(-1);
-            let err = v["error"].as_str().unwrap_or("open-failed");
-            if err == "slot-busy" {
-                return Err("page stream slot busy".into());
+        let mut last_err = "page stream open failed: no attempt".to_string();
+        for _ in 0..3 {
+            // Best-effort stale cancel on this rotation's page.
+            let _ = self
+                .eval
+                .eval_small(&self.account, CANCEL_SNIPPET.to_string())
+                .await;
+            let v = self
+                .eval
+                .eval_small(&self.account, self.open_expr(payload, stop_after))
+                .await?;
+            if v["ok"].as_bool() != Some(true) {
+                let status = v["status"].as_i64().unwrap_or(-1);
+                let err = v["error"].as_str().unwrap_or("open-failed");
+                if err == "slot-busy" {
+                    last_err = "page stream slot busy".to_string();
+                    continue;
+                }
+                return Err(format!("page stream open failed: http {status}: {err}"));
             }
-            return Err(format!("page stream open failed: http {status}: {err}"));
+            // Verify the pump is drain-visible on this rotation's page
+            // before returning: a present=false here means the open landed
+            // on a different pool page than this drain sees -- retry the
+            // whole sequence on the next rotation instead of handing the
+            // rung a stream that can never yield text.
+            match self
+                .eval
+                .eval_small(&self.account, DRAIN_SNIPPET.to_string())
+                .await
+            {
+                Ok(vv) if vv["present"].as_bool() == Some(true) => {
+                    // Mint the id only on the ACCEPTED rotation, so pool
+                    // retries never skip ids (ps1 first, no gaps).
+                    self.next_id += 1;
+                    let id = format!("ps{}", self.next_id);
+                    self.stream_id = Some(id.clone());
+                    return Ok(id);
+                }
+                _ => {
+                    last_err =
+                        "page stream opened on an unreachable pool page; retrying".to_string();
+                    continue;
+                }
+            }
         }
-        self.next_id += 1;
-        let id = format!("ps{}", self.next_id);
-        self.stream_id = Some(id.clone());
-        Ok(id)
+        return Err(last_err);
     }
+
 
     async fn drain(&mut self, stream_id: &str) -> Result<framer_custom::StreamBatch, String> {
         if self.stream_id.as_deref() != Some(stream_id) {
@@ -529,6 +564,7 @@ mod tests {
         let mut s = test_stream(vec![
             serde_json::json!({"cancelled": false, "reason": "no-stream"}),
             serde_json::json!({"ok": true, "status": 200}),
+            serde_json::json!({"present": true, "text": "", "done": false, "stopped": false, "error": ""}),
             serde_json::json!({"present": true, "text": "hello ", "done": false, "error": ""}),
             serde_json::json!({"present": true, "text": "", "done": true, "error": ""}),
             serde_json::json!({"cancelled": true}),
@@ -556,18 +592,21 @@ mod tests {
         let mut s = test_stream(vec![
             serde_json::json!({"cancelled": false, "reason": "no-stream"}),
             serde_json::json!({"ok": true, "status": 200}),
+            serde_json::json!({"present": true, "text": "", "done": false, "stopped": false, "error": ""}),
         ]);
         let id = s
             .open_stream(&serde_json::json!({}), framer_custom::Dialect::Chat, 200)
             .await
             .unwrap();
         assert_eq!(id, "ps1");
-        // stale-slot recovery runs BEFORE the open fetch
+        // stale-slot recovery runs BEFORE the open fetch; the verify
+        // drain runs right after it (page-pin proof).
         let seen = s.eval.seen();
-        assert_eq!(seen.len(), 2, "{seen:?}");
+        assert_eq!(seen.len(), 3, "{seen:?}");
         assert!(seen[0].contains("slot.closed = true"), "first eval is stale cancel");
         assert!(seen[0].contains("__customPS"), "cancel targets the slot");
         assert!(seen[1].contains("stopAfter"), "second eval is the open");
+        assert!(seen[2].contains("slot.cursor"), "third eval is the verify drain");
     }
 
     #[tokio::test]
@@ -579,12 +618,13 @@ mod tests {
             let mut s = test_stream(vec![
                 serde_json::json!({"cancelled": false}),
                 serde_json::json!({"ok": true, "status": 200}),
+                serde_json::json!({"present": true, "text": "", "done": false, "stopped": false, "error": ""}),
             ]);
             s.open_stream(&serde_json::json!({}), framer_custom::Dialect::Chat, send)
                 .await
                 .unwrap();
             let seen = s.eval.seen();
-            assert_eq!(seen.len(), 2);
+            assert_eq!(seen.len(), 3);
             // %STOP% substitution carries the CLAMPED value
             assert!(
                 seen[1].contains(&format!("({baked})")) || seen[1].contains(&format!(", {baked})")),
@@ -631,6 +671,7 @@ mod tests {
         let mut s = test_stream(vec![
             serde_json::json!({"cancelled": false, "reason": "no-stream"}),
             serde_json::json!({"ok": true, "status": 200}),
+            serde_json::json!({"present": true, "text": "", "done": false, "stopped": false, "error": ""}),
             serde_json::json!({"present": true, "text": "hello \0world \0partial", "done": false, "stopped": false, "error": ""}),
             serde_json::json!({"present": true, "text": "ial\0\0tail", "done": true, "stopped": true, "stopAt": 200, "error": ""}),
         ]);
@@ -663,10 +704,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn open_retries_across_pool_pages() {
+        use framer_custom::PageStream;
+        let mut s = test_stream(vec![
+            serde_json::json!({"cancelled": false, "reason": "no-stream"}),
+            serde_json::json!({"ok": true, "status": 200}),
+            serde_json::json!({"present": false}),
+            serde_json::json!({"cancelled": false, "reason": "no-stream"}),
+            serde_json::json!({"ok": true, "status": 200}),
+            serde_json::json!({"present": true, "text": "", "done": false, "stopped": false, "error": ""}),
+        ]);
+        let id = s
+            .open_stream(&serde_json::json!({}), framer_custom::Dialect::Chat, 200)
+            .await
+            .unwrap();
+        assert_eq!(id, "ps1");
+        // Two full rotations: cancel+open+verify, then cancel+open+verify.
+        assert_eq!(s.eval.seen().len(), 6);
+    }
+
+    #[tokio::test]
     async fn busy_slot_and_unknown_id_fail_closed() {
         use framer_custom::PageStream;
         let mut s = test_stream(vec![
             serde_json::json!({"cancelled": false, "reason": "no-stream"}),
+            serde_json::json!({"ok": false, "status": 0, "error": "slot-busy"}),
+            serde_json::json!({"cancelled": true, "reason": "cancelled"}),
+            serde_json::json!({"ok": false, "status": 0, "error": "slot-busy"}),
+            serde_json::json!({"cancelled": true, "reason": "cancelled"}),
             serde_json::json!({"ok": false, "status": 0, "error": "slot-busy"}),
         ]);
         assert_eq!(
