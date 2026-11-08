@@ -282,7 +282,7 @@ const PAGE_GET_SNIPPET: &str = r#"(async () => {
 fn page_get_expr(path: &str) -> String {
     PAGE_GET_SNIPPET.replace("%API%", API_BASE).replace("%PATH%", path)
 }
-const CASTLE_CHUNK_PINNED: &str = "https://app.framerstatic.com/chunk-5LKSDTQ5.mjs";
+pub(crate) const CASTLE_CHUNK_PINNED: &str = "https://app.framerstatic.com/chunk-5LKSDTQ5.mjs";
 
 /// JS: seed __cuid (cookie + localStorage) — must run before the first mint.
 fn seed_device_snippet(device_id: &str) -> String {

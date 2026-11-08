@@ -36,11 +36,34 @@ pub const SLOT: &str = "__customPS";
 /// is never read, so the leg never bills. %STOP% = stopAfter (u32).
 /// Resolves at once with {ok,status,usage}: the pump runs detached.
 /// %PATH% = /ai/v3/... route, %BEARER% = AI JWT, %BODY% = Gq envelope JSON.
+///
+/// CASTLE (verified quadrant rule, same as AI_POST_SNIPPET): the fetch MUST
+/// carry a freshly minted in-page token (body.castleToken), minted in the
+/// SAME page that fires. An identical envelope without it gets risk-refused
+/// even with a perfect Bearer. Mint uses the cached wrapper module (first
+/// mint pays the ~5s v3 race once, later mints ~1s v2 path); a failed mint
+/// fails the open LOUDLY (castle-unavailable) instead of firing bare.
 pub const OPEN_SNIPPET: &str = r#"(async ([body, stopAfter]) => {
   try {
     if (window.__customPS && window.__customPS.open && !window.__customPS.closed) {
       return { ok: false, status: 0, error: "slot-busy" };
     }
+    if (!window.castlePublishableAPIKey) {
+      Object.defineProperty(window, "castlePublishableAPIKey", { value: Object.freeze("pk_xYqGbB61EcFiSh4LUshpT4DGoEQMKQMB") });
+    }
+    if (!window.__fzCastleM) { try { window.__fzCastleM = await import("%CHUNK%"); } catch (e) {} }
+    let tok = null;
+    if (window.__fzCastleM) {
+      for (let i = 0; i < 3 && !tok; i++) {
+        try {
+          const t = await window.__fzCastleM.a();
+          if (typeof t === "string" && t.length > 500) tok = t;
+        } catch (e) {}
+        if (!tok) await new Promise(r => setTimeout(r, 1200));
+      }
+    }
+    if (!tok) return { ok: false, status: 0, error: "castle-unavailable" };
+    body.castleToken = tok;
     const ctl = new AbortController();
     const r = await fetch("%API%%PATH%", {
       method: "POST", credentials: "include", signal: ctl.signal,
@@ -99,6 +122,7 @@ pub const OPEN_SNIPPET: &str = r#"(async ([body, stopAfter]) => {
       } catch (e) { slot.error = String(e).slice(0, 400); slot.done = true; }
     })();
     return { ok: true, status: status, usage: usage };
+  } catch (e) { return { ok: false, status: 0, error: String(e && e.message || e).slice(0, 400) }; }
 })(%BODY%, %STOP%)"#;
 
 /// JS: read the unconsumed slice + state. Never blocks: resolves at once.
@@ -184,6 +208,7 @@ impl<E: PageEval> HostPageStream<E> {
 
     fn open_expr(&self, body: &serde_json::Value, stop_after: u32) -> String {
         OPEN_SNIPPET
+            .replace("%CHUNK%", crate::CASTLE_CHUNK_PINNED)
             .replace("%API%", &self.api)
             .replace("%PATH%", &self.path)
             .replace("%BEARER%", &self.bearer)
@@ -206,7 +231,21 @@ impl<E: PageEval> framer_custom::PageStream for HostPageStream<E> {
         _dialect: framer_custom::Dialect,
         stop_after: u32,
     ) -> Result<String, String> {
-        let stop_after = stop_after.max(1);
+        // Stale-slot recovery: a previous leg that died between open and
+        // cancel (timeout kill, daemon restart mid-leg) leaves the page slot
+        // open and every future open fails "slot-busy" forever. Best-effort
+        // cancel first; its failure is harmless (no slot or already closed).
+        let _ = self
+            .eval
+            .eval_small(&self.account, CANCEL_SNIPPET.to_string())
+            .await;
+        // Clamp into engine bounds at the boundary: a 0 stop would bake
+        // "never stop" into the page loop, u32::MAX likewise. The engine
+        // always sends clamped values; this is defense for direct callers.
+        let stop_after = stop_after.clamp(
+            framer_custom::MIN_STOP,
+            framer_custom::MAX_STOP,
+        );
         let v = self
             .eval
             .eval_small(&self.account, self.open_expr(payload, stop_after))
@@ -330,6 +369,9 @@ mod tests {
     }
 
     impl ScriptEval {
+        fn seen(&self) -> Vec<String> {
+            self.seen.lock().unwrap().clone()
+        }
         fn new(replies: Vec<serde_json::Value>) -> Self {
             Self {
                 replies: StdMutex::new(replies.into()),
@@ -370,6 +412,11 @@ mod tests {
         // and credits path must all be present verbatim.
         assert!(OPEN_SNIPPET.contains("window.__customPS"));
         assert!(OPEN_SNIPPET.contains("stopAfter"));
+        // F30: the fetch MUST mint Castle in-page (quadrant rule). If this
+        // regresses, every leg 403s risk-refused on a live account.
+        assert!(OPEN_SNIPPET.contains("castleToken"));
+        assert!(OPEN_SNIPPET.contains("castlePublishableAPIKey"));
+        assert!(OPEN_SNIPPET.contains("%CHUNK%"));
         assert!(OPEN_SNIPPET.contains("if (events >= stopAfter)"));
         assert!(OPEN_SNIPPET.contains("reader.cancel()"));
         assert!(OPEN_SNIPPET.contains("getReader()"));
@@ -388,6 +435,7 @@ mod tests {
     #[test]
     fn open_expr_substitutes_cleanly() {
         let expr = OPEN_SNIPPET
+            .replace("%CHUNK%", "https://app.framerstatic.com/chunk-TEST.mjs")
             .replace("%API%", "https://api.framer.com")
             .replace("%PATH%", "/ai/v3/chat/")
             .replace("%BEARER%", "tok")
@@ -406,6 +454,7 @@ mod tests {
     async fn open_drain_cancel_credits_roundtrip() {
         use framer_custom::PageStream;
         let mut s = test_stream(vec![
+            serde_json::json!({"cancelled": false, "reason": "no-stream"}),
             serde_json::json!({"ok": true, "status": 200}),
             serde_json::json!({"present": true, "text": "hello ", "done": false, "error": ""}),
             serde_json::json!({"present": true, "text": "", "done": true, "error": ""}),
@@ -429,9 +478,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn open_precancels_stale_slot() {
+        use framer_custom::PageStream;
+        let mut s = test_stream(vec![
+            serde_json::json!({"cancelled": false, "reason": "no-stream"}),
+            serde_json::json!({"ok": true, "status": 200}),
+        ]);
+        let id = s
+            .open_stream(&serde_json::json!({}), framer_custom::Dialect::Chat, 200)
+            .await
+            .unwrap();
+        assert_eq!(id, "ps1");
+        // stale-slot recovery runs BEFORE the open fetch
+        let seen = s.eval.seen();
+        assert_eq!(seen.len(), 2, "{seen:?}");
+        assert!(seen[0].contains("slot.closed = true"), "first eval is stale cancel");
+        assert!(seen[0].contains("__customPS"), "cancel targets the slot");
+        assert!(seen[1].contains("stopAfter"), "second eval is the open");
+    }
+
+    #[tokio::test]
+    async fn open_clamps_stop_into_engine_bounds() {
+        use framer_custom::PageStream;
+        // 0 clamps to MIN_STOP=40 (engine clamped_stop, not DEFAULT_STOP);
+        // u32::MAX clamps to MAX_STOP=10000.
+        for (send, baked) in [(0u32, "40"), (u32::MAX, "10000"), (40u32, "40")] {
+            let mut s = test_stream(vec![
+                serde_json::json!({"cancelled": false}),
+                serde_json::json!({"ok": true, "status": 200}),
+            ]);
+            s.open_stream(&serde_json::json!({}), framer_custom::Dialect::Chat, send)
+                .await
+                .unwrap();
+            let seen = s.eval.seen();
+            assert_eq!(seen.len(), 2);
+            // %STOP% substitution carries the CLAMPED value
+            assert!(
+                seen[1].contains(&format!("({baked})")) || seen[1].contains(&format!(", {baked})")),
+                "stop {send} should bake {baked}: {}",
+                &seen[1][seen[1].len().saturating_sub(120)..]
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn busy_slot_and_unknown_id_fail_closed() {
         use framer_custom::PageStream;
         let mut s = test_stream(vec![
+            serde_json::json!({"cancelled": false, "reason": "no-stream"}),
             serde_json::json!({"ok": false, "status": 0, "error": "slot-busy"}),
         ]);
         assert_eq!(

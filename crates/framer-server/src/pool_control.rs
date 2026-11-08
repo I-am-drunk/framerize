@@ -19,21 +19,44 @@ async fn confirm_resident_status(browser: &dyn BrowserBridge, lease: ResidentLea
     }
     let observation = tokio::time::timeout(Duration::from_secs(5),
         browser.browser_status(&lease.account())).await;
-    let usable = match observation {
+    // Transient launch states must NOT poison the slot: a browser that is
+    // still starting will be resident moments later, and marking the lease
+    // unconfirmed flips the slot Uncertain (sticky -- only a proved close
+    // clears it), failing every later acquire forever. Only terminal states
+    // (closing/unconfirmed) fence the slot; starting/absent/timeout/error
+    // fail loud WITHOUT poisoning (the lease drops, the slot stays usable).
+    match observation {
         Ok(Ok(status)) => {
             let identity_valid = match status.host_generation.as_deref() {
                 Some(generation) => !generation.is_empty()
                     && (status.account_incarnation > 0 || status.state == State::Absent),
                 None => status.account_incarnation == 0 && status.state == State::Absent,
             };
-            status.account_id == lease.account() && identity_valid
-                && !matches!(status.state, State::Closing | State::Unconfirmed)
-        },
-        _ => false,
-    };
-    if !usable {
-        lease.mark_unconfirmed().map_err(busy)?;
-        return Err(busy("account browser status is unconfirmed; its occupied slot is retained"));
+            let identity_ok = status.account_id == lease.account() && identity_valid;
+            // Fence ONLY on positive-negative evidence: a terminal state, or
+            // an ANSWERED check naming the wrong identity (genuine confusion).
+            // Transient states (starting) and answered-absent (launch race)
+            // fail loud WITHOUT fencing: mark_unconfirmed flips the slot
+            // Uncertain (sticky -- only a proved close clears it), so fencing
+            // on "no information yet" would wedge the slot forever.
+            if (identity_ok
+                && matches!(status.state, State::Closing | State::Unconfirmed))
+                || !identity_ok
+            {
+                lease.mark_unconfirmed().map_err(busy)?;
+                return Err(busy("account browser status is unconfirmed; its occupied slot is retained"));
+            }
+            if !matches!(status.state, State::Resident | State::Absent) {
+                return Err(busy(
+                    "account browser is starting or its status is not yet usable; retry shortly",
+                ));
+            }
+        }
+        _ => {
+            return Err(busy(
+                "account browser status check timed out or failed; retry shortly",
+            ));
+        }
     }
     lease.ensure_admissible().map_err(busy)?;
     Ok(lease)

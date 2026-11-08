@@ -285,6 +285,12 @@ pub fn validate_public_url(url: &str) -> Result<(), GateError> {
     if auth.contains('@') {
         return Err(GateError::UserInfo);
     }
+    // Backslash in authority: WHATWG URL parsers treat \ as / (so
+    // "http://a\\b" routes to host b), but a naive split_host keeps it in
+    // auth and the classifier sees a junk single label. Fail closed.
+    if auth.contains('\\') {
+        return Err(GateError::UnsupportedScheme);
+    }
     // Bracketed v6 (+ optional zone/port). Unclosed bracket, stray `]`, or
     // trailing garbage fails closed.
     let bare: &str = if let Some(rest) = auth.strip_prefix('[') {
@@ -444,6 +450,8 @@ mod tests {
             "http://",
             "https://exa mple.com/",
             "https://example.com/\nHeader: x",
+            "http://a\\b/",
+            "http://a\\@b/",
             "http://010.0.0.1/",
             "http://example.com:99999/",
             "http://example.com:0x50/",

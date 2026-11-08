@@ -69,6 +69,10 @@ struct CompleteBody {
     prompt: String,
     #[serde(default)]
     model: String,
+    /// Max accepted legs for this request (default 8). The live ledger run
+    /// caps it at 1 for a minimal single-leg proof.
+    #[serde(default)]
+    max_legs: Option<u32>,
 }
 
 fn mock_script() -> Vec<framer_custom::Event> {
@@ -165,6 +169,18 @@ impl framer_custom::PageStream for EnvelopePageStream {
                     .client
                     .custom_bearer_fresh(&self.deps.session, &self.deps.account)
                     .await?;
+                // If the 401 was a dead cookie rather than a dead JWT, the
+                // fresh bearer alone would 401 again: re-seed the jar before
+                // retrying (same call attempt() makes before every ai_post).
+                // Best-effort: a seed failure surfaces with the retry error.
+                let seed_err = self
+                    .browser
+                    .seed_session(&self.deps.account, &self.deps.session.cookie_header)
+                    .await
+                    .err();
+                if let Some(se) = seed_err {
+                    return Err(format!("custom 401 retry: re-seed failed ({se}); bearer refreshed"));
+                }
                 self.deps.bearer = fresh.clone();
                 self.inner = framer_host::page_stream::HostPageStream::new(
                     Arc::new(BridgePageEval {
@@ -231,13 +247,27 @@ async fn mock_complete(body: &CompleteBody) -> Response {
                 .into_response();
         }
     };
-    sse_response(&assembled)
+    sse_response(&assembled, "mock")
 }
 
-fn sse_response(assembled: &framer_custom::Assembled) -> Response {
+fn sse_response(assembled: &framer_custom::Assembled, req_id: &str) -> Response {
+    // Frame contract: text+legs are the stable fields every client reads.
+    // outcome/total_debit/legs-detail/req_id are additive diagnostics so a
+    // billed, short, or raced run is diagnosable from the response alone
+    // (mirrors the [custom-route] daemon log lines, same req_id).
     let event = format!(
         "data: {}\n\n",
-        serde_json::json!({"text": assembled.text, "legs": assembled.legs.len()})
+        serde_json::json!({
+            "text": assembled.text,
+            "legs": assembled.legs.len(),
+            "outcome": format!("{:?}", assembled.outcome),
+            "total_debit": assembled.total_debit,
+            "legs_detail": assembled.legs.iter().map(|l| serde_json::json!({
+                "raced": l.raced, "debited": l.debited,
+                "stop_used": l.stop_used, "debit": l.debit, "events": l.events,
+            })).collect::<Vec<_>>(),
+            "req_id": req_id,
+        })
     );
     ([("content-type", "text/event-stream")], event).into_response()
 }
@@ -249,6 +279,8 @@ async fn custom_real(
     headers: &HeaderMap,
     body: &CompleteBody,
 ) -> Result<Response, ApiError> {
+    let req_id = uuid::Uuid::new_v4().to_string();
+    let req_short = req_id[..8].to_string();
     if let Some(remaining) = s.wave.check() {
         return Err(ApiError::Cooling {
             retry_after_secs: remaining.as_secs().saturating_add(1),
@@ -280,7 +312,18 @@ async fn custom_real(
     };
     let gate_model = framer_core::convert::to_openrouter_id(&model);
     let gate_key = format!("{}:{gate_model}", scope_team.0);
-    let _permit = s.gate.acquire(&gate_key).await;
+    // Bounded gate wait: native streams keepalives while queued, but custom
+    // answers one buffered SSE frame -- an unbounded wait would be a silent
+    // socket. 60s then a loud 503 (client retries; nothing spent, no leg
+    // opened, lease still held and released on return).
+    let _permit = tokio::time::timeout(std::time::Duration::from_secs(60), s.gate.acquire(&gate_key))
+        .await
+        .map_err(|_| {
+            eprintln!("[custom-route] req={req_short} gate wait timed out (key={gate_key})");
+            ApiError::ServingCapacity(
+                "custom route concurrency gate is saturated; retry shortly".into(),
+            )
+        })?;
     current_account(&s, account.id).await?;
 
     // AI bearer JWT: the same per-account cached mint forward() uses.
@@ -318,9 +361,18 @@ async fn custom_real(
         team.clone(),
         DIALECT.path().to_string(),
     );
+    let mut settings = framer_custom::ChainSettings::default();
+    if let Some(max_legs) = body.max_legs {
+        // Clamp at the route: an unbounded client value would tie one
+        // account lease + gate permit for up to CHAIN_TIMEOUT (1h). The
+        // engine hard-caps at 64; the route caps at the default 8 (a larger
+        // run is a deliberate code change, not a request field).
+        settings.max_legs = max_legs.min(8);
+    }
     // Engine composition: BridgeStreamTransport (drain timeouts, stall
     // bounds, paced polls, stop plumbing) over the envelope-wrapping page
     // (model/stream injection + Gq envelope + 401 bearer refresh).
+    let model_log = model.clone();
     let mut transport = framer_custom::BridgeStreamTransport::new(
         EnvelopePageStream {
             inner: page,
@@ -332,14 +384,24 @@ async fn custom_real(
         },
         framer_custom::Dialect::Chat,
     );
-    let settings = framer_custom::ChainSettings::default();
     let result = framer_custom::complete(&mut transport, &body.prompt, &settings).await;
     let result = residency.observe_result(account.id, result);
     record_account_health(&s, &account, &result).await;
     match result {
         Ok(assembled) => {
             s.gate.on_success(&gate_key).await;
-            let mut resp = sse_response(&assembled);
+            eprintln!(
+                "[custom-route] req={} account={} model={} legs={} chars={} total_debit={:+.6} outcome={:?} session={}",
+                req_short,
+                &account.id.0.to_string()[..8.min(account.id.0.to_string().len())],
+                model_log.clone(),
+                assembled.legs.len(),
+                assembled.text.len(),
+                assembled.total_debit,
+                assembled.outcome,
+                chat_session,
+            );
+            let mut resp = sse_response(&assembled, &req_id);
             resp.headers_mut().insert(
                 "x-framerize-session",
                 chat_session
@@ -349,6 +411,11 @@ async fn custom_real(
             Ok(resp)
         }
         Err(e) => {
+            eprintln!("[custom-route] req={} account={} model={} FAILED: {}",
+                req_short,
+                &account.id.0.to_string()[..8.min(account.id.0.to_string().len())],
+                model_log,
+                e.chars().take(300).collect::<String>());
             if e.contains("retryable 429") {
                 s.gate.on_overloaded(&gate_key).await;
                 if let Some(team) = account.current_team.as_ref() {
@@ -597,11 +664,22 @@ mod tests {
             serde_json::json!({"present": true, "text": "tail ", "done": true, "stopped": false, "error": ""}),
             serde_json::json!({"status": 200, "available": 100.0}),
         ];
+        // NOTE: open() now pre-cancels the slot (stale-slot recovery), so
+        // the script leads each OPEN with one CANCEL reply.
+        let script = {
+            let mut s = script;
+            // open() pre-cancels the slot (stale-slot recovery): insert one
+            // CANCEL reply right after each before-credits read (script
+            // positions 1 and 8: credits, pre-cancel, open, ...).
+            s.insert(1, serde_json::json!({"cancelled": false, "reason": "no-stream"}));
+            s.insert(9, serde_json::json!({"cancelled": false, "reason": "no-stream"}));
+            s
+        };
         let (state, ports) = test_state_with(script);
         let resp = custom_complete_handler(
             State(state.clone()),
             HeaderMap::new(),
-            Json(CompleteBody { prompt: "explain X".into(), model: "".into() }),
+            Json(CompleteBody { prompt: "explain X".into(), model: "".into(), max_legs: None }),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::OK);
@@ -637,7 +715,7 @@ mod tests {
         let resp = custom_complete_handler(
             State(state),
             HeaderMap::new(),
-            Json(CompleteBody { prompt: "  ".into(), model: "".into() }),
+            Json(CompleteBody { prompt: "  ".into(), model: "".into(), max_legs: None }),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
@@ -657,7 +735,7 @@ mod tests {
         let resp = custom_complete_handler(
             State(state),
             headers,
-            Json(CompleteBody { prompt: "explain X".into(), model: "".into() }),
+            Json(CompleteBody { prompt: "explain X".into(), model: "".into(), max_legs: None }),
         )
         .await;
         // Unknown account pin: no eligible account, no page touched.

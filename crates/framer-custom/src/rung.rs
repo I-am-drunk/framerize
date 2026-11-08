@@ -53,8 +53,17 @@ pub struct RungResult {
 
 /// Cancel with a timeout: the trait contract says fire-and-forget, and this
 /// is the enforcement -- a stuck host cancel cannot wedge the leg.
-async fn cancel_bounded<T: CustomTransport>(transport: &mut T) {
-    let _ = tokio::time::timeout(CANCEL_TIMEOUT, transport.cancel()).await;
+async fn cancel_bounded<T: CustomTransport>(transport: &mut T, stop_steps: u32, deltas: u32) {
+    if tokio::time::timeout(CANCEL_TIMEOUT, transport.cancel())
+        .await
+        .is_err()
+    {
+        // Fire-and-forget by contract, but a stuck cancel is a host-impl
+        // smell: log it with the leg position so daemon logs show it.
+        eprintln!(
+            "[custom-route] rung cancel timed out after 15s (stop={stop_steps} deltas={deltas})"
+        );
+    }
 }
 
 /// Stream one leg: accumulate Delta text; after exactly stop_steps deltas
@@ -111,7 +120,7 @@ async fn run_inner<T: CustomTransport>(
         match transport.next_event().await {
             Some(Event::Delta(text)) => {
                 silent = 0;
-                events += 1;
+                events = events.saturating_add(1);
                 if captured.len() + text.len() > MAX_CAPTURE {
                     return Err(format!(
                         "rung: leg capture exceeded {MAX_CAPTURE} bytes before stop {stop_steps} (deltas={deltas}): runaway stream or misconfigured stop"
@@ -120,12 +129,12 @@ async fn run_inner<T: CustomTransport>(
                 captured.push_str(&text);
                 deltas += 1;
                 if deltas >= stop_steps {
-                    cancel_bounded(transport).await;
+                    cancel_bounded(transport, stop_steps, deltas).await;
                     return Ok(RungResult { captured, raced: false, events });
                 }
             }
             Some(Event::Done) => {
-                events += 1;
+                events = events.saturating_add(1);
                 return Ok(RungResult { captured, raced: true, events });
             }
             None => {

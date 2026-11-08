@@ -395,6 +395,13 @@ impl BrowserBridge for SidecarBridge {
         Ok((cookie, v["me"].clone()))
     }
 
+    async fn eval_small(&self, account: &AccountId, expr: &str) -> Result<Value, String> {
+        // One small page eval through the sidecar's existing "eval" command
+        // (page.evaluate, resolves at once). Same Mutual-exclusion story as
+        // CdpBridge::eval_small: callers never hold anything across polls.
+        self.call_account(account, "eval", json!({ "expr": expr })).await
+    }
+
     async fn seed_session(&self, account: &AccountId, cookie_header: &str) -> Result<(), String> {
         let Some((name, value)) = cookie_header.split_once('=') else {
             return Err(format!("bad cookie header: {cookie_header:?}"));

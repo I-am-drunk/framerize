@@ -58,6 +58,26 @@ pub struct ChainSettings {
     pub oracle_timeout: std::time::Duration,
 }
 
+/// Hard bounds applied by normalize().
+pub const MAX_RETRIES_HARD: u32 = 10;
+/// Anchor widths above this are pure overhead (production uses 350).
+pub const MAX_ANCHOR_CHARS: usize = 4096;
+
+impl ChainSettings {
+    /// Clamp every knob into its hard bound. Idempotent; call at every
+    /// trust boundary (server handler, tests, future callers).
+    pub fn normalize(&self) -> ChainSettings {
+        ChainSettings {
+            stop: stop::clamped_stop(self.stop),
+            max_legs: self.max_legs.min(MAX_LEGS_HARD),
+            quarantine_retries: self.quarantine_retries.min(MAX_RETRIES_HARD),
+            anchor_chars: self.anchor_chars.min(MAX_ANCHOR_CHARS),
+            chain_timeout: self.chain_timeout,
+            oracle_timeout: self.oracle_timeout,
+        }
+    }
+}
+
 impl Default for ChainSettings {
     fn default() -> Self {
         Self {
@@ -214,13 +234,14 @@ pub async fn complete<T: CustomTransport>(
     leg1_prompt: &str,
     chain: &ChainSettings,
 ) -> Result<Assembled, String> {
-    tokio::time::timeout(chain.chain_timeout, complete_inner(transport, leg1_prompt, chain))
+    let cfg = chain.normalize();
+    tokio::time::timeout(cfg.chain_timeout, complete_inner(transport, leg1_prompt, &cfg))
         .await
         .map_err(|_| {
             format!(
                 "chain: whole-chain budget of {}s exhausted (max_legs={})",
-                chain.chain_timeout.as_secs(),
-                chain.max_legs.min(MAX_LEGS_HARD)
+                cfg.chain_timeout.as_secs(),
+                cfg.max_legs
             )
         })?
 }
@@ -230,17 +251,20 @@ async fn complete_inner<T: CustomTransport>(
     leg1_prompt: &str,
     chain: &ChainSettings,
 ) -> Result<Assembled, String> {
-    // Normalize settings up front so absurd inputs degrade to sane bounds,
-    // never to runaway loops or unbounded allocations.
+    // Settings arrive normalized (complete() normalizes at the boundary);
+    // re-derive locals defensively so a direct complete_inner caller cannot
+    // run away either.
     let max_legs = chain.max_legs.min(MAX_LEGS_HARD);
-    let retry_budget = chain.quarantine_retries.min(10);
+    let retry_budget = chain.quarantine_retries.min(MAX_RETRIES_HARD);
+    let anchor_chars = chain.anchor_chars.min(MAX_ANCHOR_CHARS);
+    let cfg = chain;
     let mut legs: Vec<Leg> = Vec::new();
     let mut kept: Vec<String> = Vec::new();
     let mut accumulated = String::new();
     let mut total_debit = 0.0f64;
     // Chain-level stop: restored to default after every Accept so one
     // recovered race (halved stop) cannot permanently shrink later legs.
-    let base_stop = stop::clamped_stop(chain.stop);
+    let base_stop = cfg.stop;
     let mut stop = base_stop;
     let mut retries_this_leg: u32 = 0;
     let mut leg_debit = 0.0f64;
@@ -251,14 +275,14 @@ async fn complete_inner<T: CustomTransport>(
         let payload = if leg_index == 0 {
             leg1_payload(leg1_prompt)?
         } else {
-            continue_payload(&accumulated, chain.anchor_chars)
+            continue_payload(&accumulated, anchor_chars)
         };
 
-        let before = read_oracle(transport, chain.oracle_timeout, "before", leg_index).await?;
+        let before = read_oracle(transport, cfg.oracle_timeout, "before", leg_index).await?;
         let rung_out = rung::run_rung(transport, &payload, stop).await.map_err(|e| {
             format!("chain: leg {} failed ({e}); chain aborted, {} legs kept", leg_index + 1, legs.len())
         })?;
-        let after = read_oracle(transport, chain.oracle_timeout, "after", leg_index).await?;
+        let after = read_oracle(transport, cfg.oracle_timeout, "after", leg_index).await?;
         let delta = ledger::signed_delta(before, after);
         let debited = !ledger::is_settled(before, after);
         leg_debit += delta;
@@ -625,6 +649,28 @@ mod tests {
         let out = complete(&mut t, "probe", &settings).await.unwrap();
         assert_eq!(out.legs.len(), 64);
         assert_eq!(out.outcome, ChainOutcome::LegCap);
+    }
+
+    #[test]
+    fn normalize_clamps_all_knobs() {
+        let s = ChainSettings {
+            stop: u32::MAX,
+            max_legs: u32::MAX,
+            quarantine_retries: u32::MAX,
+            anchor_chars: usize::MAX,
+            ..ChainSettings::default()
+        }
+        .normalize();
+        assert_eq!(s.stop, stop::MAX_STOP);
+        assert_eq!(s.max_legs, MAX_LEGS_HARD);
+        assert_eq!(s.quarantine_retries, MAX_RETRIES_HARD);
+        assert_eq!(s.anchor_chars, MAX_ANCHOR_CHARS);
+        // idempotent
+        assert_eq!(s.normalize().max_legs, MAX_LEGS_HARD);
+        // defaults survive
+        let d = ChainSettings::default().normalize();
+        assert_eq!(d.stop, stop::DEFAULT_STOP);
+        assert_eq!(d.max_legs, 8);
     }
 
     #[test]

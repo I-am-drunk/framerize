@@ -537,7 +537,10 @@ async fn status_timeout_keeps_occupied_slot_without_closing_the_browser() {
     ports.hold_status.store(true, Ordering::SeqCst);
     assert!(matches!(lease_account(&state, id(1)).await, Err(ApiError::PoolBusy(_))));
     assert_eq!(ports.status_captured.load(Ordering::SeqCst), 1);
-    assert!(slot(&state, id(1)).uncertain);
+    // A timeout is NO information (not negative evidence): the slot must NOT
+    // be fenced Uncertain (sticky -- only a proved close clears it), or one
+    // slow status check would wedge the slot forever. Occupancy retained.
+    assert!(!slot(&state, id(1)).uncertain);
     assert_eq!(slot(&state, id(1)).users, 0);
     assert_eq!(state.serving_accounts.residents.snapshot().unwrap().occupied, 1);
     assert_eq!(ports.live.lock().unwrap().len(), 1);
