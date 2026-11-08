@@ -43,7 +43,7 @@ pub const SLOT: &str = "__customPS";
 /// even with a perfect Bearer. Mint uses the cached wrapper module (first
 /// mint pays the ~5s v3 race once, later mints ~1s v2 path); a failed mint
 /// fails the open LOUDLY (castle-unavailable) instead of firing bare.
-pub const OPEN_SNIPPET: &str = r#"(async ([body, stopAfter]) => {
+pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
   try {
     if (window.__customPS && window.__customPS.open && !window.__customPS.closed) {
       return { ok: false, status: 0, error: "slot-busy" };
