@@ -37,6 +37,11 @@ impl ScriptedTransport {
     pub fn cancel_pos(&self) -> Option<usize> {
         self.cancel_pos
     }
+
+    /// Scripted transports are never live: trailing None ends the script.
+    pub fn is_live(&self) -> bool {
+        false
+    }
 }
 
 #[async_trait::async_trait]

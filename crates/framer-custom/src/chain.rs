@@ -8,6 +8,11 @@
 //!
 //! Pure and mock-testable: the only upstream contact is CustomTransport.
 //!
+//! MEMORY: one copy of the text lives in `kept` (per-leg owned growth);
+//! `accumulated` is a SECOND copy used only for anchor slicing + final
+//! length logging. At 8 legs x ~1.2KB this is ~20KB total -- accepted and
+//! documented, not worth rental-lifetime surgery.
+//!
 //! Sequential-accounting assumption: legs run one at a time and nothing else
 //! spends between the before/after reads, so summing per-leg deltas equals
 //! the end-to-end balance move. If the daemon ever parallelizes legs, switch
@@ -19,6 +24,19 @@ use crate::rung;
 use crate::stop;
 use crate::transport::CustomTransport;
 
+/// Whole-chain wall-clock budget. Caps the worst case (max_legs x
+/// LEG_TIMEOUT) so a pathological settings combo cannot wedge a worker.
+/// 8 legs x 600s = 4800s worst case; the chain bound fires first at 3600s
+/// with a typed error -- tune together with max_legs.
+pub const CHAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3600);
+/// Cap on accepted legs: bounds `legs`/`kept`/`accumulated` memory no matter
+/// what settings arrive. A chain that needs more than 64 legs is a runaway,
+/// not a document.
+pub const MAX_LEGS_HARD: u32 = 64;
+/// Cap on prompt bytes per leg: a hostile or garbage topic must not build a
+/// megabyte payload. 64KB holds any real topic + template + anchor.
+pub const MAX_PROMPT_CHARS: usize = 64_000;
+
 /// Knobs for [`complete`]. Defaults mirror the proven driver: stop depth
 /// 200, at most 8 legs, 2 halved retries per leg, a 350-char tail anchor.
 #[derive(Debug, Clone)]
@@ -26,13 +44,18 @@ pub struct ChainSettings {
     /// Abort depth per leg (clamped into [MIN_STOP, MAX_STOP] at run time).
     pub stop: u32,
     /// Leg cap: 0 means "no legs" (empty chain), otherwise the max ACCEPTED
-    /// legs; retries do not consume this budget.
+    /// legs; retries do not consume this budget. Hard-capped at MAX_LEGS_HARD.
     pub max_legs: u32,
-    /// Halved-stop retries per leg before quarantine.
+    /// Halved-stop retries per leg before quarantine. Hard-capped at 10:
+    /// halving bottoms at MIN_STOP after ~3, the rest would be identical legs.
     pub quarantine_retries: u32,
     /// Tail-anchor width in chars. 0 = anchorless continuations (degenerate;
     /// allowed for tests, never for production).
     pub anchor_chars: usize,
+    /// Whole-chain wall-clock budget (default CHAIN_TIMEOUT). Tests shrink it.
+    pub chain_timeout: std::time::Duration,
+    /// Per-oracle-read budget (default ORACLE_TIMEOUT). Tests shrink it.
+    pub oracle_timeout: std::time::Duration,
 }
 
 impl Default for ChainSettings {
@@ -42,6 +65,8 @@ impl Default for ChainSettings {
             max_legs: 8,
             quarantine_retries: 2,
             anchor_chars: 350,
+            chain_timeout: CHAIN_TIMEOUT,
+            oracle_timeout: rung::ORACLE_TIMEOUT,
         }
     }
 }
@@ -109,12 +134,20 @@ pub fn last_anchor_chars(n: usize, text: &str) -> &str {
 
 /// Leg-1 payload: length guarantee FIRST, topic second (instruction-first:
 /// models obey a leading directive more reliably than a trailing one).
-fn leg1_payload(prompt: &str) -> serde_json::Value {
-    serde_json::json!({
+/// Topics over MAX_PROMPT_CHARS are rejected, not truncated (a cut topic
+/// changes the question silently).
+fn leg1_payload(prompt: &str) -> Result<serde_json::Value, String> {
+    if prompt.len() > MAX_PROMPT_CHARS {
+        return Err(format!(
+            "chain: leg-1 topic is {} bytes, over the {MAX_PROMPT_CHARS}-byte cap",
+            prompt.len()
+        ));
+    }
+    Ok(serde_json::json!({
         "messages": [
             {"role": "user", "content": format!("{}\n\n{}", stop::length_guarantee_suffix(1800, 14), prompt)}
         ]
-    })
+    }))
 }
 
 /// Continuation payload: directive, then the tail anchor, then an empty
@@ -144,6 +177,20 @@ fn leg_line(tag: &str, leg_index: u32, stop: u32, r: &rung::RungResult, before: 
     )
 }
 
+/// Timed oracle read: a hung credits endpoint fails the leg, never the chain.
+async fn read_oracle<T: CustomTransport>(
+    transport: &T,
+    budget: std::time::Duration,
+    which: &str,
+    leg_index: u32,
+) -> Result<f64, String> {
+    tokio::time::timeout(budget, transport.read_credits())
+        .await
+        .map_err(|_| {
+            format!("chain: {which} oracle read timed out on leg {} (hung credits endpoint)", leg_index + 1)
+        })?
+}
+
 /// Run the full chain: stream legs until near-zero growth or `max_legs`.
 ///
 /// Per leg: snapshot credits, run the rung at the current stop, snapshot
@@ -154,6 +201,11 @@ fn leg_line(tag: &str, leg_index: u32, stop: u32, r: &rung::RungResult, before: 
 /// append their trimmed growth; near-zero growth ends the chain (Capped).
 /// `total_debit` sums the recorded legs' ledger deltas.
 ///
+/// TIMEOUTS: the whole chain runs under chain_timeout; each oracle read
+/// under oracle_timeout; each leg under rung LEG_TIMEOUT. Any rung/transport
+/// error aborts the chain with Err (partial legs are NOT returned half-cut:
+/// inspect the error, which names the leg and the cause).
+///
 /// DIAGNOSTICS: every leg attempt emits one `[custom-route]` eprintln line
 /// (leg, stop, events, captured bytes, raced, credit before/after/delta) so
 /// a billed, short, or raced leg is diagnosable from daemon logs alone.
@@ -162,6 +214,26 @@ pub async fn complete<T: CustomTransport>(
     leg1_prompt: &str,
     chain: &ChainSettings,
 ) -> Result<Assembled, String> {
+    tokio::time::timeout(chain.chain_timeout, complete_inner(transport, leg1_prompt, chain))
+        .await
+        .map_err(|_| {
+            format!(
+                "chain: whole-chain budget of {}s exhausted (max_legs={})",
+                chain.chain_timeout.as_secs(),
+                chain.max_legs.min(MAX_LEGS_HARD)
+            )
+        })?
+}
+
+async fn complete_inner<T: CustomTransport>(
+    transport: &mut T,
+    leg1_prompt: &str,
+    chain: &ChainSettings,
+) -> Result<Assembled, String> {
+    // Normalize settings up front so absurd inputs degrade to sane bounds,
+    // never to runaway loops or unbounded allocations.
+    let max_legs = chain.max_legs.min(MAX_LEGS_HARD);
+    let retry_budget = chain.quarantine_retries.min(10);
     let mut legs: Vec<Leg> = Vec::new();
     let mut kept: Vec<String> = Vec::new();
     let mut accumulated = String::new();
@@ -175,16 +247,18 @@ pub async fn complete<T: CustomTransport>(
     let mut outcome = ChainOutcome::Capped;
 
     let mut leg_index: u32 = 0;
-    while leg_index < chain.max_legs {
+    while leg_index < max_legs {
         let payload = if leg_index == 0 {
-            leg1_payload(leg1_prompt)
+            leg1_payload(leg1_prompt)?
         } else {
             continue_payload(&accumulated, chain.anchor_chars)
         };
 
-        let before = transport.read_credits().await?;
-        let rung_out = rung::run_rung(transport, &payload, stop).await?;
-        let after = transport.read_credits().await?;
+        let before = read_oracle(transport, chain.oracle_timeout, "before", leg_index).await?;
+        let rung_out = rung::run_rung(transport, &payload, stop).await.map_err(|e| {
+            format!("chain: leg {} failed ({e}); chain aborted, {} legs kept", leg_index + 1, legs.len())
+        })?;
+        let after = read_oracle(transport, chain.oracle_timeout, "after", leg_index).await?;
         let delta = ledger::signed_delta(before, after);
         let debited = !ledger::is_settled(before, after);
         leg_debit += delta;
@@ -192,7 +266,7 @@ pub async fn complete<T: CustomTransport>(
 
         match ledger::after_leg(rung_out.raced, debited) {
             ledger::Policy::RetryHalved | ledger::Policy::QuarantineAndReport
-                if retries_this_leg >= chain.quarantine_retries =>
+                if retries_this_leg >= retry_budget =>
             {
                 total_debit += leg_debit;
                 eprintln!(
@@ -285,7 +359,7 @@ pub async fn complete<T: CustomTransport>(
         }
     }
 
-    if leg_index >= chain.max_legs && outcome == ChainOutcome::Capped && !legs.is_empty() {
+    if leg_index >= max_legs && outcome == ChainOutcome::Capped && !legs.is_empty() {
         // Ran out of legs while still growing: only Capped-worthy if the
         // last leg was the near-zero finisher; otherwise the cap cut us off.
         let last_empty = legs.last().map(|l| l.text.is_empty()).unwrap_or(false);
@@ -293,7 +367,7 @@ pub async fn complete<T: CustomTransport>(
             outcome = ChainOutcome::LegCap;
             eprintln!(
                 "[custom-route] leg cap reached (max_legs={}): growth still arriving",
-                chain.max_legs
+                max_legs
             );
         }
     }
@@ -388,10 +462,34 @@ mod tests {
         }
     }
 
+    /// Oracle that hangs: proves the oracle timeout fires.
+    struct HungOracle;
+    #[async_trait]
+    impl CustomTransport for HungOracle {
+        async fn stream_reply(&mut self, _: &serde_json::Value) -> Result<(), String> {
+            Ok(())
+        }
+        async fn next_event(&mut self) -> Option<Event> {
+            Some(Event::Done)
+        }
+        async fn cancel(&mut self) {}
+        async fn read_credits(&self) -> Result<f64, String> {
+            std::future::pending().await
+        }
+    }
+
     fn numbered(from: usize, n: usize) -> Vec<Event> {
         (from..from + n)
             .map(|i| Event::Delta(format!("word{i} ")))
             .collect()
+    }
+
+    fn fast_settings() -> ChainSettings {
+        ChainSettings {
+            oracle_timeout: std::time::Duration::from_millis(200),
+            chain_timeout: std::time::Duration::from_secs(30),
+            ..ChainSettings::default()
+        }
     }
 
     #[tokio::test]
@@ -411,8 +509,7 @@ mod tests {
             vec![(leg1, 100.0), (leg2a, 99.5), (leg2b, 99.5), (leg3, 99.5)],
             100.0,
         );
-        let settings = ChainSettings::default();
-        let out = complete(&mut t, "explain ships", &settings).await.unwrap();
+        let out = complete(&mut t, "explain ships", &fast_settings()).await.unwrap();
 
         assert_eq!(out.legs.len(), 3);
         // The failed leg-2a attempt settled -0.5 before the halved retry
@@ -456,7 +553,7 @@ mod tests {
             vec![(l1a, 49.5), (l1b, 49.5), (l2, 49.5), (fin, 49.5)],
             50.0,
         );
-        let out = complete(&mut t, "probe", &ChainSettings::default()).await.unwrap();
+        let out = complete(&mut t, "probe", &fast_settings()).await.unwrap();
         assert_eq!(out.legs[0].stop_used, 100);
         assert_eq!(out.legs[1].stop_used, 200);
     }
@@ -474,7 +571,7 @@ mod tests {
             vec![(mk(), 49.0), (mk(), 48.0), (mk(), 47.0)],
             50.0,
         );
-        let out = complete(&mut t, "probe", &ChainSettings::default()).await.unwrap();
+        let out = complete(&mut t, "probe", &fast_settings()).await.unwrap();
         assert_eq!(out.legs.len(), 1);
         assert!(out.legs[0].debited && out.legs[0].raced);
         assert!((out.total_debit - -3.0).abs() < 1e-9);
@@ -493,10 +590,41 @@ mod tests {
             vec![(mk(0), 10.0), (mk(1000), 10.0), (mk(2000), 10.0)],
             10.0,
         );
-        let settings = ChainSettings { max_legs: 2, ..ChainSettings::default() };
+        let settings = ChainSettings { max_legs: 2, ..fast_settings() };
         let out = complete(&mut t, "probe", &settings).await.unwrap();
         assert_eq!(out.outcome, ChainOutcome::LegCap);
         assert_eq!(out.legs.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn hung_oracle_fails_fast() {
+        let settings = fast_settings();
+        let err = complete(&mut HungOracle, "probe", &settings).await.unwrap_err();
+        assert!(err.contains("oracle read timed out"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn oversize_topic_rejected() {
+        let big = "x".repeat(MAX_PROMPT_CHARS + 1);
+        let mut t = ChainMock::new(vec![], 10.0);
+        let err = complete(&mut t, &big, &fast_settings()).await.unwrap_err();
+        assert!(err.contains("over the"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn absurd_settings_clamped() {
+        // max_legs=u32::MAX must not loop forever: hard cap + LegCap.
+        let mk = |from: usize| {
+            let mut v = numbered(from, 250);
+            v.push(Event::Done);
+            v
+        };
+        let legs: Vec<(Vec<Event>, f64)> = (0..70).map(|i| (mk(i * 1000), 10.0)).collect();
+        let mut t = ChainMock::new(legs, 10.0);
+        let settings = ChainSettings { max_legs: u32::MAX, ..fast_settings() };
+        let out = complete(&mut t, "probe", &settings).await.unwrap();
+        assert_eq!(out.legs.len(), 64);
+        assert_eq!(out.outcome, ChainOutcome::LegCap);
     }
 
     #[test]
@@ -517,8 +645,8 @@ mod tests {
 
     #[test]
     fn payload_shapes() {
-        let p1 = leg1_payload("explain ships");
-        let c1 = p1["messages"][0]["content"].as_str().unwrap();
+        let c1 = leg1_payload("explain ships").unwrap();
+        let c1 = c1["messages"][0]["content"].as_str().unwrap();
         assert!(c1.contains("explain ships"));
         assert!(c1.contains(&stop::length_guarantee_suffix(1800, 14)));
         // instruction-first: guarantee opens, topic follows

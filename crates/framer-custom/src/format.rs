@@ -22,7 +22,10 @@ pub enum Dialect {
 /// full path segments, so "/v1/messagesx" or "/responses-other" do NOT
 /// resolve. Precedence is Responses > Chat > Messages for paths containing
 /// several markers. Case-sensitive: server paths arrive normalized lowercase.
+/// Query strings and fragments are stripped before matching so
+/// "/v1/messages?x=1" still resolves.
 pub fn dialect_from_path(path: &str) -> Option<Dialect> {
+    let clean = path.split(['?', '#']).next().unwrap_or(path);
     fn has_segment(path: &str, seg: &str) -> bool {
         path.split('/').any(|s| s == seg)
     }
@@ -30,11 +33,11 @@ pub fn dialect_from_path(path: &str) -> Option<Dialect> {
         let segs: Vec<&str> = path.split('/').collect();
         segs.windows(2).any(|w| w[0] == "chat" && w[1] == "completions")
     }
-    if has_segment(path, "responses") {
+    if has_segment(clean, "responses") {
         Some(Dialect::Responses)
-    } else if has_chat(path) {
+    } else if has_chat(clean) {
         Some(Dialect::Chat)
-    } else if has_segment(path, "messages") {
+    } else if has_segment(clean, "messages") {
         Some(Dialect::Messages)
     } else {
         None
@@ -100,6 +103,11 @@ mod tests {
         assert_eq!(dialect_from_path("/v1/messagesx"), None);
         assert_eq!(dialect_from_path("/responses-other"), None);
         assert_eq!(dialect_from_path("/v1/chat/completionsx"), None);
+        // query strings still resolve
+        assert_eq!(
+            dialect_from_path("/anthropic/v1/messages?beta=true"),
+            Some(Dialect::Messages)
+        );
         // precedence: a path containing both resolves Responses-first
         assert_eq!(
             dialect_from_path("/x/responses/messages"),

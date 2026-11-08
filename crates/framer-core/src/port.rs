@@ -103,6 +103,21 @@ pub trait BrowserBridge: Send + Sync {
         Ok(())
     }
 
+    /// One small page eval against the account's browser: runs a short
+    /// script and returns its value promptly (no buffered generation, no
+    /// held locks across calls). The custom-route page stream builds on
+    /// this (open/drain/cancel/credits as small evals); the default impl
+    /// errors so bridges without a page-eval facility fail closed instead
+    /// of silently serving nothing. CdpBridge implements it; ai_post is
+    /// untouched (buffered generations keep their own path).
+    async fn eval_small(
+        &self,
+        _account: &AccountId,
+        _expr: &str,
+    ) -> Result<serde_json::Value, String> {
+        Err("bridge has no small page-eval facility".into())
+    }
+
     /// In-page authenticated AI POST to api.framer.com from the account's own
     /// browser: mints a fresh Castle token and sends in the same environment.
     /// THE rule (verified quadrant matrix 2026-10-02): a Castle token is only
@@ -317,6 +332,30 @@ pub trait FramerClient: Send + Sync {
         _team: &TeamId,
     ) -> Result<crate::ids::ProjectId, String> {
         Err("bridge has no project creation".into())
+    }
+
+    /// Mint (or reuse the cached) AI bearer JWT for one account: the same
+    /// per-account cached token the compat forward path uses. The
+    /// custom-route page stream authorizes its in-page fetches with this;
+    /// default impl errors so clients without a mint fail closed.
+    /// HttpFramerClient implements it over its per-account token cache.
+    async fn custom_bearer(
+        &self,
+        _session: &Session,
+        _account: &AccountId,
+    ) -> Result<String, String> {
+        Err("client has no AI bearer mint".into())
+    }
+
+    /// Same as custom_bearer but evicts the cached token first (the 401
+    /// path: the cached JWT died mid-flight, remint exactly once). Default
+    /// just calls custom_bearer; HttpFramerClient evicts then mints.
+    async fn custom_bearer_fresh(
+        &self,
+        session: &Session,
+        account: &AccountId,
+    ) -> Result<String, String> {
+        self.custom_bearer(session, account).await
     }
 
     /// GET /web/v2/dashboard/teams/{teamId} — the team's existing projects.

@@ -45,12 +45,17 @@ fn split_host(url: &str) -> Option<(&str, &str)> {
     Some((&rest[..end], &rest[end..]))
 }
 
-/// Strict dotted quad: exactly 4 decimal 8-bit parts.
+/// Strict dotted quad: exactly 4 decimal 8-bit parts, NO leading zeros
+/// ("010.0.0.1" is octal-ambiguous across stacks: reject, don't guess).
 fn is_ipv4(s: &str) -> bool {
     let p: Vec<&str> = s.split('.').collect();
     p.len() == 4
         && p.iter().all(|o| {
-            !o.is_empty() && o.len() <= 3 && o.bytes().all(|b| b.is_ascii_digit()) && o.parse::<u8>().is_ok()
+            !o.is_empty()
+                && o.len() <= 3
+                && (o.len() == 1 || !o.starts_with('0'))
+                && o.bytes().all(|b| b.is_ascii_digit())
+                && o.parse::<u8>().is_ok()
         })
 }
 
@@ -75,6 +80,19 @@ fn looks_numeric(host: &str) -> bool {
     let body = h.strip_prefix("0x").unwrap_or(&h).replace('.', "");
     if body.is_empty() {
         return true; // "0x", "0.0.0."-degenerate: numeric-shaped
+    }
+    // Hostname exemption: a dotted host whose LAST label contains a
+    // letter that is not a hex digit (g-z), or any hyphen, is a DNS name --
+    // resolvers never treat "api01.example.com" or "7-eleven.com" as
+    // numbers, so passing them keeps digit-heavy hostnames working.
+    // Single-label hosts ("localhost" aside, handled above) and pure
+    // numeric/hex dot-strings stay in the numeric path and fail closed.
+    let labels: Vec<&str> = h.split('.').collect();
+    if labels.len() > 1 {
+        let tld = labels.last().unwrap_or(&"");
+        if tld.contains('-') || tld.bytes().any(|b| matches!(b, b'g'..=b'z')) {
+            return false;
+        }
     }
     // Pure digit string (any base's digits) or hex-digit string with 0x
     // marker or over-long digit runs no hostname label allows.
@@ -257,9 +275,11 @@ pub fn validate_public_url(url: &str) -> Result<(), GateError> {
         return Err(GateError::UnsupportedScheme);
     }
     // Percent-encoded host tricks (`%31%32%37...`): the decoded bytes never
-    // reach our classifier, so any % in the authority fails closed.
+    // reach our classifier, so any % in the authority fails closed. Same for
+    // non-ASCII bytes: Unicode digits (U+FF11, U+0661, ...) NFKC-fold to
+    // ASCII and would sail past every check below.
     let (auth, _) = split_host(url).ok_or(GateError::UnsupportedScheme)?;
-    if auth.is_empty() || auth.contains('%') {
+    if auth.is_empty() || auth.contains('%') || !auth.is_ascii() {
         return Err(GateError::UnsupportedScheme);
     }
     if auth.contains('@') {
@@ -274,7 +294,11 @@ pub fn validate_public_url(url: &str) -> Result<(), GateError> {
         }
         if !after.is_empty() {
             let port = after.strip_prefix(':').ok_or(GateError::UnsupportedScheme)?;
-            if port.is_empty() || !port.bytes().all(|b| b.is_ascii_digit()) {
+            if port.is_empty()
+                || port.len() > 5
+                || !port.bytes().all(|b| b.is_ascii_digit())
+                || port.parse::<u32>().unwrap_or(65536) > 65535
+            {
                 return Err(GateError::UnsupportedScheme);
             }
         }
@@ -285,7 +309,12 @@ pub fn validate_public_url(url: &str) -> Result<(), GateError> {
         }
         if auth.matches(':').count() == 1 {
             let (h, port) = auth.split_once(':').unwrap();
-            if h.is_empty() || port.is_empty() || !port.bytes().all(|b| b.is_ascii_digit()) {
+            if h.is_empty()
+                || port.is_empty()
+                || port.len() > 5
+                || !port.bytes().all(|b| b.is_ascii_digit())
+                || port.parse::<u32>().unwrap_or(65536) > 65535
+            {
                 return Err(GateError::UnsupportedScheme);
             }
             h
@@ -358,6 +387,10 @@ mod tests {
             "HTTPS://EXAMPLE.COM/x",
             "https://example.com:8443/x",
             "http://[2001:db8::1]/",
+            "https://api01.example.com/",
+            "https://7-eleven.com/",
+            "https://1password.com/",
+            "https://dec0de.com/",
         ] {
             assert!(validate_public_url(u).is_ok(), "should allow {u}");
         }
@@ -411,6 +444,11 @@ mod tests {
             "http://",
             "https://exa mple.com/",
             "https://example.com/\nHeader: x",
+            "http://010.0.0.1/",
+            "http://example.com:99999/",
+            "http://example.com:0x50/",
+            "http://\u{ff11}\u{ff12}\u{ff17}.0.0.1/",
+            "http://\u{661}\u{662}\u{663}.0.0.1/",
         ] {
             assert!(validate_public_url(u).is_err(), "should reject {u}");
         }

@@ -1,11 +1,11 @@
 //! Custom-route upstream seam: transport abstraction + typed stream events.
 //!
 //! Honest mapping to the real path (read 2026-11-08 before writing this):
-//! - proxy attempt (around proxy.rs:121) builds one envelope (project,
-//!   feature category/name, model, step, session id, step index, turn id,
-//!   user prompt, request = payload), seeds the session jar, then calls the
-//!   browser bridge ai_post and gets the whole buffered body back as a
-//!   status/usage-header/text triple (see port.rs BrowserBridge).
+//! - proxy attempt builds one envelope (project, feature category/name,
+//!   model, step, session id, step index, turn id, user prompt, request =
+//!   payload), seeds the session jar, then calls the browser bridge ai_post
+//!   and gets the whole buffered body back as a status/usage-header/text
+//!   triple (see port.rs BrowserBridge).
 //! - the chat-chain stream helper frames that body as SSE (data lines,
 //!   blank-line dispatch) over the Anthropic wire: message_start (id +
 //!   input usage), content_block_delta text deltas, message_delta (stop
@@ -24,9 +24,11 @@ use async_trait::async_trait;
 /// One framed upstream stream item, dialect-neutral.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
-    /// A content increment (one text delta, one chat delta, ...).
-    /// Empty-string deltas are legal (keep-alive frames) and counted by the
-    /// rung like any delta -- see rung docs on the stop contract.
+    /// A content increment. Empty-string deltas are legal keep-alive frames
+    /// from scripted transports and COUNT toward the rung stop (parity with
+    /// the proven driver, which counted every `data:` line). Live transports
+    /// instead signal silence with None (paced, non-consuming) -- see the
+    /// rung STOP CONTRACT before changing either side.
     Delta(String),
     /// The usage-bearing terminal arrived (Anthropic message_delta, the chat
     /// usage chunk, response.completed, ...). After this the ledger may settle.
@@ -41,28 +43,38 @@ pub trait CustomTransport: Send + Sync {
     /// body; the impl wraps it in the envelope, mints a token in-page, and
     /// POSTs via the account's own browser).
     async fn stream_reply(&mut self, payload: &serde_json::Value) -> Result<(), String>;
-    /// Next framed event. None = nothing available RIGHT NOW (poll again).
-    /// End-of-stream arrives ONLY as Event::Done or Err. A scripted
-    /// transport ends its script with None (clean close, no terminal):
-    /// run_rung treats a None on an untouched stream as end-of-script.
-    /// A live transport yields None while the page has no new text yet;
-    /// run_rung bounds consecutive post-text Nones (MAX_SILENT_POLLS) and
-    /// fails a stalled leg loudly -- a silent partial capture must never
-    /// read as a clean non-raced leg.
+    /// Next framed event.
     ///
-    /// LIVENESS: the engine wraps every call in a timeout (see rung
-    /// LEG_TIMEOUT); an impl that never resolves is cancelled there, never
-    /// trusted to return on its own.
+    /// None means "nothing available RIGHT NOW" (poll again) on live
+    /// transports, or end-of-script on scripted ones. End-of-stream arrives
+    /// ONLY as Event::Done or Err -- except a scripted transport ending its
+    /// script with None on an untouched stream (clean close, no terminal),
+    /// which the rung accepts as a dry leg. The rung distinguishes the two
+    /// via is_live: live Nones (even pre-first-event) are liveness polls and
+    /// NEVER close the leg.
+    ///
+    /// LIVENESS: the engine wraps legs in LEG_TIMEOUT and bounds silent
+    /// polls; an impl that never resolves is timed out, never trusted.
     async fn next_event(&mut self) -> Option<Event>;
     /// Graceful cancel: ask upstream to stop sending. The engine calls this
     /// exactly at the stop point, so it must land BEFORE the terminal.
-    /// Fire-and-forget by contract: implementations must not block, and the
-    /// engine never depends on its outcome.
+    /// Fire-and-forget by contract: implementations must not block (the rung
+    /// caps the call), and the engine never depends on its outcome.
     async fn cancel(&mut self);
-    /// Credits oracle: current balance behind the teams ai-credits endpoint
-    /// (see FramerClient usage in port.rs). Must be total and cheap; the
-    /// engine calls it twice per attempt.
+    /// Credits oracle: current balance behind the teams ai-credits endpoint.
+    /// Must be total and cheap; the engine calls it twice per attempt under
+    /// an oracle timeout.
     async fn read_credits(&self) -> Result<f64, String>;
+    /// True for live page-backed transports (silence = paced None polls).
+    /// False for scripted transports (trailing None = end-of-script).
+    /// The rung's None handling hinges on this -- implement honestly.
+    fn is_live(&self) -> bool {
+        false
+    }
+    /// Bake the stop into the next stream_reply (content deltas). Live
+    /// page-backed transports forward it to open_stream so the page aborts
+    /// itself in-loop; scripted transports ignore it (default no-op).
+    fn set_stop_after(&mut self, _stop_after: u32) {}
 }
 
 /// Scripted transport for tests: replays a fixed event list and records

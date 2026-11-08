@@ -10,9 +10,7 @@ pub const LEDGER_EPS: f64 = 1e-4;
 
 /// True when the ledger did not move: |after - before| <= EPS.
 /// Non-finite inputs (NaN/+inf from a broken oracle read) NEVER count as
-/// settled: NaN comparisons are false by construction, and infinities exceed
-/// EPS unless both reads are the same infinity -- which is normalized to
-/// false explicitly below. A poisoned oracle fails legs instead of passing them.
+/// settled: a poisoned oracle fails legs instead of passing them.
 pub fn is_settled(before: f64, after: f64) -> bool {
     if !before.is_finite() || !after.is_finite() {
         return false;

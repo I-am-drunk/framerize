@@ -6,20 +6,23 @@
 //! lines, pulls delta text, and at `events >= stopAfter` runs `ctl.abort()`
 //! + `reader.cancel()` -- before the terminal/usage chunk.
 //!
-//! `PageStream` is the host seam framer-host implements (follow-on 6B):
-//! `open_stream` starts the page fetch and returns a stream id; `drain`
-//! pulls newly arrived framed batches; `cancel` performs the page-side
-//! graceful `reader.cancel()`; `credits` reads the ledger.
+//! `PageStream` is the host seam framer-host implements: `open_stream`
+//! starts the page fetch WITH the stop baked in and returns a stream id;
+//! `drain` pulls newly arrived framed batches; `cancel` performs the
+//! page-side graceful `reader.cancel()`; `credits` reads the ledger.
 //!
 //! `BridgeStreamTransport` drives that seam and stays honest: when no
 //! `PageStream` is wired it fails closed (`live page stream not wired`),
-//! never hangs (every drain runs under DRAIN_TIMEOUT), never serves
-//! scripted text as real data.
+//! never hangs (every drain runs under DRAIN_TIMEOUT, paced by
+//! DRAIN_POLL_INTERVAL), never serves scripted text as real data.
 //!
 //! TRUST CONTRACT on StreamBatch (documented for the host impl): `raced`
 //! must be true if and only if the batch's events end with the terminal.
 //! The transport enforces this -- a batch violating it is rejected as a
-//! protocol error rather than trusted (see check_batch).
+//! protocol error rather than trusted (see StreamBatch::check).
+//!
+//! MEMORY: `pending` holds at most one undrained batch (bounded by
+//! MAX_BATCH_EVENTS below); the rung caps total capture independently.
 
 use super::format::{format_tail, Dialect};
 use super::transport::{CustomTransport, Event};
@@ -27,10 +30,12 @@ use async_trait::async_trait;
 
 /// Bound on one page drain: a hung host call fails the leg, never the daemon.
 pub const DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
-
 /// Pace between empty page polls: the rung awaits real framed text, and a
 /// tight loop would burn CPU plus CDP round-trips while the model thinks.
 pub const DRAIN_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
+/// Cap on events accepted from one page batch: a hostile or garbage host
+/// impl must not stuff a million deltas into `pending` in one drain.
+pub const MAX_BATCH_EVENTS: usize = 10_000;
 
 /// One drained page-side batch: framed text events plus stream state.
 /// `raced` = the terminal arrived before any cancel (the abort window was
@@ -38,7 +43,7 @@ pub const DRAIN_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_m
 /// INVARIANT: raced => events ends with Done. The transport checks this.
 #[derive(Debug)]
 pub struct StreamBatch {
-    /// Framed events in arrival order.
+    /// Framed events in arrival order (capped at MAX_BATCH_EVENTS).
     pub events: Vec<Event>,
     /// Terminal arrived before cancel (must match a trailing Done).
     pub raced: bool,
@@ -48,8 +53,16 @@ pub struct StreamBatch {
 
 impl StreamBatch {
     /// Protocol check: raced batches must carry the terminal; a batch
-    /// claiming both raced and aborted is contradictory.
+    /// claiming both raced and aborted is contradictory. Empty raced
+    /// batches are impossible (no terminal); empty aborted batches are
+    /// legal (cancel landed before any text arrived).
     pub fn check(&self) -> Result<(), String> {
+        if self.events.len() > MAX_BATCH_EVENTS {
+            return Err(format!(
+                "page batch carries {} events, over the {MAX_BATCH_EVENTS} cap",
+                self.events.len()
+            ));
+        }
         if self.raced && self.aborted {
             return Err("page batch claims raced and aborted at once".to_string());
         }
@@ -65,8 +78,9 @@ impl StreamBatch {
 pub trait PageStream: Send + Sync {
     /// Start the page fetch WITH the stop baked in (stop_after content
     /// deltas). The page aborts itself in-loop at the stop -- see
-    /// OPEN_SNIPPET -- so the terminal/usage chunk is never read. Returns a
-    /// stream id for drain/cancel (cancel remains a backstop only).
+    /// OPEN_SNIPPET in framer-host -- so the terminal/usage chunk is never
+    /// read. Returns a stream id for drain/cancel (cancel remains a
+    /// backstop only).
     async fn open_stream(
         &mut self,
         payload: &serde_json::Value,
@@ -135,15 +149,25 @@ impl<P: PageStream> BridgeStreamTransport<P> {
 
     /// Bake the stop into the next open_stream: the page aborts itself
     /// in-loop at stop_after content deltas. The rung path sets this before
-    /// every leg (see run_rung_with_stop); without it the page would run to
-    /// terminal and the leg would bill.
+    /// every leg (see run_rung); without it the page would run to terminal
+    /// and the leg would bill.
     pub fn set_stop_after(&mut self, stop_after: u32) {
         self.stop_after = stop_after.max(1);
+    }
+
+    /// Test hook: the stop currently baked in (u32::MAX = unset).
+    #[cfg(test)]
+    pub fn stop_after(&self) -> u32 {
+        self.stop_after
     }
 }
 
 #[async_trait]
 impl<P: PageStream> CustomTransport for BridgeStreamTransport<P> {
+    fn set_stop_after(&mut self, stop_after: u32) {
+        self.set_stop_after(stop_after);
+    }
+
     async fn stream_reply(&mut self, payload: &serde_json::Value) -> Result<(), String> {
         self.pending.clear();
         self.terminal_seen = false;
@@ -175,14 +199,22 @@ impl<P: PageStream> CustomTransport for BridgeStreamTransport<P> {
                 return None;
             }
             Err(_) => {
-                self.failed = Some("page drain timed out after 120s".into());
+                self.failed = Some("live: page drain timed out after 120s".into());
                 return None;
             }
         };
         if let Err(e) = batch.check() {
             // Protocol violation by the host impl: fail the leg LOUDLY with
             // the reason preserved, never silently trust the batch.
-            self.failed = Some(format!("page protocol violation: {e}"));
+            self.failed = Some(format!("live: page protocol violation: {e}"));
+            return None;
+        }
+        // Post-terminal batches are a host-impl bug (terminal_seen is set
+        // when Done is YIELDED, so a racing batch arriving between the last
+        // yield and this drain still lands here): drop text after Done
+        // loudly instead of feeding a second leg's worth of text.
+        if self.terminal_seen && !batch.events.is_empty() {
+            self.failed = Some("live: page sent events after the terminal Done".into());
             return None;
         }
         if batch.raced {
@@ -194,13 +226,13 @@ impl<P: PageStream> CustomTransport for BridgeStreamTransport<P> {
             self.empty_streak += 1;
             if self.empty_streak >= MAX_EMPTY_DRAINS {
                 self.failed = Some(format!(
-                    "page stream stalled: {} empty drains with no terminal",
+                    "live: page stream stalled: {} empty drains with no terminal",
                     self.empty_streak
                 ));
                 return None;
             }
             // Pace the poll loop (no busy spin) and yield NO event: the
-            // rung's stop counts REAL framed text only. An empty keep-alive
+            // rung's stop counts only real framed text. An empty keep-alive
             // must never consume stop budget -- a slow stream would
             // otherwise cancel itself on silence, not on length.
             tokio::time::sleep(DRAIN_POLL_INTERVAL).await;
@@ -222,6 +254,10 @@ impl<P: PageStream> CustomTransport for BridgeStreamTransport<P> {
 
     async fn read_credits(&self) -> Result<f64, String> {
         self.page.credits().await
+    }
+
+    fn is_live(&self) -> bool {
+        true
     }
 }
 
@@ -304,6 +340,7 @@ mod tests {
             100.0,
         );
         let mut t = BridgeStreamTransport::new(page, Dialect::Chat);
+        assert!(t.is_live());
         t.stream_reply(&serde_json::json!({})).await.unwrap();
         assert_eq!(
             t.next_event().await,
@@ -348,6 +385,20 @@ mod tests {
         assert_eq!(t.next_event().await, Some(Event::Delta("world ".into())));
         assert_eq!(t.next_event().await, Some(Event::Done));
         assert_eq!(t.next_event().await, None);
+    }
+
+    #[tokio::test]
+    async fn oversize_batch_rejected() {
+        let big = StreamBatch {
+            events: vec![Event::Delta("x".into()); MAX_BATCH_EVENTS + 1],
+            raced: false,
+            aborted: false,
+        };
+        let page = ScriptPage::new(vec![big], 100.0);
+        let mut t = BridgeStreamTransport::new(page, Dialect::Chat);
+        t.stream_reply(&serde_json::json!({})).await.unwrap();
+        assert_eq!(t.next_event().await, None);
+        assert!(t.failed.as_deref().unwrap_or("").contains("over the"), "{:?}", t.failed);
     }
 
     #[tokio::test]

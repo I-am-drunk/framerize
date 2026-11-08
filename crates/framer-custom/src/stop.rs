@@ -16,7 +16,7 @@ pub const MAX_STOP: u32 = 10_000;
 
 /// Normalize a caller stop into [MIN_STOP, MAX_STOP].
 pub fn clamped_stop(stop: u32) -> u32 {
-    stop.max(MIN_STOP).min(MAX_STOP)
+    stop.clamp(MIN_STOP, MAX_STOP)
 }
 
 /// Retry depth after a leg raced (completed before the stop): halve, floored.
@@ -34,9 +34,11 @@ pub fn length_guarantee_suffix(min_words: usize, sections: usize) -> String {
     )
 }
 
-/// Continuation template: the tail anchor follows this verbatim.
+/// Continuation template: the tail anchor follows this verbatim. Wording is
+/// the proven string (including "anything in it", pinned by test below) --
+/// do not paraphrase without re-proving the chain.
 pub fn continue_suffix() -> String {
-    "Continue EXACTLY from the end of this text. Output only strictly new content, at length, in flowing prose. Do not stop early, do not summarize, do not conclude. Do not repeat, recap, or restate anything it. Stay on the same topic in the same style:".to_string()
+    "Continue EXACTLY from the end of this text. Output only strictly new content, at length, in flowing prose. Do not stop early, do not summarize, do not conclude. Do not repeat, recap, or restate anything in it. Stay on the same topic in the same style:".to_string()
 }
 
 #[cfg(test)]
@@ -65,5 +67,7 @@ mod tests {
         let s = length_guarantee_suffix(1800, 14);
         assert!(s.contains("1800") && s.contains("14") && s.contains("Do not stop early"));
         assert!(continue_suffix().contains("only strictly new content"));
+        // Proven wording pin: "anything in it" (a past edit dropped "in").
+        assert!(continue_suffix().contains("anything in it"));
     }
 }

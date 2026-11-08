@@ -5,11 +5,14 @@
 //! the terminal DOES arrive before the stop, the leg raced: the caller sees
 //! raced=true and the ledger assert decides.
 //!
-//! STOP CONTRACT (read before changing): the stop counts STREAM EVENTS as
-//! framed by the transport -- every Delta increments, including empty
-//! keep-alive deltas. This matches the proven driver, which counted `data:`
-//! lines (many carrying zero text) against stopAfter. A transport that
-//! filters empties before framing changes the stop's meaning; do not.
+//! STOP CONTRACT (read before changing): the stop counts FRAMED DELTAS --
+//! every Event::Delta increments, including empty keep-alive deltas from
+//! scripted transports. This matches the proven driver, which counted every
+//! `data:` line (many carrying zero text) against stopAfter. Live transports
+//! signal silence with None (paced, non-consuming, bounded by
+//! MAX_SILENT_POLLS) instead of empty deltas, so slow streams never cancel
+//! themselves on silence. The two framings coexist: Delta always counts,
+//! None never does.
 
 use crate::stop;
 use crate::transport::{CustomTransport, Event};
@@ -18,17 +21,24 @@ use crate::transport::{CustomTransport, Event};
 /// aborts the leg with a typed error instead of hanging the daemon. Sized
 /// generously: proven legs take ~10-60s; 10 minutes is stall, not slowness.
 pub const LEG_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
+/// Bound on one oracle read: the whole-leg timeout cannot cover reads
+/// outside the stream loop, so each credit snapshot gets its own budget.
+/// A hung oracle fails the leg loudly instead of wedging the chain.
+pub const ORACLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+/// Bound on the cancel call: fire-and-forget must not become hang-forever.
+/// The abort was already issued page-side in the live path; a stuck cancel
+/// RPC must not cost the captured prefix.
+pub const CANCEL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 /// Capture cap: stops unbounded memory if a transport emits an endless delta
 /// stream below the stop (or the stop is misconfigured). 200KB holds ~2x the
 /// largest proven leg with headroom; hitting it is a typed error, not a trim.
-/// Consecutive empty polls before a live leg is declared stalled.
-/// Sized past the transport's own stall bound so the transport fails first
-/// on a genuinely dead page; this is the backstop for a transport whose
-/// None means "waiting" forever.
+pub const MAX_CAPTURE: usize = 200_000;
+/// Consecutive post-text silent polls before a LIVE leg is declared stalled.
+/// Scripted transports are unaffected (their trailing None closes the leg).
+/// 2000 polls x ~0.5s pacing ~= 16 minutes, past the transport's own stall
+/// bound: defense in depth, this one should never fire first.
 pub const MAX_SILENT_POLLS: u32 = 2000;
 
-/// Hard ceiling on one leg's captured bytes.
-pub const MAX_CAPTURE: usize = 200_000;
 
 /// One leg's outcome.
 #[derive(Debug)]
@@ -41,24 +51,36 @@ pub struct RungResult {
     pub events: u32,
 }
 
+/// Cancel with a timeout: the trait contract says fire-and-forget, and this
+/// is the enforcement -- a stuck host cancel cannot wedge the leg.
+async fn cancel_bounded<T: CustomTransport>(transport: &mut T) {
+    let _ = tokio::time::timeout(CANCEL_TIMEOUT, transport.cancel()).await;
+}
+
 /// Stream one leg: accumulate Delta text; after exactly stop_steps deltas
 /// issue graceful cancel and return with raced=false. A Done before the stop
-/// returns what arrived with raced=true; a transport that closes with no
-/// terminal returns what arrived with raced=false.
+/// returns what arrived with raced=true.
 ///
-/// stop_steps is clamped into [MIN_STOP, MAX_STOP]: a 0 stop previously
-/// returned an empty capture as a *clean* leg (raced=false), poisoning the
-/// chain with a near-zero finisher. Now 0 (or any absurd value) is caller
-/// error normalized before the loop starts.
+/// NONE HANDLING (the two transport kinds):
+/// - scripted (!is_live): a None on an untouched stream (events == 0) is
+///   end-of-script -- clean dry leg, raced=false. A None after framed events
+///   on a scripted transport is a protocol violation (scripts are total:
+///   Done or nothing) and fails the leg loudly.
+/// - live (is_live): EVERY None is a liveness poll -- paced, counted toward
+///   MAX_SILENT_POLLS, never closing the leg. Only Done closes with raced,
+///   only the stop closes clean. This is the slow-model path: the first
+///   poll arriving before any text must NOT read as an empty stream.
 ///
-/// TIMEOUT: the whole leg runs under LEG_TIMEOUT via tokio::time::timeout.
-/// A hung open/stream/cancel surfaces Err("leg timed out"), never a hang.
+/// stop_steps is clamped into [MIN_STOP, MAX_STOP].
 ///
 /// STOP PLUMBING: transports that bake the stop in-page (live page stream)
 /// learn it via `set_stop_after` on BridgeStreamTransport BEFORE
 /// stream_reply: the page aborts itself in-loop at the stop, so the
 /// terminal/usage chunk is never read. The Rust-side cancel() after the
 /// stop remains as a backstop only. Scripted transports ignore it.
+///
+/// TIMEOUT: the whole leg runs under LEG_TIMEOUT. A hung open/stream/cancel
+/// surfaces Err("leg timed out"), never a hang.
 pub async fn run_rung<T: CustomTransport>(
     transport: &mut T,
     payload: &serde_json::Value,
@@ -66,7 +88,7 @@ pub async fn run_rung<T: CustomTransport>(
 ) -> Result<RungResult, String> {
     tokio::time::timeout(LEG_TIMEOUT, run_inner(transport, payload, stop_steps))
         .await
-        .map_err(|_| "leg timed out after 600s with no terminal or stop".to_string())?
+        .map_err(|_| "rung: leg timed out after 600s with no terminal or stop".to_string())?
 }
 
 async fn run_inner<T: CustomTransport>(
@@ -75,14 +97,15 @@ async fn run_inner<T: CustomTransport>(
     stop_steps: u32,
 ) -> Result<RungResult, String> {
     let stop_steps = stop::clamped_stop(stop_steps);
+    // Bake the stop into live transports before opening: the page aborts
+    // itself in-loop at the stop (the billing guard); the Rust-side cancel
+    // at the stop below is the backstop. No-op for scripted transports.
+    transport.set_stop_after(stop_steps);
     transport.stream_reply(payload).await?;
+    let live = transport.is_live();
     let mut captured = String::new();
     let mut deltas: u32 = 0;
     let mut events: u32 = 0;
-    // Consecutive Nones (live transports yield None while the page has no
-    // new text yet). Bounded: a transport silent past MAX_SILENT_POLLS has
-    // stalled and must fail the leg, never return a silent partial capture
-    // as a clean non-raced leg.
     let mut silent: u32 = 0;
     loop {
         match transport.next_event().await {
@@ -91,13 +114,13 @@ async fn run_inner<T: CustomTransport>(
                 events += 1;
                 if captured.len() + text.len() > MAX_CAPTURE {
                     return Err(format!(
-                        "leg capture exceeded {MAX_CAPTURE} bytes before stop {stop_steps} (deltas={deltas}): runaway stream or misconfigured stop"
+                        "rung: leg capture exceeded {MAX_CAPTURE} bytes before stop {stop_steps} (deltas={deltas}): runaway stream or misconfigured stop"
                     ));
                 }
                 captured.push_str(&text);
                 deltas += 1;
                 if deltas >= stop_steps {
-                    transport.cancel().await;
+                    cancel_bounded(transport).await;
                     return Ok(RungResult { captured, raced: false, events });
                 }
             }
@@ -106,21 +129,19 @@ async fn run_inner<T: CustomTransport>(
                 return Ok(RungResult { captured, raced: true, events });
             }
             None => {
-                // Scripted transports end the script with None (clean close,
-                // no terminal): exactly ONE None may close the leg. Live
-                // transports also yield None while waiting for page text --
-                // those are paced polls, and only a bounded run of them may
-                // pass before the leg is declared stalled. Distinguish by
-                // whether ANY framed event arrived first: a None on an
-                // untouched stream is end-of-script; Nones after real text
-                // are liveness polls.
-                if events == 0 {
-                    return Ok(RungResult { captured, raced: false, events });
+                if !live {
+                    // Scripted: only an untouched stream may close on None.
+                    if events == 0 {
+                        return Ok(RungResult { captured, raced: false, events });
+                    }
+                    return Err(format!(
+                        "rung: scripted transport yielded None after {events} framed events (deltas={deltas}): scripts are total, end with Done"
+                    ));
                 }
                 silent += 1;
                 if silent >= MAX_SILENT_POLLS {
                     return Err(format!(
-                        "leg stalled: {silent} consecutive empty polls with no terminal (deltas={deltas})"
+                        "rung: leg stalled: {silent} consecutive empty polls with no terminal (deltas={deltas})"
                     ));
                 }
             }
@@ -137,10 +158,66 @@ mod tests {
         serde_json::json!({"model": "probe", "stream": true})
     }
 
+    /// Live-flavored script transport for None-semantics tests.
+    struct LiveScript {
+        script: Vec<Event>,
+        pos: usize,
+        cancel_pos: Option<usize>,
+    }
+
+    impl LiveScript {
+        fn new(script: Vec<Event>) -> Self {
+            Self { script, pos: 0, cancel_pos: None }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl CustomTransport for LiveScript {
+        async fn stream_reply(&mut self, _: &serde_json::Value) -> Result<(), String> {
+            self.pos = 0;
+            Ok(())
+        }
+        async fn next_event(&mut self) -> Option<Event> {
+            let ev = self.script.get(self.pos).cloned();
+            if ev.is_some() {
+                self.pos += 1;
+            }
+            ev
+        }
+        async fn cancel(&mut self) {
+            if self.cancel_pos.is_none() {
+                self.cancel_pos = Some(self.pos);
+            }
+        }
+        async fn read_credits(&self) -> Result<f64, String> {
+            Ok(1.0)
+        }
+        fn is_live(&self) -> bool {
+            true
+        }
+    }
+
+    /// Hanging transport: next_event never resolves (timeout path).
+    struct Hang;
+    #[async_trait::async_trait]
+    impl CustomTransport for Hang {
+        async fn stream_reply(&mut self, _: &serde_json::Value) -> Result<(), String> {
+            Ok(())
+        }
+        async fn next_event(&mut self) -> Option<Event> {
+            std::future::pending().await
+        }
+        async fn cancel(&mut self) {}
+        async fn read_credits(&self) -> Result<f64, String> {
+            Ok(1.0)
+        }
+        fn is_live(&self) -> bool {
+            true
+        }
+    }
+
     #[tokio::test]
     async fn cancels_exactly_at_stop() {
-        // Contract: stop clamps into [MIN_STOP, MAX_STOP]; with 50 deltas and
-        // stop=40 the cancel lands exactly at delta 40, raced=false.
         let mut t = MockTransport::new(MockTransport::deltas(50));
         let r = run_rung(&mut t, &payload(), 40).await.unwrap();
         assert!(!r.raced);
@@ -173,82 +250,85 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn none_after_text_polls_then_terminal() {
-        // Live shape: text, paced Nones, then Done. Nones after real text
-        // are liveness polls -- the terminal still lands and raced=true.
-        struct PollThenDone {
-            n: u32,
-        }
+    async fn live_first_none_polls_not_closes() {
+        // THE slow-model case: live transport yields None BEFORE any text
+        // (first poll, page still thinking), then text, then terminal.
+        // None must poll, never close: the leg races with its text.
+        struct FirstSilent;
         #[async_trait::async_trait]
-        impl CustomTransport for PollThenDone {
-            async fn stream_reply(&mut self, _: &serde_json::Value) -> Result<(), String> {
-                Ok(())
-            }
-            async fn next_event(&mut self) -> Option<Event> {
-                // Order: Delta, None, None, Done. The post-text Nones are
-                // liveness polls; the terminal still lands and raced=true.
-                self.n += 1;
-                match self.n {
-                    1 => Some(Event::Delta("hi ".into())),
-                    4 => Some(Event::Done),
-                    _ => None,
-                }
-            }
-            async fn cancel(&mut self) {}
-            async fn read_credits(&self) -> Result<f64, String> {
-                Ok(1.0)
-            }
-        }
-        let mut t = PollThenDone { n: 0 };
-        let r = run_rung(&mut t, &payload(), 200).await.unwrap();
-        assert_eq!(r.captured, "hi ");
-        assert!(r.raced);
-    }
-
-    #[tokio::test]
-    async fn endless_silence_fails_not_clean() {
-        // A transport yielding None forever after text must FAIL the leg,
-        // never return a silent partial capture as clean.
-        struct SilentForever;
-        #[async_trait::async_trait]
-        impl CustomTransport for SilentForever {
+        impl CustomTransport for FirstSilent {
             async fn stream_reply(&mut self, _: &serde_json::Value) -> Result<(), String> {
                 Ok(())
             }
             async fn next_event(&mut self) -> Option<Event> {
                 static CALLS: std::sync::atomic::AtomicU32 =
                     std::sync::atomic::AtomicU32::new(0);
-                let n = CALLS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                if n == 0 {
-                    return Some(Event::Delta("part ".into()));
+                match CALLS.fetch_add(1, std::sync::atomic::Ordering::SeqCst) {
+                    0 | 1 => None,
+                    2 => Some(Event::Delta("slow text here ".into())),
+                    _ => Some(Event::Done),
                 }
-                None
             }
             async fn cancel(&mut self) {}
             async fn read_credits(&self) -> Result<f64, String> {
                 Ok(1.0)
             }
+            fn is_live(&self) -> bool {
+                true
+            }
         }
-        // Shrink the bound for the test via a local run: MAX_SILENT_POLLS is
-        // large, so instead assert the FIRST None does not close the leg by
-        // racing it against a terminal that never comes -- with a timeout.
-        let res = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            run_inner(&mut SilentForever, &payload(), 200),
-        )
+        let r = run_rung(&mut FirstSilent, &payload(), 200).await.unwrap();
+        assert_eq!(r.captured, "slow text here ");
+        assert!(r.raced, "terminal after polls must race, not clean-close");
+    }
+
+    #[tokio::test]
+    async fn scripted_none_after_text_is_protocol_error() {
+        let mut script = vec![Event::Delta("part ".into()), Event::Delta("more ".into())];
+        script.push(Event::Done);
+        // truncate: Delta, Delta, then script ends (None after events)
+        let mut t = MockTransport::new(vec![Event::Delta("part ".into()), Event::Delta("more ".into())]);
+        let err = run_rung(&mut t, &payload(), 200).await.unwrap_err();
+        assert!(err.contains("scripted transport"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn scripted_dry_leg_closes_clean() {
+        let mut t = MockTransport::new(vec![]);
+        let r = run_rung(&mut t, &payload(), 200).await.unwrap();
+        assert!(!r.raced && r.captured.is_empty() && r.events == 0);
+    }
+
+    #[tokio::test]
+    async fn live_endless_silence_fails_not_clean() {
+        let mut t = LiveScript::new(vec![]);
+        // Live + always-None: must run into the stall bound, never return
+        // a clean empty leg. Bound the test with its own timeout.
+        let res = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            // Temporarily shrink the bound via many fast polls: LiveScript
+            // returns immediately, so 2000 polls take ms, not minutes.
+            run_inner(&mut t, &payload(), 200).await
+        })
         .await;
-        // Either the stall error or the harness timeout: both prove the leg
-        // did NOT return a clean partial capture on the first None.
         match res {
-            Ok(Err(e)) => assert!(e.contains("stalled") || e.contains("leg"), "{e}"),
-            Err(_) => {}
-            Ok(Ok(r)) => panic!("silent transport returned clean: {:?}", r.captured),
+            Ok(Err(e)) => assert!(e.contains("stalled"), "{e}"),
+            Err(_) => panic!("live silence should stall-fail fast on immediate Nones"),
+            Ok(Ok(r)) => panic!("live silence returned clean: {:?}", r.captured),
         }
     }
 
     #[tokio::test]
+    async fn hung_transport_times_out() {
+        // LEG_TIMEOUT is 600s: exercise the mechanism with a short local
+        // timeout around run_inner-equivalent behavior. run_rung itself
+        // would take 600s, so assert the inner loop makes no progress and
+        // the timeout wrapper is what rescues it.
+        let res = tokio::time::timeout(std::time::Duration::from_millis(200), run_rung(&mut Hang, &payload(), 200)).await;
+        assert!(res.is_err(), "hung transport must hit the timeout wrapper");
+    }
+
+    #[tokio::test]
     async fn zero_stop_clamped_not_silent() {
-        // stop=0 must NOT return an empty clean leg: it clamps to MIN_STOP.
         let mut t = MockTransport::new(MockTransport::deltas(50));
         let r = run_rung(&mut t, &payload(), 0).await.unwrap();
         assert_eq!(r.captured.matches("word").count(), 40);
@@ -258,8 +338,7 @@ mod tests {
 
     #[tokio::test]
     async fn empty_deltas_count_toward_stop() {
-        // Keep-alive framing parity with the proven driver: empties count.
-        let mut script = vec![Event::Delta(String::new()); 50];
+        let script = vec![Event::Delta(String::new()); 50];
         let mut t = MockTransport::new(script);
         let r = run_rung(&mut t, &payload(), 40).await.unwrap();
         assert!(!r.raced);

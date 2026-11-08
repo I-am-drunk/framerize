@@ -3,6 +3,9 @@
 //! A continuation leg sometimes re-emits its anchor tail verbatim. The trim
 //! strips that echo (anchor-suffix vs leg-prefix match) so the assembled doc
 //! holds one copy. All matching is byte-exact and char-boundary-safe.
+//!
+//! MEMORY: every function here borrows -- trim returns a slice, assemble
+//! takes a slice of legs and builds ONE output. No per-leg clones.
 
 /// Minimum echo length worth stripping. Below this, coincidental matches
 /// (common words) would eat real content.
@@ -24,15 +27,16 @@ fn overlap_len(new_text: &str, anchor_tail: &str) -> usize {
         return 0;
     }
     for k in (MIN_OVERLAP..=max).rev() {
-        if &ab[ab.len() - k..] == &nb[..k] && new_text.is_char_boundary(k) {
+        if ab[ab.len() - k..] == nb[..k] && new_text.is_char_boundary(k) {
             return k;
         }
     }
     0
 }
 
-/// Strip a leading anchor echo from a fresh leg. Returns the input unchanged
-/// when no echo of at least MIN_OVERLAP chars is present.
+/// Strip a leading anchor echo from a fresh leg. Returns a SLICE of the
+/// input (zero-copy); unchanged input when no echo of at least MIN_OVERLAP
+/// chars is present.
 pub fn trim_overlap<'a>(new_text: &'a str, anchor_tail: &str) -> &'a str {
     let n = overlap_len(new_text, anchor_tail);
     if n >= MIN_OVERLAP {
@@ -49,7 +53,7 @@ pub fn is_near_zero(new_leg_after_trim: &str) -> bool {
 }
 
 /// Last up-to-ASSEMBLE_WINDOW chars, widened forward to a char boundary.
-/// Never splits multi-byte content and never panics.
+/// Borrowed slice, never splits multi-byte content, never panics.
 fn tail_window(text: &str) -> &str {
     if text.len() <= ASSEMBLE_WINDOW {
         return text;
@@ -63,8 +67,9 @@ fn tail_window(text: &str) -> &str {
 
 /// Concatenate legs in order, trimming each leg's anchor echo against the
 /// running result's tail. Safe on multi-byte content by construction.
+/// Single allocation: sized from the input sum up front.
 pub fn assemble(legs: &[String]) -> String {
-    let mut out = String::new();
+    let mut out = String::with_capacity(legs.iter().map(|l| l.len()).sum::<usize>());
     for leg in legs {
         out.push_str(trim_overlap(leg, tail_window(&out)));
     }
