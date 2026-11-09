@@ -166,6 +166,11 @@ struct EnvelopePageStream {
     /// Kept so the 401-retry path rebuilds the host stream exactly.
     browser: Arc<dyn BrowserBridge>,
     team: String,
+    /// Every turnId this stream opened, in order. The chain needs them for
+    /// SETTLE REVERSAL: /ai/v3/refund/ reverses a settled turn exactly and
+    /// is a denied no-op on an unsettled one, so a chain whose ledger moved
+    /// refunds its opened turns until the balance recovers.
+    opened_turns: Arc<std::sync::Mutex<Vec<String>>>,
 }
 
 /// CUSTOM-ROUTE-ONLY refusal marks (2026-11-09): a Castle refusal on the
@@ -271,14 +276,20 @@ impl EnvelopePageStream {
         // where the debit arrived WITH the open, not after it). Never
         // downgrade this: the whole $0 mechanism depends on it.
         native["stream"] = serde_json::Value::Bool(true);
-        framer_api::proxy::envelope(
+        let env = framer_api::proxy::envelope(
             &self.deps.project,
             &self.deps.category,
             &self.deps.step,
             &native,
             &self.deps.chat_session,
             0,
-        )
+        );
+        if let Some(turn) = env["turnId"].as_str() {
+            if let Ok(mut turns) = self.opened_turns.lock() {
+                turns.push(turn.to_string());
+            }
+        }
+        env
     }
 
     fn is_unauthorized(err: &str) -> bool {
@@ -383,10 +394,10 @@ async fn mock_complete(body: &CompleteBody) -> Response {
                 .into_response();
         }
     };
-    sse_response(&assembled, "mock")
+    sse_response(&assembled, "mock", 0)
 }
 
-fn sse_response(assembled: &framer_custom::Assembled, req_id: &str) -> Response {
+fn sse_response(assembled: &framer_custom::Assembled, req_id: &str, refunded: u32) -> Response {
     // Frame contract: text+legs are the stable fields every client reads.
     // outcome/total_debit/legs-detail/req_id are additive diagnostics so a
     // billed, short, or raced run is diagnosable from the response alone
@@ -411,6 +422,8 @@ fn sse_response(assembled: &framer_custom::Assembled, req_id: &str) -> Response 
                 "chars": l.text.chars().count(),
             })).collect::<Vec<_>>(),
             "req_id": req_id,
+            // Settles this chain reversed via /ai/v3/refund/ (0 on a clean run).
+            "turns_refunded": refunded,
         })
     );
     ([("content-type", "text/event-stream")], event).into_response()
@@ -666,6 +679,14 @@ async fn custom_real_once(
     } else {
         std::env::var("FRAMERIZE_FEATURE_CATEGORY").unwrap_or_else(|_| "translation".to_string())
     };
+    // Refund context: cloned BEFORE deps moves the originals, so a settled
+    // chain can reverse its own turns after the engine returns.
+    let refund_bearer = bearer.clone();
+    let refund_project = project.clone();
+    let refund_session = session.clone();
+    let refund_step = chain_step(&category).to_string();
+    let refund_category = category.clone();
+    let opened_turns = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
     let team = scope_team.0.clone();
     let deps = RealDeps {
         account: account.id,
@@ -737,6 +758,7 @@ async fn custom_real_once(
             model,
             browser: s.browser.clone(),
             team,
+            opened_turns: opened_turns.clone(),
         },
         if matches!(dialect, framer_api::proxy::Dialect::OpenAiResponses) {
             framer_custom::Dialect::Responses
@@ -765,20 +787,104 @@ async fn custom_real_once(
     let result = residency.observe_result(account.id, result);
     record_account_health(&s, &account, &result).await;
     match result {
-        Ok(assembled) => {
+        Ok(mut assembled) => {
             s.gate.on_success(&gate_key).await;
+            // SETTLE REVERSAL (2026-11-09): the abort keeps legs free, but an
+            // early-stopped model's terminal can still settle (the runway
+            // removed the SPEED race; a short complete answer is the
+            // irreducible case) -- and concurrent traffic on the same
+            // workspace can pollute the ledger delta. /ai/v3/refund/ has no
+            // Castle layer, reverses a settled turn exactly, and is a denied
+            // no-op on an unsettled one (verified 2026-10-05). So when the
+            // chain's ledger moved, refund the turns this chain opened until
+            // the balance recovers. Bounded: 4 posts, only on a real debit;
+            // quota is ~2/window/account, so this stays rare-path only.
+            let mut refunded = 0u32;
+            if assembled.total_debit < -1e-6 {
+                let before = s
+                    .client
+                    .usage(&refund_session, &scope_team)
+                    .await
+                    .map(|snap| snap.available)
+                    .unwrap_or(f64::NAN);
+                let turns: Vec<String> =
+                    opened_turns.lock().map(|g| g.clone()).unwrap_or_default();
+                for turn_id in turns.iter().take(4) {
+                    let feature_name = if refund_category == "translation" {
+                        "translation"
+                    } else {
+                        "agents"
+                    };
+                    let body = serde_json::json!({
+                        "projectId": refund_project.0.as_str(),
+                        "featureCategory": refund_category.as_str(),
+                        "featureName": feature_name,
+                        "step": refund_step.as_str(),
+                        "sessionId": chat_session.as_str(),
+                        "stepIndex": 0,
+                        "turnId": turn_id.as_str(),
+                        "userPrompt": "",
+                        "castleToken": "garbage", // route ignores it (verified)
+                    });
+                    match s
+                        .browser
+                        .ai_post(&account.id, "/ai/v3/refund/", &refund_bearer, &body)
+                        .await
+                    {
+                        Ok((200, _, text))
+                            if text.contains("\"granted\":true")
+                                || text.contains("\"granted\": true") =>
+                        {
+                            refunded += 1;
+                            eprintln!(
+                                "[custom-route] req={req_short} refund turn {} GRANTED (settle reversed)",
+                                &turn_id[..8.min(turn_id.len())]
+                            );
+                        }
+                        Ok((status, _, text)) => eprintln!(
+                            "[custom-route] req={req_short} refund turn {} denied/HTTP {status}: {}",
+                            &turn_id[..8.min(turn_id.len())],
+                            &text[..text.len().min(120)]
+                        ),
+                        Err(e) => eprintln!(
+                            "[custom-route] req={req_short} refund turn {} transport: {e}",
+                            &turn_id[..8.min(turn_id.len())]
+                        ),
+                    }
+                }
+                if refunded > 0 {
+                    let after = s
+                        .client
+                        .usage(&refund_session, &scope_team)
+                        .await
+                        .map(|snap| snap.available)
+                        .unwrap_or(f64::NAN);
+                    if before.is_finite() && after.is_finite() {
+                        let recovered = after - before;
+                        if recovered > 0.0 {
+                            framer_core::rotation::note_live_balance(&scope_team.0, after);
+                            assembled.total_debit += recovered;
+                            eprintln!(
+                                "[custom-route] req={req_short} refunds recovered {recovered:+.6}; adjusted total_debit={:+.6}",
+                                assembled.total_debit
+                            );
+                        }
+                    }
+                }
+            }
             eprintln!(
-                "[custom-route] req={} account={} model={} legs={} chars={} total_debit={:+.6} outcome={:?} session={}",
+                "[custom-route] req={} account={} model={} legs={} chars={} total_debit={:+.6} refunded={} outcome={:?} session={}",
                 req_short,
                 &account.id.0.to_string()[..8.min(account.id.0.to_string().len())],
                 model_log.clone(),
                 assembled.legs.len(),
                 assembled.text.len(),
                 assembled.total_debit,
+                refunded,
                 assembled.outcome,
                 chat_session,
             );
-            let mut resp = sse_response(&assembled, &req_id);
+            let mut resp = sse_response(&assembled, &req_id, refunded);
             resp.headers_mut().insert(
                 "x-framerize-session",
                 chat_session
