@@ -208,12 +208,16 @@ impl ServingAccountPolicy {
         }).cloned().collect();
         if !ready_residents.is_empty() {
             // Prefer funded snapshots: a READY resident whose cached ledger
-            // still shows credits beats one known-exhausted at the account
-            // level. Fall back to all ready residents (never starve fresh or
-            // newly-provisioned accounts whose snapshot has not landed yet).
+            // level. Fall back to all ready residents when nothing is
+            // known-funded (fresh or newly-provisioned accounts whose ledger
+            // read has not landed yet must not starve).
+            // FUNDED via the LIVE ledger cache (the stale per-account
+            // snapshot said 500.0 for months-dead workspaces and admitted
+            // them -- the credits-exhausted chains). account_might_bill reads
+            // the 60s live cache: known-dead excluded, unknown eligible.
             let funded: Vec<_> = ready_residents
                 .iter()
-                .filter(|a| a.credit.as_ref().map(|c| c.available).unwrap_or(0.0) > 0.0)
+                .filter(|a| framer_core::rotation::account_might_bill(a))
                 .cloned()
                 .collect();
             let pool_ref: &[ManagedAccount] = if funded.is_empty() {

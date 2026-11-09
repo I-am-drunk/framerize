@@ -66,6 +66,33 @@ pub fn is_saturated(team: &str) -> bool {
     saturated_until(team).map(|u| u > now_ms()).unwrap_or(false)
 }
 
+/// The billing floor for "this workspace can serve": matches the server-side
+/// FRAMERIZE_CREDIT_FLOOR default.
+pub fn bill_floor() -> f64 {
+    std::env::var("FRAMERIZE_CREDIT_FLOOR")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(25.0)
+}
+
+/// True when the account MIGHT bill somewhere: at least one workspace is not
+/// KNOWN dead. Known-dead means a fresh ledger read below the floor; unknown
+/// balances stay eligible (fail-open -- the per-request funded-scope picker
+/// is the real guard, and the first read populates the cache). An account
+/// whose EVERY workspace is proven empty can only 402 at dispatch; the
+/// selector must not land clients on it.
+pub fn account_might_bill(a: &ManagedAccount) -> bool {
+    let floor = bill_floor();
+    let scopes = a.all_scopes();
+    if scopes.is_empty() {
+        return false;
+    }
+    scopes.iter().any(|sc| match cached_live_balance(&sc.team.0) {
+        Some(b) => b >= floor,
+        None => true,
+    })
+}
+
 // ---- Live workspace ledger cache (2026-11-09) ----
 // The credits endpoint is rate-limited and the ledger is the ground truth for
 // "can this workspace bill". Reading it per request per workspace is the only
@@ -129,6 +156,16 @@ pub fn now_ms() -> u64 {
 pub fn pick_at(pool: &[ManagedAccount], now: u64) -> Option<&ManagedAccount> {
     let available: Vec<&ManagedAccount> =
         pool.iter().filter(|a| a.is_available_at(now)).collect();
+    // Exclude accounts whose every workspace is KNOWN empty (fresh ledger
+    // read below the floor): they can only 402 at dispatch. Unknown-balance
+    // accounts stay eligible. If EVERYTHING is known-dead, keep the set (the
+    // loud per-account error beats a silent none).
+    let billable: Vec<&ManagedAccount> = available
+        .iter()
+        .filter(|a| account_might_bill(a))
+        .cloned()
+        .collect();
+    let available = if billable.is_empty() { available } else { billable };
 
     // Workspace-saturation steering: skip accounts whose team is currently
     // 429-saturated while any alternative exists. All-saturated falls back to
@@ -320,6 +357,42 @@ mod tests {
         assert_eq!(a.consecutive_failures, 0);
         assert!(a.cooling_until_ms.is_none());
         assert!(a.is_available_at(1));
+    }
+
+    #[test]
+    fn known_dead_account_is_excluded_when_a_funded_one_exists() {
+        clear_live_balance_cache();
+        let dead = acct("dead", 0, AccountState::Ready);
+        // Every scope of `dead` is known-empty: the fixture's own team AND
+        // its extra workspace both read 0.
+        note_live_balance("team", 0.0);
+        let mut healthy = acct("healthy", 0, AccountState::Ready);
+        // Own unknown-balance team: stays eligible (fail-open for unknowns).
+        healthy.current_team = Some(TeamId("goodteam".into()));
+        let pool = vec![dead, healthy];
+        for _ in 0..4 {
+            assert_eq!(pick(&pool).expect("a pick").alias, "healthy");
+        }
+    }
+
+    #[test]
+    fn unknown_balance_account_stays_eligible() {
+        clear_live_balance_cache();
+        let a = acct("unknown", 0, AccountState::Ready);
+        let b = acct("other", 0, AccountState::Ready);
+        let pool = vec![a, b];
+        let picks: Vec<&str> = (0..4).map(|_| pick(&pool).unwrap().alias.as_str()).collect();
+        assert!(picks.contains(&"unknown"), "unknown must stay eligible: {picks:?}");
+    }
+
+    #[test]
+    fn all_known_dead_still_picks_loudly() {
+        clear_live_balance_cache();
+        let a = acct("dead-a", 0, AccountState::Ready);
+        note_live_balance("team", 0.0);
+        let b = acct("dead-b", 0, AccountState::Ready);
+        let pool = vec![a, b];
+        assert!(pick(&pool).is_some(), "all-dead must still pick (loud failure beats none)");
     }
 
     #[test]
