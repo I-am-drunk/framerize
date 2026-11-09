@@ -195,7 +195,15 @@ impl EnvelopePageStream {
         let model = self.model.clone();
         let model = model.rsplit('/').next().unwrap_or(&model).to_string();
         native["model"] = serde_json::Value::String(model);
-        if native.get("max_tokens").and_then(|v| v.as_u64()).is_none() {
+        // Token cap name per route: the direct Responses route takes
+        // max_output_tokens (and 400s "Unknown parameter: 'max_tokens'");
+        // the chat route takes max_tokens.
+        if self.deps.path.contains("responses") {
+            if native.get("max_output_tokens").and_then(|v| v.as_u64()).is_none() {
+                native["max_output_tokens"] =
+                    serde_json::Value::Number(serde_json::Number::from(4000));
+            }
+        } else if native.get("max_tokens").and_then(|v| v.as_u64()).is_none() {
             native["max_tokens"] = serde_json::Value::Number(serde_json::Number::from(4000));
         }
         // STREAMING keeps the leg on the metered path the page abort guards:
