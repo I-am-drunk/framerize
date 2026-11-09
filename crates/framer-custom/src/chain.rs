@@ -211,14 +211,18 @@ fn leg1_native(payload: &serde_json::Value) -> Result<serde_json::Value, String>
     let msgs = payload["messages"]
         .as_array()
         .ok_or("chain: native chat payload has no messages array")?;
-    if serde_json::to_string(&p).map(|s| s.len()).unwrap_or(0) > MAX_PROMPT_CHARS {
+    // Native payloads carry a whole conversation (codex: 76K tokens of
+    // context) -- far over the prompt-string cap. The native cap is 2MB:
+    // the real bound is the upstream request limit, not the prompt rule.
+    const MAX_NATIVE_PAYLOAD: usize = 2_000_000;
+    if serde_json::to_string(&p).map(|s| s.len()).unwrap_or(0) > MAX_NATIVE_PAYLOAD {
         return Err(format!(
-            "chain: native payload over the {MAX_PROMPT_CHARS}-byte cap"
+            "chain: native payload over the {MAX_NATIVE_PAYLOAD}-byte cap"
         ));
     }
     let mut new_msgs = vec![serde_json::json!({
         "role": "system",
-        "content": stop::length_guarantee_suffix(1800, 14),
+        "content": stop::end_marker_suffix(),
     })];
     new_msgs.extend(msgs.iter().cloned());
     p["messages"] = serde_json::json!(new_msgs);

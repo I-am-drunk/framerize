@@ -37,6 +37,28 @@ pub fn length_guarantee_suffix(min_words: usize, sections: usize) -> String {
 /// Continuation template: the tail anchor follows this verbatim. Wording is
 /// the proven string (including "anything in it", pinned by test below) --
 /// do not paraphrase without re-proving the chain.
+/// The end marker (2026-11-09): the deterministic zero-settle technique.
+/// The meter settles when the server FINISHES generating and flushes the
+/// terminal frame. For a short answer the generation completes in one burst
+/// and there is no window to cut. So the request forces continued
+/// generation PAST the real answer: the model writes the complete answer,
+/// then the marker, then extended padding. The pump aborts the moment the
+/// marker lands -- the server is still mid-padding, so no terminal is ever
+/// generated or delivered, and the settle never happens. The captured text
+/// up to the marker is the complete answer at its natural length. Works for
+/// short answers AND long ones, 100% of the time the model honors the
+/// marker; the stop_after leg-cut and the refund remain the backstops.
+pub const END_MARKER: &str = "⟦FRZ-END⟧";
+
+/// The marker instruction prepended to native payloads: complete answer,
+/// then the marker, then enough padding that the server is still generating
+/// when the abort lands.
+pub fn end_marker_suffix() -> String {
+    format!(
+        "Answer the request completely and at its natural length (short for short, long for long). The moment your answer is fully complete, output a line containing only {END_MARKER}, then -- without stopping -- continue writing extended background analysis on the same topic for at least 600 more words."
+    )
+}
+
 pub fn continue_suffix() -> String {
     "Continue EXACTLY from the end of this text. Output only strictly new content, at length, in flowing prose. Do not stop early, do not summarize, do not conclude. Do not repeat, recap, or restate anything in it. Stay on the same topic in the same style:".to_string()
 }

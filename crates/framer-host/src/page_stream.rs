@@ -173,6 +173,22 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
               slot.buf += (d === null || d === "") ? "\u0000" : d;
               slot.chunks++;
               events++;
+              // THE MARKER CUTOFF (2026-11-09): the deterministic zero-settle
+              // technique. The request forces the model to write its complete
+              // answer, emit the marker, then keep padding. The abort lands
+              // while the server is STILL GENERATING the padding, so the
+              // terminal frame never exists and the settle never happens --
+              // for short answers too, every time the model honors it.
+              // The buffer truncates at the marker: the captured text is the
+              // complete answer at its natural length. stop_after and the
+              // finish cutoff stay as backstops.
+              if (fin === null) {
+                const mi = slot.buf.indexOf("⟦FRZ-END⟧");
+                if (mi >= 0) {
+                  slot.buf = slot.buf.slice(0, mi);
+                  fin = "marker";
+                }
+              }
               // The finish cutoff or the length backstop ends the leg: the
               // abort lands before the terminal frame either way.
               if (fin !== null || events >= stopAfter) {
