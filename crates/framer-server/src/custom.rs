@@ -664,6 +664,178 @@ pub(super) async fn chat_via_cutoff(
     Ok(resp)
 }
 
+/// ADR-003: serve a responses-API request (codex) through the CHAT cutoff
+/// chain -- the finish cutoff is proven free there, tool calls included --
+/// converting the request down and rendering the result back into the
+/// responses dialect.
+pub(super) async fn responses_via_cutoff(
+    s: AppState,
+    headers: &HeaderMap,
+    payload: serde_json::Value,
+    wants_stream: bool,
+) -> Result<Response, ApiError> {
+    let model = payload["model"].as_str().unwrap_or("gpt-4.1").to_string();
+    let chat = framer_core::convert::responses_request_to_chat(&payload).map_err(ApiError::InvalidRequest)?;
+    if !wants_stream {
+        let out = cutoff_run(s, headers, framer_custom::ChainRequest::Chat(chat), &model, None, None).await?;
+        return Ok(render_responses(&out, &model, false));
+    }
+    // Admission before the stream opens (same contract as the chat path).
+    cutoff_admit(&s).await?;
+    // The chain runs in a task; the stream pings every 8s of silence, then
+    // replays the responses-dialect frames.
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<CutoffOutcome, ApiError>>(1);
+    let headers2 = headers.clone();
+    let model2 = model.clone();
+    tokio::spawn(async move {
+        let out = cutoff_run(s, &headers2, framer_custom::ChainRequest::Chat(chat), &model2, None, None).await;
+        let _ = tx.send(out).await;
+    });
+    let stream = futures::stream::unfold((rx, false), move |(mut rx, done)| {
+        let model = model.clone();
+        async move {
+            if done {
+                return None;
+            }
+            match tokio::time::timeout(std::time::Duration::from_secs(8), rx.recv()).await {
+                Ok(Some(Ok(out))) => {
+                    let body = responses_frames(&out, &model);
+                    Some((Ok::<_, std::convert::Infallible>(body), (rx, true)))
+                }
+                Ok(Some(Err(e))) => {
+                    let frame = format!(
+                        "data: {}\n\n",
+                        serde_json::json!({"type": "error", "error": {"message": format!("{e:?}")}})
+                    );
+                    Some((Ok(frame), (rx, true)))
+                }
+                Ok(None) => None,
+                Err(_) => Some((Ok(": ping\n\n".to_string()), (rx, false))),
+            }
+        }
+    });
+    let mut resp = axum::response::Response::new(axum::body::Body::from_stream(stream));
+    resp.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("text/event-stream"),
+    );
+    Ok(resp)
+}
+
+/// Render a cutoff outcome as a responses-API answer: the assembled text
+/// becomes one completed message item; each tool call becomes a completed
+/// function_call item.
+fn render_responses(out: &CutoffOutcome, model: &str, stream: bool) -> Response {
+    let resp_id = format!("resp_{}", uuid::Uuid::new_v4().simple());
+    let created = framer_core::rotation::now_ms() / 1000;
+    let mut output: Vec<serde_json::Value> = Vec::new();
+    let text = &out.assembled.text;
+    if !text.is_empty() {
+        output.push(serde_json::json!({
+            "id": format!("msg_{}", uuid::Uuid::new_v4().simple()),
+            "type": "message",
+            "role": "assistant",
+            "status": "completed",
+            "content": [{"type": "output_text", "text": text}],
+        }));
+    }
+    for tc in &out.assembled.tool_calls {
+        output.push(serde_json::json!({
+            "id": format!("fc_{}", uuid::Uuid::new_v4().simple()),
+            "type": "function_call",
+            "call_id": tc["id"].as_str().unwrap_or(""),
+            "name": tc["name"].as_str().unwrap_or(""),
+            "arguments": tc["arguments"].as_str().unwrap_or(""),
+            "status": "completed",
+        }));
+    }
+    let completion_tokens = text.chars().count() / 4;
+    let usage = serde_json::json!({
+        "input_tokens": 0,
+        "output_tokens": completion_tokens,
+        "total_tokens": completion_tokens,
+    });
+    if !stream {
+        return axum::Json(serde_json::json!({
+            "id": resp_id,
+            "object": "response",
+            "created_at": created,
+            "status": "completed",
+            "model": model,
+            "output": output,
+            "usage": usage,
+            "x-framerize-usage": "estimated",
+        }))
+        .into_response();
+    }
+    let body = responses_frames(out, model);
+    return ([("content-type", "text/event-stream")], body).into_response();
+}
+
+/// The responses-dialect SSE replay: response.created, item added/done per
+/// item, response.completed with usage.
+fn responses_frames(out: &CutoffOutcome, model: &str) -> String {
+    let resp_id = format!("resp_{}", uuid::Uuid::new_v4().simple());
+    let created = framer_core::rotation::now_ms() / 1000;
+    let mut output: Vec<serde_json::Value> = Vec::new();
+    let text = &out.assembled.text;
+    if !text.is_empty() {
+        output.push(serde_json::json!({
+            "id": format!("msg_{}", uuid::Uuid::new_v4().simple()),
+            "type": "message",
+            "role": "assistant",
+            "status": "completed",
+            "content": [{"type": "output_text", "text": text}],
+        }));
+    }
+    for tc in &out.assembled.tool_calls {
+        output.push(serde_json::json!({
+            "id": format!("fc_{}", uuid::Uuid::new_v4().simple()),
+            "type": "function_call",
+            "call_id": tc["id"].as_str().unwrap_or(""),
+            "name": tc["name"].as_str().unwrap_or(""),
+            "arguments": tc["arguments"].as_str().unwrap_or(""),
+            "status": "completed",
+        }));
+    }
+    let completion_tokens = text.chars().count() / 4;
+    let usage = serde_json::json!({
+        "input_tokens": 0,
+        "output_tokens": completion_tokens,
+        "total_tokens": completion_tokens,
+    });
+    let mut body = String::new();
+    body.push_str(&format!(
+        "data: {}\n\n",
+        serde_json::json!({"type": "response.created", "response": {"id": resp_id, "object": "response", "created_at": created, "status": "in_progress", "model": model, "output": []}})
+    ));
+    for (i, item) in output.iter().enumerate() {
+        body.push_str(&format!(
+            "data: {}\n\n",
+            serde_json::json!({"type": "response.output_item.added", "output_index": i, "item": item})
+        ));
+        if item["type"].as_str() == Some("message") {
+            let full = item["content"][0]["text"].as_str().unwrap_or("");
+            body.push_str(&format!(
+                "data: {}\n\n",
+                serde_json::json!({"type": "response.output_text.delta", "output_index": i, "content_index": 0, "delta": full})
+            ));
+        }
+        body.push_str(&format!(
+            "data: {}\n\n",
+            serde_json::json!({"type": "response.output_item.done", "output_index": i, "item": item})
+        ));
+    }
+    body.push_str(&format!(
+        "data: {}\n\n",
+        serde_json::json!({
+            "type": "response.completed",
+            "response": {"id": resp_id, "object": "response", "created_at": created, "status": "completed", "model": model, "output": output, "usage": usage},
+        })
+    ));
+    body
+}
+
 /// One chat.completion.chunk SSE frame.
 fn chat_chunk(id: &str, created: u64, model: &str, delta: serde_json::Value) -> String {
     format!(

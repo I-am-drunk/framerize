@@ -1752,6 +1752,100 @@ pub fn chat_response_to_blocks(body: &Value) -> (Vec<Value>, String, Value) {
 // ---------------------------------------------------------------------------
 
 /// chat.completions request → responses request (for the native chain).
+/// Responses-API request -> chat-completions request (ADR-003): codex
+/// traffic rides the CHAT cutoff chain (the finish cutoff is proven free
+/// there, tool calls included). Items map: message -> message, function_call
+/// -> assistant tool_calls, function_call_output -> tool message, reasoning
+/// dropped; instructions become a leading system message; tools reshape to
+/// the chat function envelope.
+pub fn responses_request_to_chat(body: &Value) -> Result<Value, String> {
+    let mut messages: Vec<Value> = Vec::new();
+    if let Some(instr) = body["instructions"].as_str() {
+        if !instr.is_empty() {
+            messages.push(json!({"role": "system", "content": instr}));
+        }
+    }
+    let input = &body["input"];
+    let items: Vec<Value> = if let Some(s) = input.as_str() {
+        vec![json!({"type": "message", "role": "user", "content": s})]
+    } else {
+        input.as_array().cloned().unwrap_or_default()
+    };
+    for item in items {
+        match item["type"].as_str() {
+            Some("message") | None => {
+                let role = item["role"].as_str().unwrap_or("user");
+                let text = item["content"]
+                    .as_array()
+                    .map(|parts| {
+                        parts
+                            .iter()
+                            .filter_map(|p| p["text"].as_str())
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    })
+                    .or_else(|| item["content"].as_str().map(str::to_string))
+                    .unwrap_or_default();
+                messages.push(json!({"role": role, "content": text}));
+            }
+            Some("function_call") => {
+                messages.push(json!({
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [{
+                        "id": item["call_id"].as_str().unwrap_or(""),
+                        "type": "function",
+                        "function": {
+                            "name": item["name"].as_str().unwrap_or(""),
+                            "arguments": item["arguments"].as_str().unwrap_or(""),
+                        }
+                    }]
+                }));
+            }
+            Some("function_call_output") => {
+                messages.push(json!({
+                    "role": "tool",
+                    "tool_call_id": item["call_id"].as_str().unwrap_or(""),
+                    "content": item["output"].as_str().unwrap_or(""),
+                }));
+            }
+            _ => {} // reasoning and unknown items do not carry to the chat shape
+        }
+    }
+    if messages.is_empty() {
+        return Err("responses request carried no convertible input items".into());
+    }
+    let mut out = json!({
+        "model": body["model"].as_str().unwrap_or(""),
+        "messages": messages,
+    });
+    // Tools reshape: responses {type: function, name, ...} -> chat
+    // {type: function, function: {name, ...}}.
+    if let Some(tools) = body["tools"].as_array() {
+        let chat_tools: Vec<Value> = tools
+            .iter()
+            .filter(|t| t["type"].as_str() == Some("function"))
+            .map(|t| {
+                json!({
+                    "type": "function",
+                    "function": {
+                        "name": t["name"].as_str().unwrap_or(""),
+                        "description": t["description"].as_str().unwrap_or(""),
+                        "parameters": t["parameters"].clone(),
+                    }
+                })
+            })
+            .collect();
+        if !chat_tools.is_empty() {
+            out["tools"] = json!(chat_tools);
+        }
+    }
+    if let Some(mt) = body["max_output_tokens"].as_u64() {
+        out["max_tokens"] = json!(mt);
+    }
+    Ok(out)
+}
+
 pub fn chat_to_responses_request(body: &Value) -> Result<Value, String> {
     if body.get("n").and_then(|n| n.as_u64()).unwrap_or(1) != 1 {
         return Err("n != 1 is not supported on this gateway".into());

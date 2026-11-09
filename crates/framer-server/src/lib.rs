@@ -1041,6 +1041,32 @@ async fn free_complete(
             }
         }
     }
+    // CUTOFF ROUTE for codex (ADR-003): responses-dialect requests convert
+    // down to the chat shape, run the cutoff chain (the finish cutoff
+    // captures text AND tool calls before the settling terminal frame), and
+    // render back. FRAMERIZE_ENGINE_RESPONSES=native is the escape hatch.
+    let cutoff_responses = std::env::var("FRAMERIZE_ENGINE_RESPONSES").map(|v| v != "native").unwrap_or(true);
+    if dialect == ClientDialect::OpenAiResponses
+        && !anthro_family
+        && cutoff_responses
+        && hdr(headers, "x-framerize-account").is_none()
+    {
+        if let Some(remaining) = s.wave.check() {
+            return Err(ApiError::Cooling {
+                retry_after_secs: remaining.as_secs().saturating_add(1),
+            });
+        }
+        match custom::responses_via_cutoff(s.clone(), headers, payload.clone(), wants_stream).await {
+            Ok(resp) => return Ok(resp),
+            Err(e @ ApiError::AccountCooling { .. }) | Err(e @ ApiError::Cooling { .. })
+            | Err(e @ ApiError::ServingCapacity(_)) | Err(e @ ApiError::PoolBusy(_)) => {
+                return Err(e)
+            }
+            Err(e) => {
+                eprintln!("[cutoff] responses chain failed ({e:?}); falling back to the native chain (METERED)");
+            }
+        }
+    }
     if dialect != ClientDialect::AnthropicMessages && !anthro_family {
         return native_complete(s, headers, dialect, payload, wants_stream, include_usage, max_tokens).await;
     }
