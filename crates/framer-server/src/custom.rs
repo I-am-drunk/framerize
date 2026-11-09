@@ -108,6 +108,10 @@ struct CompleteBody {
     /// caps it at 1 for a minimal single-leg proof.
     #[serde(default)]
     max_legs: Option<u32>,
+    /// Per-leg stop override (events). Operator/testing knob: probing the
+    /// end-of-stream cutoff needs a precise stop_after.
+    #[serde(default)]
+    stop: Option<u32>,
 }
 
 fn mock_script() -> Vec<framer_custom::Event> {
@@ -440,6 +444,23 @@ async fn custom_real(
     headers: &HeaderMap,
     body: &CompleteBody,
 ) -> Result<Response, ApiError> {
+    // The prompt route wraps into ChainRequest; the dialect adapters
+    // (ADR-003) build ChainRequest::Chat directly. One failover loop serves
+    // both.
+    let request = framer_custom::ChainRequest::Prompt(body.prompt.clone());
+    custom_real_request(s, headers, request, &body.model, body.max_legs, body.stop).await
+}
+
+/// The account-failover loop over a ChainRequest: prompt route and dialect
+/// adapters share selection, lease, health marking, and settle reversal.
+async fn custom_real_request(
+    s: AppState,
+    headers: &HeaderMap,
+    request: framer_custom::ChainRequest,
+    model_str: &str,
+    max_legs: Option<u32>,
+    stop: Option<u32>,
+) -> Result<Response, ApiError> {
     // ACCOUNT FAILOVER (2026-11-09): a Castle-refused open, a dead scope, or
     // lease/session/bearer trouble is ONE account's condition. The chain
     // used to run on a single picked account and return its error raw, and
@@ -454,7 +475,7 @@ async fn custom_real(
     let mut tried: Vec<String> = Vec::new();
     let mut last: Option<ApiError> = None;
     for _ in 0..3 {
-        match custom_real_once(s.clone(), headers, body, &tried).await {
+        match custom_real_once(s.clone(), headers, request.clone(), model_str, max_legs, stop, &tried).await {
             Ok(resp) => return Ok(resp),
             Err((e, Some(failed))) => {
                 eprintln!(
@@ -478,7 +499,10 @@ async fn custom_real(
 async fn custom_real_once(
     s: AppState,
     headers: &HeaderMap,
-    body: &CompleteBody,
+    request: framer_custom::ChainRequest,
+    model_str: &str,
+    body_max_legs: Option<u32>,
+    body_stop: Option<u32>,
     tried: &[String],
 ) -> Result<Response, (ApiError, Option<String>)> {
     // A caller-pinned account is strict: its failures never hop silently.
@@ -594,7 +618,7 @@ async fn custom_real_once(
     // Strip any caller-supplied provider prefix at the boundary so the
     // envelope always carries the gateway form, whatever T3 sends.
     let model = {
-        let m = body.model.trim();
+        let m = model_str.trim();
         let m = if m.is_empty() { "gpt-4.1" } else { m };
         m.rsplit('/').next().unwrap_or(m).to_string()
     };
@@ -739,7 +763,10 @@ async fn custom_real_once(
         dialect.path().to_string(),
     );
     let mut settings = framer_custom::ChainSettings::default();
-    if let Some(max_legs) = body.max_legs {
+    if let Some(stop) = body_stop {
+        settings.stop = framer_custom::clamped_stop(stop);
+    }
+    if let Some(max_legs) = body_max_legs {
         // Clamp at the route: an unbounded client value would tie one
         // account lease + gate permit for up to CHAIN_TIMEOUT (1h). The
         // engine hard-caps at 64; the route caps at the default 8 (a larger
@@ -772,7 +799,7 @@ async fn custom_real_once(
     );
     let result = tokio::time::timeout(
         ENGINE_TIMEOUT,
-        framer_custom::complete(&mut transport, &body.prompt, &settings),
+        framer_custom::complete_native(&mut transport, request, &settings),
     )
     .await
     .map_err(|_| {
@@ -1224,7 +1251,7 @@ mod tests {
         let resp = custom_complete_handler(
             State(state.clone()),
             HeaderMap::new(),
-            Json(CompleteBody { prompt: "explain X".into(), model: "".into(), max_legs: None }),
+            Json(CompleteBody { prompt: "explain X".into(), model: "".into(), max_legs: None, stop: None }),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::OK);
@@ -1261,7 +1288,7 @@ mod tests {
         let resp = custom_complete_handler(
             State(state),
             HeaderMap::new(),
-            Json(CompleteBody { prompt: "  ".into(), model: "".into(), max_legs: None }),
+            Json(CompleteBody { prompt: "  ".into(), model: "".into(), max_legs: None, stop: None }),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
@@ -1281,7 +1308,7 @@ mod tests {
         let resp = custom_complete_handler(
             State(state),
             headers,
-            Json(CompleteBody { prompt: "explain X".into(), model: "".into(), max_legs: None }),
+            Json(CompleteBody { prompt: "explain X".into(), model: "".into(), max_legs: None, stop: None }),
         )
         .await;
         // Unknown account pin: no eligible account, no page touched.

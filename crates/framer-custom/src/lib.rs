@@ -35,7 +35,7 @@ pub use merge::{assemble, is_near_zero, trim_overlap, ASSEMBLE_WINDOW, MAX_SCAN,
 pub use stop::{clamped_stop, continue_suffix, halt_after_race, length_guarantee_suffix, DEFAULT_STOP, MAX_STOP, MIN_STOP};
 pub use transport::{CustomTransport, Event};
 pub use rung::{run_rung, RungResult, CANCEL_TIMEOUT, LEG_TIMEOUT, MAX_CAPTURE, MAX_SILENT_POLLS, ORACLE_TIMEOUT};
-pub use chain::{complete, last_anchor_chars, Assembled, ChainOutcome, ChainSettings, Leg, CHAIN_TIMEOUT, MAX_ANCHOR_CHARS, MAX_LEGS_HARD, MAX_PROMPT_CHARS, MAX_RETRIES_HARD};
+pub use chain::{complete, complete_native, last_anchor_chars, ChainRequest, Assembled, ChainOutcome, ChainSettings, Leg, CHAIN_TIMEOUT, MAX_ANCHOR_CHARS, MAX_LEGS_HARD, MAX_PROMPT_CHARS, MAX_RETRIES_HARD};
 pub use live::{BridgeStreamTransport, PageStream, StreamBatch, DRAIN_POLL_INTERVAL, DRAIN_TIMEOUT, MAX_BATCH_EVENTS, MAX_EMPTY_DRAINS};
 pub use mock_util::ScriptedTransport;
 pub use format::{dialect_from_path, format_tail, Dialect, FormatTail};
