@@ -83,6 +83,35 @@ cutoff chain through, dialect-shaped SSE out.
 - The chain is a text/item continuation: it cannot resume a server-side
   `previous_response_id` chain — legs carry the context forward themselves.
 
+## Measured meter mechanics (2026-11-09, live probing)
+
+What actually settles a streamed charge — tested against the live ledger:
+
+- **Server-side generation completion settles** — a stream whose generation
+  finished billed even though the client never read the terminal frame
+  (leg evidence: raced=false, terminal unread, ledger −0.113). "Don't read
+  the usage frame" is not a technique; the read side doesn't matter.
+- **Mid-generation abort never settles** — the cutoff chain's foundation
+  (ledger flat across every leg that aborted while the model was still
+  generating).
+- **The runway rule makes the abort deterministic**: leg cap ≥ 3× the stop
+  point means the server is provably still generating when the abort lands.
+- **Refunds reverse a settle exactly** (`/ai/v3/refund/`, verified GRANTED
+  live today) — but the quota is ~2/window/account AND each refund POST
+  burns the same per-device velocity budget as a generation (a refund burst
+  velocity-cooled an account's whole device pool in one probe). Refunds are
+  a backstop, never an engine.
+- **Tool-call turns are irreducible**: the model ends its generation with
+  the tool call → settles; a tool call's JSON can't split across legs. Tool
+  turns pay. The mitigation is the route, not the cutoff: Anthropic models
+  on the messages route measured ~25× cheaper per token than the responses
+  route (haiku essay: 2.06/800tok vs gpt-4.1-mini: 0.50/13tok).
+- **Pricing is per-token** (600-word essay cost 114× a 16-token answer on
+  the same route) — codex's 76K-input-token turns are the pool's main cost
+  driver regardless of route.
+- **Free grants renew monthly** (funds[].renewsAt; surfaced per workspace in
+  the accounts view) — capacity refills itself on a schedule.
+
 ## Non-goals
 
 - No new account provisioning, no new ownership framework, no changes to the
