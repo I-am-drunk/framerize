@@ -131,8 +131,13 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
               let d = null;
               try {
                 const j = JSON.parse(q);
+                // Chat deltas: choices[0].delta.content. Responses deltas:
+                // response.output_text.delta carries .delta. Both count as
+                // one framed line either way (the stop counts lines, not
+                // shapes).
                 const c = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content;
-                if (typeof c === "string") d = c;
+                if (typeof c === "string") { d = c; }
+                else if (typeof j.delta === "string" && typeof j.type === "string" && j.type.indexOf("response.") === 0) { d = j.delta; }
               } catch (e) { d = null; }
               slot.buf += (d === null || d === "") ? "\u0000" : d;
               slot.chunks++;

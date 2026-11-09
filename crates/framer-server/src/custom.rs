@@ -54,6 +54,9 @@ const ENGINE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(540);
 /// Upstream dialect for custom-route legs: the engine emits OpenAI
 /// chat-shaped `{messages: [...]}` payloads, so legs ride /ai/v3/chat/
 /// (OpenRouterChat), the same route freechat's chat-shaped chunks use.
+/// Default upstream dialect for custom legs. Direct-route models (the sol
+/// roster: they exist ONLY on /ai/v3/openai/responses/, metered) switch the
+/// leg to that route instead -- see custom_real.
 const DIALECT: framer_api::proxy::Dialect = framer_api::proxy::Dialect::OpenRouterChat;
 /// Step tag for the envelope: freechat's rule (chain_step) -- real
 /// translation traffic uses step=translate under category=translation,
@@ -167,7 +170,22 @@ struct EnvelopePageStream {
 
 impl EnvelopePageStream {
     fn wrap(&self, payload: &serde_json::Value) -> serde_json::Value {
-        let mut native = payload.clone();
+        // The direct Responses route takes {model, input, stream}, not
+        // {messages}: reshape the engine's chat-shaped leg. The leg's user
+        // content is the whole instruction; input is that string.
+        let mut native = if self.deps.path.contains("responses") {
+            let text = payload["messages"]
+                .as_array()
+                .and_then(|ms| ms.iter().rev().find(|m| m["role"] == "user"))
+                .and_then(|m| m["content"].as_str())
+                .unwrap_or("")
+                .to_string();
+            serde_json::json!({
+                "input": text,
+            })
+        } else {
+            payload.clone()
+        };
         // T3 sends bare chat shape (no stream, no max_tokens, sometimes a
         // prefixed model id). Normalize EVERYTHING the meter keys on here,
         // at the boundary, so no caller shape can silently downgrade a leg
@@ -404,6 +422,17 @@ async fn custom_real(
         let m = if m.is_empty() { "gpt-4.1" } else { m };
         m.rsplit('/').next().unwrap_or(m).to_string()
     };
+    // Direct-route models (gpt-6-sol & kin) exist only on /ai/v3/openai/
+    // responses/ -- the OpenRouter passthroughs never carry them. The custom
+    // route's cutoff makes them free the same way the chat route does: the
+    // meter settles at response.completed, the page abort lands before it.
+    let dialect = if framer_core::convert::model_route(&model)
+        == framer_core::convert::ModelRoute::DirectResponses
+    {
+        framer_api::proxy::Dialect::OpenAiResponses
+    } else {
+        DIALECT
+    };
     let gate_model = framer_core::convert::to_openrouter_id(&model);
     let gate_key = format!("{}:{gate_model}", scope_team.0);
     // Bounded gate wait: native streams keepalives while queued, but custom
@@ -443,8 +472,13 @@ async fn custom_real(
     })?
     .map_err(ApiError::Internal)?;
 
-    let category = std::env::var("FRAMERIZE_FEATURE_CATEGORY")
-        .unwrap_or_else(|_| "translation".to_string());
+    // Direct-route (agent-panel) legs run under agents/message (the route's
+    // own category); the chat passthrough keeps translation/translate.
+    let category = if matches!(dialect, framer_api::proxy::Dialect::OpenAiResponses) {
+        "agents".to_string()
+    } else {
+        std::env::var("FRAMERIZE_FEATURE_CATEGORY").unwrap_or_else(|_| "translation".to_string())
+    };
     let team = scope_team.0.clone();
     let deps = RealDeps {
         account: account.id,
@@ -454,7 +488,7 @@ async fn custom_real(
         category: category.clone(),
         step: chain_step(&category).to_string(),
         chat_session: chat_session.clone(),
-        path: DIALECT.path(),
+        path: dialect.path(),
     };
     // No-spend preflight: the leased scope workspace must show a live
     // balance before any page opens. The daemon's cached CreditSnapshot is
@@ -489,7 +523,7 @@ async fn custom_real(
         account.id,
         bearer,
         team.clone(),
-        DIALECT.path().to_string(),
+        dialect.path().to_string(),
     );
     let mut settings = framer_custom::ChainSettings::default();
     if let Some(max_legs) = body.max_legs {
@@ -512,7 +546,11 @@ async fn custom_real(
             browser: s.browser.clone(),
             team,
         },
-        framer_custom::Dialect::Chat,
+        if matches!(dialect, framer_api::proxy::Dialect::OpenAiResponses) {
+            framer_custom::Dialect::Responses
+        } else {
+            framer_custom::Dialect::Chat
+        },
     );
     eprintln!(
         "[custom-route] req={req_short} stage=open account={} model={model_log}",
