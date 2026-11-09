@@ -152,6 +152,21 @@ pub fn last_anchor_chars(n: usize, text: &str) -> &str {
     &text[start..]
 }
 
+/// What the chain serves (ADR-003): a plain prompt (the /api/custom/complete
+/// path, unchanged) or a full native chat payload — the dialect routes run
+/// the same cutoff engine on the client's own messages.
+pub enum ChainRequest {
+    /// Plain prompt: leg 1 is the length directive + the prompt; continuations
+    /// are the nudge + tail anchor (the proven shape).
+    Prompt(String),
+    /// Native chat payload ({"messages": [...], ...}). Leg 1 prepends the
+    /// length directive as a system message — the client's messages stay
+    /// verbatim. Continuations append the accumulated tail as an assistant
+    /// turn plus the nudge, so the model continues ITS OWN text. Extra keys
+    /// (tools, temperature, ...) ride every leg unchanged.
+    Chat(serde_json::Value),
+}
+
 /// Leg-1 payload: length guarantee FIRST, topic second (instruction-first:
 /// models obey a leading directive more reliably than a trailing one).
 /// Topics over MAX_PROMPT_CHARS are rejected, not truncated (a cut topic
@@ -179,6 +194,46 @@ fn continue_payload(accumulated: &str, anchor_chars: usize) -> serde_json::Value
             {"role": "user", "content": format!("{}{}\n\n{}", stop::continue_suffix(), last_anchor_chars(anchor_chars, accumulated), "")}
         ]
     })
+}
+
+/// Native leg 1: the client's payload verbatim, with the length directive
+/// prepended as a system message (instruction-first; the client's own
+/// messages are never rewritten).
+fn leg1_native(payload: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let mut p = payload.clone();
+    let msgs = payload["messages"]
+        .as_array()
+        .ok_or("chain: native chat payload has no messages array")?;
+    if serde_json::to_string(&p).map(|s| s.len()).unwrap_or(0) > MAX_PROMPT_CHARS {
+        return Err(format!(
+            "chain: native payload over the {MAX_PROMPT_CHARS}-byte cap"
+        ));
+    }
+    let mut new_msgs = vec![serde_json::json!({
+        "role": "system",
+        "content": stop::length_guarantee_suffix(1800, 14),
+    })];
+    new_msgs.extend(msgs.iter().cloned());
+    p["messages"] = serde_json::json!(new_msgs);
+    Ok(p)
+}
+
+/// Native continuation: original messages + the accumulated tail as an
+/// assistant turn + the continue nudge. The model continues its own text;
+/// the client's instructions/tools ride along unchanged.
+fn continue_native(
+    payload: &serde_json::Value,
+    accumulated: &str,
+    anchor_chars: usize,
+) -> serde_json::Value {
+    let mut p = payload.clone();
+    let msgs = payload["messages"].as_array().cloned().unwrap_or_default();
+    let tail = last_anchor_chars(anchor_chars, accumulated);
+    let mut new_msgs = msgs;
+    new_msgs.push(serde_json::json!({"role": "assistant", "content": tail}));
+    new_msgs.push(serde_json::json!({"role": "user", "content": stop::continue_suffix()}));
+    p["messages"] = serde_json::json!(new_msgs);
+    p
 }
 
 /// Per-leg trace line for daemon logs: everything needed to diagnose a
@@ -234,8 +289,24 @@ pub async fn complete<T: CustomTransport>(
     leg1_prompt: &str,
     chain: &ChainSettings,
 ) -> Result<Assembled, String> {
+    complete_native(
+        transport,
+        ChainRequest::Prompt(leg1_prompt.to_string()),
+        chain,
+    )
+    .await
+}
+
+/// The ADR-003 entry: serve a ChainRequest (prompt or native chat payload)
+/// through the cutoff chain. Identical engine; the request shape is the only
+/// difference.
+pub async fn complete_native<T: CustomTransport>(
+    transport: &mut T,
+    request: ChainRequest,
+    chain: &ChainSettings,
+) -> Result<Assembled, String> {
     let cfg = chain.normalize();
-    tokio::time::timeout(cfg.chain_timeout, complete_inner(transport, leg1_prompt, &cfg))
+    tokio::time::timeout(cfg.chain_timeout, complete_inner(transport, &request, &cfg))
         .await
         .map_err(|_| {
             format!(
@@ -248,7 +319,7 @@ pub async fn complete<T: CustomTransport>(
 
 async fn complete_inner<T: CustomTransport>(
     transport: &mut T,
-    leg1_prompt: &str,
+    request: &ChainRequest,
     chain: &ChainSettings,
 ) -> Result<Assembled, String> {
     // Settings arrive normalized (complete() normalizes at the boundary);
@@ -272,10 +343,11 @@ async fn complete_inner<T: CustomTransport>(
 
     let mut leg_index: u32 = 0;
     while leg_index < max_legs {
-        let payload = if leg_index == 0 {
-            leg1_payload(leg1_prompt)?
-        } else {
-            continue_payload(&accumulated, anchor_chars)
+        let payload = match (request, leg_index) {
+            (ChainRequest::Prompt(p), 0) => leg1_payload(p)?,
+            (ChainRequest::Prompt(_), _) => continue_payload(&accumulated, anchor_chars),
+            (ChainRequest::Chat(v), 0) => leg1_native(v)?,
+            (ChainRequest::Chat(v), _) => continue_native(v, &accumulated, anchor_chars),
         };
 
         let before = read_oracle(transport, cfg.oracle_timeout, "before", leg_index).await?;
@@ -618,6 +690,61 @@ mod tests {
         let out = complete(&mut t, "probe", &settings).await.unwrap();
         assert_eq!(out.outcome, ChainOutcome::LegCap);
         assert_eq!(out.legs.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn native_chat_payload_rides_the_chain_verbatim() {
+        // ADR-003 item 1: a native chat payload keeps the client's messages
+        // untouched (directive prepended as a system message), and the
+        // continuation appends the accumulated tail + nudge. Extra keys
+        // (here: a tools array) ride every leg unchanged.
+        let payload = serde_json::json!({
+            "messages": [
+                {"role": "user", "content": "write a poem"}
+            ],
+            "tools": [{"type": "function", "name": "noop"}]
+        });
+        let leg1 = leg1_native(&payload).unwrap();
+        let msgs = leg1["messages"].as_array().unwrap();
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0]["role"], "system");
+        assert!(msgs[0]["content"].as_str().unwrap().contains("words"));
+        assert_eq!(msgs[1]["role"], "user");
+        assert_eq!(msgs[1]["content"], "write a poem");
+        assert_eq!(leg1["tools"][0]["name"], "noop");
+
+        let cont = continue_native(&payload, "roses are red\n", 350);
+        let msgs = cont["messages"].as_array().unwrap();
+        assert_eq!(msgs.len(), 3);
+        assert_eq!(msgs[0]["content"], "write a poem");
+        assert_eq!(msgs[1]["role"], "assistant");
+        assert!(msgs[1]["content"].as_str().unwrap().contains("roses are red"));
+        assert_eq!(msgs[2]["role"], "user");
+        assert!(msgs[2]["content"].as_str().unwrap().contains("Continue"));
+        assert_eq!(cont["tools"][0]["name"], "noop");
+    }
+
+    #[tokio::test]
+    async fn native_chat_payload_runs_end_to_end() {
+        // Scripted growth per leg (same shape as the prompt-path test), so
+        // the chain runs to the leg cap instead of capping on empty growth.
+        let mk = |from: usize| {
+            let mut v = numbered(from, 250);
+            v.push(Event::Done);
+            v
+        };
+        let mut t = ChainMock::new(vec![(mk(0), 10.0), (mk(1000), 10.0)], 10.0);
+        let settings = ChainSettings { max_legs: 2, ..fast_settings() };
+        let payload = serde_json::json!({"messages": [{"role": "user", "content": "probe"}]});
+        let out = complete_native(&mut t, ChainRequest::Chat(payload), &settings)
+            .await
+            .unwrap();
+        assert_eq!(out.outcome, ChainOutcome::LegCap);
+        assert_eq!(out.legs.len(), 2);
+        // Leg 2's request carried leg 1's captured text as the assistant turn.
+        let msgs = t.payloads[1]["messages"].as_array().unwrap();
+        assert_eq!(msgs[1]["role"], "assistant");
+        assert!(!msgs[1]["content"].as_str().unwrap().is_empty());
     }
 
     #[tokio::test]
