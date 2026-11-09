@@ -15,6 +15,11 @@ pub struct AccountsArgs {
 enum AccountCommand {
     /// List saved accounts. Browser residency is shown by pool status.
     List,
+    /// Frame-wise live view: every account with its workspace marks
+    /// (funded/dead/saturated), verdict (active/skipped/unused), up/down to
+    /// select, Enter expands workspaces, d marks for removal, x removes
+    /// marked (profiles kept), r refreshes, q quits.
+    View,
     /// Remove a saved record. Keep its browser profile unless explicitly requested.
     Remove {
         account_id: uuid::Uuid,
@@ -64,6 +69,16 @@ async fn credential_body(options: &Options, path: &str, key: &str) -> Result<Val
 pub async fn run_accounts(args: AccountsArgs) -> Result<(), String> {
     let command = args.command.unwrap_or(AccountCommand::List);
     let listing = matches!(command, AccountCommand::List);
+    if let AccountCommand::View = command {
+        return super::view::run_view(super::view::ViewArgs {
+            options: Options {
+                daemon: args.options.daemon.clone(),
+                json: args.options.json,
+                headers_file: args.options.headers_file.clone(),
+            },
+        })
+        .await;
+    }
     let (method, path, body) = match command {
         AccountCommand::List => (Method::GET, "/api/accounts", None),
         AccountCommand::Remove { account_id, wipe_profile } => (Method::POST, "/api/accounts/remove",
@@ -75,6 +90,9 @@ pub async fn run_accounts(args: AccountsArgs) -> Result<(), String> {
             Some(credential_body(&args.options, &data_file, "email_token").await?)),
         AccountCommand::Import { data_file } => (Method::POST, "/api/accounts/import",
             Some(credential_body(&args.options, &data_file, "session_cookie").await?)),
+        // View returns before this match; the arm is unreachable by
+        // construction (see the early return above).
+        AccountCommand::View => unreachable!("View returns early above"),
     };
     let reply = send_json(&args.options, method, path, body).await?;
     presentation::finish_accounts(reply, args.options.json, listing)

@@ -3,6 +3,7 @@ mod api;
 mod http;
 mod pool;
 mod presentation;
+mod view;
 
 pub use account::{run_accounts, AccountsArgs};
 pub use api::{run_api, ApiArgs};
