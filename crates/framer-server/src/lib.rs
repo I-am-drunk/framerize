@@ -2422,7 +2422,38 @@ async fn accounts_live(State(s): State<AppState>) -> Result<Json<serde_json::Val
             "verdict": verdict,
         }));
     }
-    Ok(Json(serde_json::json!({ "floor": floor, "accounts": out })))
+    // Pool-level capacity at a glance: the question "how much runway is
+    // left?" should never require reading every row. Total across cached
+    // workspace balances + the soonest renewal (when the pool starts
+    // refilling on its own).
+    let mut total_available = 0.0f64;
+    let mut funded_ws = 0u32;
+    let mut dead_ws = 0u32;
+    let mut soonest_renewal: Option<String> = None;
+    for a in &out {
+        for w in a["workspaces"].as_array().cloned().unwrap_or_default() {
+            if let Some(b) = w["balance"].as_f64() {
+                total_available += b;
+                if w["mark"].as_str() == Some("funded") { funded_ws += 1; }
+                if w["mark"].as_str() == Some("dead") { dead_ws += 1; }
+            }
+            if let Some(r) = w["renews_at"].as_str() {
+                if soonest_renewal.as_deref().map(|s| r < s).unwrap_or(true) {
+                    soonest_renewal = Some(r.to_string());
+                }
+            }
+        }
+    }
+    Ok(Json(serde_json::json!({
+        "floor": floor,
+        "accounts": out,
+        "pool": {
+            "total_available": (total_available * 100.0).round() / 100.0,
+            "funded_workspaces": funded_ws,
+            "dead_workspaces": dead_ws,
+            "soonest_renewal": soonest_renewal,
+        },
+    })))
 }
 
 async fn pool_shape(State(s): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
