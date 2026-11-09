@@ -340,9 +340,17 @@ fn sse_response(assembled: &framer_custom::Assembled, req_id: &str) -> Response 
             "legs": assembled.legs.len(),
             "outcome": format!("{:?}", assembled.outcome),
             "total_debit": assembled.total_debit,
+            // Deterministic progress + the compaction input: per-leg captured
+            // chars and an estimated output-token count. The abort lands
+            // BEFORE the usage frame by design, so real token counts never
+            // arrive -- the estimate (chars/4, the standard heuristic) is
+            // marked as such, never presented as metered truth.
+            "estimated_output_tokens": (assembled.text.chars().count() / 4).max(1),
+            "token_estimate": "estimated", // honest marker: never metered truth
             "legs_detail": assembled.legs.iter().map(|l| serde_json::json!({
                 "raced": l.raced, "debited": l.debited,
                 "stop_used": l.stop_used, "debit": l.debit, "events": l.events,
+                "chars": l.text.chars().count(),
             })).collect::<Vec<_>>(),
             "req_id": req_id,
         })

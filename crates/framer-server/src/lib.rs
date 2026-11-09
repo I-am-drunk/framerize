@@ -716,7 +716,21 @@ async fn select_funded_account(
             s.serving_accounts.select_fresh(pool, &tried)?
         };
         let residency = RequestResidency::new(lease_account(s, account.id).await?);
-        let account = current_account(s, account.id).await?;
+        // A cooling account must not 503 the request: fail over to a fresh
+        // account (same as a dead one). The request only errors when every
+        // account in the pool is cooling or dead at once.
+        let account = match current_account(s, account.id).await {
+            Ok(a) => a,
+            Err(ApiError::AccountCooling { .. }) => {
+                eprintln!(
+                    "[select] account {} cooling; failing over",
+                    &account.id.0.to_string()[..8.min(account.id.0.to_string().len())]
+                );
+                tried.push(account.id.0.to_string());
+                continue;
+            }
+            Err(e) => return Err(e),
+        };
         let session = s
             .sessions
             .load(&account.framer_user_id)
@@ -920,6 +934,15 @@ async fn free_complete(
     // Codex "custom" tools (exec, apply_patch, …) ride upstream in an
     // {"input": …} wrapper; the render side unwraps them by name.
     let custom_tools = convert::custom_tool_names(&payload);
+    // Gated models fail FAST, before any account lease or browser burn:
+    // a known plan-gated/blocked model's retries used to mint+post per
+    // attempt, velocity-cooling devices for 600s and 503ing everything else
+    // (the recurring "overloaded" storm). Learned once, then crisp + free.
+    if framer_core::rotation::is_model_gated(&client_model) {
+        return Err(ApiError::InvalidRequest(format!(
+            "model {client_model} is unavailable on your workspaces right now (learned from a live refusal; it retries on its own shortly). Working free models: gpt-4.1, gpt-4.1-mini, kimi-k3, claude-haiku-4.5, gemini-2.5-flash."
+        )));
+    }
     // Honest model routing (2026-10-05, user rule: never substitute silently).
     // gpt-6.x are direct-route models (OpenAI Responses, metered): Codex and
     // other Responses clients pass through natively. Genuinely unavailable
@@ -982,6 +1005,9 @@ async fn free_complete(
     // Client request → faithful Anthropic Messages payload (model normalized).
     let anthro = convert::to_anthropic_request(dialect, &payload).map_err(ApiError::Internal)?;
 
+    // A server-wide wave pause stays fast-fail BY DESIGN (the wave guard's
+    // rechecks must not shorten the window; per-account cooling fails over
+    // to a fresh account instead -- see select_funded_account).
     if let Some(remaining) = s.wave.check() {
         return Err(ApiError::Cooling {
             retry_after_secs: remaining.as_secs().saturating_add(1),
@@ -1184,7 +1210,12 @@ async fn free_complete(
                         }
                         let tail = match r {
                             Ok(Ok(assembled)) => composer.finish(&assembled, &client_model, include_usage),
-                            Ok(Err(e)) => convert::error_frames(dialect, &e),
+                            Ok(Err(e)) => {
+                                if is_plan_gated(&e) || is_guardrail_blocked(&e) {
+                                    framer_core::rotation::mark_model_gated(&client_model);
+                                }
+                                convert::error_frames(dialect, &e)
+                            }
                             Err(je) => vec![convert::ping_frame(dialect), format!(": join error {je}")],
                         };
                         drained.into_iter().chain(tail).collect()
@@ -1370,6 +1401,9 @@ async fn free_complete(
     let result = match result {
         Ok(r) => r,
         Err(e) => {
+            if is_plan_gated(&e) || is_guardrail_blocked(&e) {
+                framer_core::rotation::mark_model_gated(&client_model);
+            }
             let (status, body) = convert::error_json(dialect, &e);
             return Ok(axum::response::IntoResponse::into_response(ShapedApiError(
                 StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
@@ -1404,6 +1438,13 @@ async fn free_complete(
 /// daemon retries there instead of failing the client.
 fn is_plan_gated(e: &str) -> bool {
     e.contains("Upgrade your workspace to use this model") || e.contains("paid_plan_only_model")
+}
+
+/// OpenRouter guardrail blocks ("Model blocked by guardrail", "0 endpoints
+/// ... available"): the workspace's OpenRouter guardrail config, not the
+/// route. Same fast-fail treatment.
+fn is_guardrail_blocked(e: &str) -> bool {
+    e.contains("Model blocked by guardrail") || e.contains("0 endpoints out of")
 }
 
 /// Anthropic-chain result rendered as the Responses shape: one message item
@@ -1499,6 +1540,9 @@ async fn native_complete(
         }
     }
 
+    // A server-wide wave pause stays fast-fail BY DESIGN (the wave guard's
+    // rechecks must not shorten the window; per-account cooling fails over
+    // to a fresh account instead -- see select_funded_account).
     if let Some(remaining) = s.wave.check() {
         return Err(ApiError::Cooling {
             retry_after_secs: remaining.as_secs().saturating_add(1),
@@ -1704,7 +1748,12 @@ async fn native_complete(
                         }
                         let tail = match r {
                             Ok(Ok(assembled)) => composer.take().unwrap().finish(&assembled, include_usage),
-                            Ok(Err(e)) => convert::error_frames(dialect, &e),
+                            Ok(Err(e)) => {
+                                if is_plan_gated(&e) || is_guardrail_blocked(&e) {
+                                    framer_core::rotation::mark_model_gated(&client_model);
+                                }
+                                convert::error_frames(dialect, &e)
+                            }
                             Err(je) => vec![convert::ping_frame(dialect), format!(": join error {je}")],
                         };
                         drained.into_iter().chain(tail).collect()
@@ -1835,6 +1884,9 @@ async fn native_complete(
     let result = match result {
         Ok(r) => r,
         Err(e) => {
+            if is_plan_gated(&e) || is_guardrail_blocked(&e) {
+                framer_core::rotation::mark_model_gated(&client_model);
+            }
             let (status, body) = convert::error_json(dialect, &e);
             return Ok(axum::response::IntoResponse::into_response(ShapedApiError(
                 StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),

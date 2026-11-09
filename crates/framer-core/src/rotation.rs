@@ -139,6 +139,51 @@ pub fn note_live_balance(team: &str, balance: f64) {
     }
 }
 
+/// Gated/blocked models: model slug -> gated-until (unix ms). A plan-gated
+/// or guardrail-blocked model's failure used to burn device velocity (every
+/// retry minted + posted), cooling accounts for 600s and 503ing everything
+/// else -- the recurring "overloaded" storm. Learn it once, then fail fast at
+/// admission with zero burn; the mark expires and re-probes later.
+static GATED: Mutex<Option<HashMap<String, u64>>> = Mutex::new(None);
+/// Gated-model marks live 15 min: Framer's plan gate and OpenRouter's
+/// guardrails change on that scale; short enough to re-probe, long enough to
+/// stop a retry storm.
+pub const GATED_TTL_MS: u64 = 900_000;
+
+/// Normalize any spelling to the gate key: strip provider prefix and any
+/// :suffix (":free", ":online", ...) so "anthropic/claude-opus-5.5" and
+/// "claude-opus-5.5:free" share one entry.
+pub fn model_gate_key(model: &str) -> String {
+    let slug = model.rsplit('/').next().unwrap_or(model);
+    slug.split(':').next().unwrap_or(slug).to_string()
+}
+
+/// Mark a model gated (plan gate or guardrail block).
+pub fn mark_model_gated(model: &str) {
+    let key = model_gate_key(model);
+    let mut g = GATED.lock().unwrap();
+    g.get_or_insert_with(HashMap::new).insert(key, now_ms() + GATED_TTL_MS);
+}
+
+/// Clear the mark (a model that just worked must serve).
+pub fn note_model_ok(model: &str) {
+    let key = model_gate_key(model);
+    if let Some(m) = GATED.lock().unwrap().as_mut() {
+        m.remove(&key);
+    }
+}
+
+/// True while the model is gated-marked.
+pub fn is_model_gated(model: &str) -> bool {
+    let key = model_gate_key(model);
+    GATED.lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|m| m.get(&key).copied())
+        .map(|u| u > now_ms())
+        .unwrap_or(false)
+}
+
 /// Dead-workspace marks: workspace -> dead-until (unix ms). Dead workspaces
 /// are the ones that 402 at dispatch; marking them makes selection instant.
 static DEAD: Mutex<Option<HashMap<String, u64>>> = Mutex::new(None);
