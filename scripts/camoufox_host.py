@@ -1957,6 +1957,13 @@ class Host:
                 if not acc.devices or not acc.devpool_ready or not acc.project:
                     continue
                 now = time.monotonic()
+                # A parked account must not be poked AT ALL: a beat during
+                # the park insta-bans and RE-EXTENDS the park (measured:
+                # parks at 07:40 re-parked at 07:52 the moment they expired,
+                # because beats kept the account hot). The first beat AFTER
+                # expiry is the recovery probe.
+                if getattr(acc, "velocity_hot_until", 0) > now:
+                    continue
                 dev = None
                 for _ in range(len(acc.devices)):
                     d = acc.devices[hb_idx % len(acc.devices)]
