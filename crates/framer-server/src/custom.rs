@@ -1010,6 +1010,19 @@ async fn custom_real_once(
         let m = if m.is_empty() { "gpt-4.1" } else { m };
         m.rsplit('/').next().unwrap_or(m).to_string()
     };
+    // Gated/blocked models fail FAST, before any account burn (the cutoff
+    // path learned this from the native one: the gpt-6-astra churn burned a
+    // page open per account per request). The gate is keyed on the gateway
+    // form the custom route actually sends.
+    let gate_model = framer_core::convert::to_openrouter_id(&model);
+    if framer_core::rotation::is_model_gated(&gate_model) {
+        return Err((
+            ApiError::InvalidRequest(format!(
+                "model {model} is unavailable on your workspaces right now (learned from a live refusal; it retries on its own shortly). Working free models: gpt-4.1, gpt-4.1-mini, kimi-k3, claude-haiku-4.5, gemini-2.5-flash."
+            )),
+            None,
+        ));
+    }
     // Direct-route models (gpt-6-sol & kin) exist only on /ai/v3/openai/
     // responses/ -- the OpenRouter passthroughs never carry them. The custom
     // route's cutoff makes them free the same way the chat route does: the
@@ -1330,8 +1343,23 @@ async fn custom_real_once(
             // custom-open pattern being risk-hot: mark it (custom-only --
             // the account keeps serving other routes) and fail over. A
             // failure after legs opened returns as-is.
-            let retry = if e.contains("leg 1 failed") && e.contains("page stream open failed") {
+            // Mark only a genuine Castle risk refusal. A guardrail 404
+            // ("0 endpoints") or an entitlement 403 is NOT account heat --
+            // marking those blocked FUNDED accounts from the whole cutoff
+            // path for 10min over one gated model (measured live: the
+            // gpt-6-astra churn marked reis+evasion and the route died).
+            let is_castle = e.contains("blocked by our security checks")
+                || e.contains("request_blocked")
+                || e.contains("risk-refused");
+            let retry = if e.contains("leg 1 failed")
+                && e.contains("page stream open failed")
+                && is_castle
+            {
                 mark_open_refused(&account.id.0.to_string());
+                local(&account)
+            } else if e.contains("leg 1 failed") && e.contains("page stream open failed") {
+                // Non-Castle open failure (guardrail/entitlement): account is
+                // fine; fail over without marking.
                 local(&account)
             } else {
                 None
