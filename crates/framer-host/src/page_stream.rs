@@ -129,6 +129,7 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
               const q = t.slice(5).trim();
               if (q === "[DONE]") { try { slot.buf += dec.decode(); } catch (e) {} slot.streamLive = false; slot.done = true; break; }
               let d = null;
+              let fin = null;
               try {
                 const j = JSON.parse(q);
                 // Chat deltas: choices[0].delta.content. Responses deltas:
@@ -138,29 +139,21 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
                 const c = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content;
                 if (typeof c === "string") { d = c; }
                 else if (typeof j.delta === "string" && typeof j.type === "string" && j.type.indexOf("response.") === 0) { d = j.delta; }
+                // THE FINISH CUTOFF (inside the parse block: j is scoped
+                // here). finish_reason is the LAST content line; the
+                // usage/terminal frame is the NEXT one, and the meter
+                // settles on the terminal -- so aborting here captures the
+                // COMPLETE answer at zero settle. Responses dialect
+                // deliberately excluded: a multi-item turn has no safe
+                // per-item cut (that is the ADR-003 item-aware work).
+                const ch = j.choices && j.choices[0];
+                if (ch && typeof ch.finish_reason === "string" && ch.finish_reason) fin = ch.finish_reason;
               } catch (e) { d = null; }
               slot.buf += (d === null || d === "") ? "\u0000" : d;
               slot.chunks++;
               events++;
-              // THE FINISH CUTOFF (2026-11-09, measured): the meter settles
-              // when the terminal/usage frame arrives -- NOT on generation
-              // completion (an early-closed stream settled ~0 with the full
-              // content delivered). The finish_reason delta is the LAST
-              // content line; the terminal is the NEXT one. Aborting here
-              // captures the COMPLETE answer at zero settle, with the event
-              // count as the exact output-token count -- no legs, no
-              // continuation, and tool-call turns work (the call is complete
-              // before the finish line). The stop_after rule stays as the
-              // length backstop behind it.
-              let fin = null;
-              try {
-                const ch = j.choices && j.choices[0];
-                if (ch && typeof ch.finish_reason === "string" && ch.finish_reason) fin = ch.finish_reason;
-                // Responses dialect deliberately NOT cut here: a multi-item
-                // turn (text + tool call) has no safe per-item cut point --
-                // that needs the item-aware work from ADR-003. Chat's
-                // finish_reason is unambiguous (the turn IS over).
-              } catch (e) {}
+              // The finish cutoff or the length backstop ends the leg: the
+              // abort lands before the terminal frame either way.
               if (fin !== null || events >= stopAfter) {
                 try { ctl.abort(); } catch (e) {}
                 try { await reader.cancel(); } catch (e) {}
