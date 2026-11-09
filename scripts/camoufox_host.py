@@ -1591,6 +1591,7 @@ class Host:
 
     def _cool_device(self, acc, dev, account):
         acc.dev_cooling[dev] = time.monotonic() + DEV_COOLDOWN_S
+        acc.last_velocity_ban = time.monotonic()
         # burn the device's outstanding coupons: a banned device's tokens all
         # draw from its drained velocity budget
         for tid in [k for k, v in acc.token_pool.items() if v.get("dev") == dev]:
@@ -2109,6 +2110,18 @@ class Host:
                 attempts = 1 + min(2, len(acc.devices or [None]))
                 r = None
                 for attempt in range(attempts):
+                    # ACCOUNT-SCOPED VELOCITY PARK (2026-11-09): when a fresh
+                    # device insta-bans seconds after another device's ban,
+                    # the budget followed the REQUEST across devices -- it is
+                    # account/IP-scoped upstream, not per-device. While parked,
+                    # fail fast to the account failover instead of burning
+                    # innocent device contexts into 600s cools.
+                    hot_until = getattr(acc, "velocity_hot_until", 0)
+                    if hot_until > time.monotonic():
+                        w = int(hot_until - time.monotonic())
+                        r = {"status": 0, "usage": None,
+                             "body": f"velocity-paused: every device is cooling; retry in {w}s"}
+                        break
                     dev = self._pick_device_sticky(acc) or self._pick_device(acc, account)
                     if dev is None and acc.devices:
                         # Everything cooling/over-budget: WAIT for the soonest
@@ -2189,6 +2202,24 @@ class Host:
                             # 403 (which the server would read as account health).
                             r = {"status": 0, "usage": None,
                                  "body": "velocity-paused: refreshing token; retry in 2s"}
+                            break
+                        # ACCOUNT-SCOPED BAN DETECTION (2026-11-09): a fresh
+                        # device -- this request is its FIRST in the window --
+                        # insta-banning seconds after another device's ban
+                        # means the budget followed the request across
+                        # devices: the velocity budget is account-scoped
+                        # upstream, not per-device (measured live: ce9b4ff3
+                        # cooled 2s after its context first served, right
+                        # behind 621c8639's ban). Cooling the innocent device
+                        # just burns the pool. Park the account, spare the
+                        # device, let the server fail over.
+                        now_v = time.monotonic()
+                        if len(self._request_window(acc, used_dev, now_v)) <= 1 \
+                                and getattr(acc, "last_velocity_ban", 0) > now_v - 10:
+                            acc.velocity_hot_until = now_v + DEV_COOLDOWN_S
+                            trace(f"{account[:8]}: fresh device insta-banned right after another ban — velocity is account-scoped; parking {int(DEV_COOLDOWN_S)}s (devices spared)")
+                            r = {"status": 0, "usage": None,
+                                 "body": f"velocity-paused: every device is cooling; retry in {int(DEV_COOLDOWN_S)}s"}
                             break
                         # velocity ban is per-device (proven): cool this one,
                         # rotate, retry — invisible to the caller.
