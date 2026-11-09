@@ -999,6 +999,49 @@ async fn free_complete(
     // anthro-family models take the anthro chain for EVERY client dialect;
     // the render layer hands the result back in the client's own shape.
     let anthro_family = convert::is_anthropic_model(&client_model);
+    // CUTOFF ROUTE (ADR-003): text-only OpenAI-chat requests run the cutoff
+    // chain -- the finish cutoff / leg aborts never settle the meter --
+    // instead of the native chain that pays per request (measured 2026-11-09:
+    // -0.499 credits for one trivial responses-route call). Requests carrying
+    // tools stay native (a tool call cannot split across legs); on a cutoff
+    // failure the request falls back to the native chain LOUDLY (serving
+    // beats free). FRAMERIZE_ENGINE_CHAT=native is the escape hatch.
+    let cutoff_chat = std::env::var("FRAMERIZE_ENGINE_CHAT").map(|v| v != "native").unwrap_or(true);
+    if dialect == ClientDialect::OpenAiChat
+        && !anthro_family
+        && cutoff_chat
+        && payload.get("tools").is_none()
+        // A caller-pinned account keeps the native path exactly: the pin is
+        // an operator/debug instrument, and the cutoff chain own selection
+        // would silently hop off it.
+        && hdr(headers, "x-framerize-account").is_none()
+    {
+        // IDENTICAL admission contract as the native path (the endpoint tests
+        // pin it): a wave pause and an all-cooling pool reject with the same
+        // error shapes and the same I/O budget BEFORE any chain work.
+        if let Some(remaining) = s.wave.check() {
+            return Err(ApiError::Cooling {
+                retry_after_secs: remaining.as_secs().saturating_add(1),
+            });
+        }
+        // All-cooling rejects through the chain own selection (select_fresh
+        // -> pick_ready -> AccountCooling) with the same error shape and the
+        // same one-read I/O budget the endpoint tests pin.
+        match custom::chat_via_cutoff(s.clone(), headers, payload.clone(), wants_stream, include_usage).await {
+            Ok(resp) => return Ok(resp),
+            // Admission rejections (cooling/wave/pool-exhausted) are
+            // deterministic and identical on the native path: return them
+            // as-is (the endpoint tests pin the shape AND the one-read I/O
+            // budget -- a fallback would double the reads).
+            Err(e @ ApiError::AccountCooling { .. }) | Err(e @ ApiError::Cooling { .. })
+            | Err(e @ ApiError::ServingCapacity(_)) | Err(e @ ApiError::PoolBusy(_)) => {
+                return Err(e)
+            }
+            Err(e) => {
+                eprintln!("[cutoff] chat chain failed ({e:?}); falling back to the native chain (METERED)");
+            }
+        }
+    }
     if dialect != ClientDialect::AnthropicMessages && !anthro_family {
         return native_complete(s, headers, dialect, payload, wants_stream, include_usage, max_tokens).await;
     }

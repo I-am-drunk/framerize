@@ -27,7 +27,7 @@
 //! envelope before open_stream. Gate (per workspace x model), residency
 //! observation, and account-health recording all mirror native_complete.
 
-use super::{current_account, hdr, pick_scope, record_account_health, stable_session, ApiError, AppState};
+use super::{current_account, hdr, pick_funded_scope, record_account_health, stable_session, ApiError, AppState};
 use super::pool_control::{lease_account, RequestResidency};
 use async_trait::async_trait;
 use axum::extract::State;
@@ -439,6 +439,16 @@ fn short_id(id: &AccountId) -> String {
     id.0.to_string()[..8.min(id.0.to_string().len())].to_string()
 }
 
+/// What a successful chain run produced -- the parts every renderer needs.
+/// The prompt route renders the custom SSE frame; the dialect adapters
+/// (ADR-003) render their own shapes from the same parts.
+pub(super) struct CutoffOutcome {
+    pub assembled: framer_custom::Assembled,
+    pub req_id: String,
+    pub chat_session: String,
+    pub refunded: u32,
+}
+
 async fn custom_real(
     s: AppState,
     headers: &HeaderMap,
@@ -461,6 +471,27 @@ async fn custom_real_request(
     max_legs: Option<u32>,
     stop: Option<u32>,
 ) -> Result<Response, ApiError> {
+    let out = cutoff_run(s, headers, request, model_str, max_legs, stop).await?;
+    let mut resp = sse_response(&out.assembled, &out.req_id, out.refunded);
+    resp.headers_mut().insert(
+        "x-framerize-session",
+        out.chat_session
+            .parse()
+            .unwrap_or(axum::http::HeaderValue::from_static("")),
+    );
+    Ok(resp)
+}
+
+/// Run the cutoff chain with account failover; return the raw parts for
+/// whatever renderer the caller speaks (custom SSE frame or a dialect).
+pub(super) async fn cutoff_run(
+    s: AppState,
+    headers: &HeaderMap,
+    request: framer_custom::ChainRequest,
+    model_str: &str,
+    max_legs: Option<u32>,
+    stop: Option<u32>,
+) -> Result<CutoffOutcome, ApiError> {
     // ACCOUNT FAILOVER (2026-11-09): a Castle-refused open, a dead scope, or
     // lease/session/bearer trouble is ONE account's condition. The chain
     // used to run on a single picked account and return its error raw, and
@@ -476,7 +507,7 @@ async fn custom_real_request(
     let mut last: Option<ApiError> = None;
     for _ in 0..3 {
         match custom_real_once(s.clone(), headers, request.clone(), model_str, max_legs, stop, &tried).await {
-            Ok(resp) => return Ok(resp),
+            Ok(out) => return Ok(out),
             Err((e, Some(failed))) => {
                 eprintln!(
                     "[custom-route] account-local failure on {}; failing over to a fresh account",
@@ -496,6 +527,181 @@ async fn custom_real_request(
 /// One account's attempt. The error tuple carries `Some(account_id)` when
 /// the failure is local to that account (safe to fail over) and `None` when
 /// it is request- or server-wide (return as-is).
+/// ADR-003: serve a text-only chat-completions request through the cutoff
+/// chain (the meter never settles) and render the chat dialect. Tools stay
+/// on the native chain -- a tool call cannot split across legs -- the
+/// dispatcher guarantees a tools-free payload here.
+/// The admission contract every route shares (the endpoint tests pin it):
+/// wave pause -> Cooling; all-cooling pool -> AccountCooling with the
+/// soonest recovery; one state read, zero browser/session I/O. The chain's
+/// own selection repeats these per attempt; admission exists so a STREAMING
+/// caller gets the error as a response, not a stream that dies silently.
+async fn cutoff_admit(s: &AppState) -> Result<(), ApiError> {
+    if let Some(remaining) = s.wave.check() {
+        return Err(ApiError::Cooling {
+            retry_after_secs: remaining.as_secs().saturating_add(1),
+        });
+    }
+    let pool = s.state.list().await.map_err(ApiError::Internal)?;
+    let now = framer_core::rotation::now_ms();
+    if !pool.iter().any(|a| a.is_available_at(now)) {
+        let until = pool
+            .iter()
+            .filter(|a| a.is_eligible())
+            .filter_map(|a| a.cooling_until_ms.filter(|u| *u > now))
+            .min();
+        if let Some(until) = until {
+            return Err(ApiError::AccountCooling {
+                retry_after_secs: until.saturating_sub(now).div_ceil(1000).max(1),
+            });
+        }
+    }
+    Ok(())
+}
+
+pub(super) async fn chat_via_cutoff(
+    s: AppState,
+    headers: &HeaderMap,
+    payload: serde_json::Value,
+    wants_stream: bool,
+    include_usage: bool,
+) -> Result<Response, ApiError> {
+    let model = payload["model"].as_str().unwrap_or("gpt-4.1").to_string();
+    let prompt_chars: usize = payload["messages"]
+        .as_array()
+        .map(|ms| ms.iter().map(|m| m["content"].as_str().map(|c| c.len()).unwrap_or(0)).sum())
+        .unwrap_or(0);
+    if !wants_stream {
+        let out =
+            cutoff_run(s, headers, framer_custom::ChainRequest::Chat(payload), &model, None, None)
+                .await?;
+        return Ok(chat_completion_json(&out, &model, include_usage, prompt_chars));
+    }
+    // Admission BEFORE the stream opens: a cooling/wave rejection must be
+    // the 503 response, not a stream that dies after the headers (the
+    // endpoint tests pin that contract).
+    cutoff_admit(&s).await?;
+    // Streaming: the chain runs in a task; the SSE stream pings every 8s of
+    // silence (clients time out silent sockets), then replays the answer as
+    // chunk deltas and ends. Buffered chain, replayed stream -- the meter is
+    // never settled either way.
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<CutoffOutcome, ApiError>>(1);
+    let model2 = model.clone();
+    let headers2 = headers.clone();
+    tokio::spawn(async move {
+        let out =
+            cutoff_run(s, &headers2, framer_custom::ChainRequest::Chat(payload), &model2, None, None)
+                .await;
+        let _ = tx.send(out).await;
+    });
+    let id = format!("chatcmpl-{}", uuid::Uuid::new_v4().simple());
+    let created = framer_core::rotation::now_ms() / 1000;
+    let mut frames: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+    let stream = futures::stream::unfold(
+        (rx, false, frames),
+        move |(mut rx, mut done, mut frames)| {
+            let id = id.clone();
+            let model = model.clone();
+            async move {
+                if done {
+                    return None;
+                }
+                if let Some(frame) = frames.pop_front() {
+                    return Some((Ok::<_, std::convert::Infallible>(frame), (rx, done, frames)));
+                }
+                match tokio::time::timeout(std::time::Duration::from_secs(8), rx.recv()).await {
+                    Ok(Some(Ok(out))) => {
+                        let answer = out.assembled.text.clone();
+                        let completion_tokens = answer.chars().count() / 4;
+                        let prompt_tokens = prompt_chars / 4;
+                        frames.push_back(chat_chunk(&id, created, &model, serde_json::json!({"role": "assistant"})));
+                        let chars: Vec<char> = answer.chars().collect();
+                        for piece in chars.chunks(400) {
+                            let piece: String = piece.iter().collect();
+                            frames.push_back(chat_chunk(&id, created, &model, serde_json::json!({"content": piece})));
+                        }
+                        let mut finchunk = serde_json::json!({"id": id, "object": "chat.completion.chunk", "created": created, "model": model, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]});
+                        if include_usage {
+                            finchunk["usage"] = serde_json::json!({
+                                "prompt_tokens": prompt_tokens,
+                                "completion_tokens": completion_tokens,
+                                "total_tokens": prompt_tokens + completion_tokens,
+                            });
+                            finchunk["x-framerize-usage"] = serde_json::json!("estimated");
+                        }
+                        frames.push_back(format!("data: {}\n\n", finchunk));
+                        frames.push_back("data: [DONE]\n\n".to_string());
+                        done = false; // stays false until frames drain; flip below
+                        // pop the first frame now; mark done when frames empty
+                        let f = frames.pop_front().unwrap();
+                        let d = frames.is_empty();
+                        Some((Ok(f), (rx, d, frames)))
+                    }
+                    Ok(Some(Err(e))) => {
+                        done = true;
+                        let frame = format!(
+                            "data: {}\n\ndata: [DONE]\n\n",
+                            serde_json::json!({"error": {"message": format!("{e:?}"), "type": "api_error"}})
+                        );
+                        Some((Ok(frame), (rx, done, frames)))
+                    }
+                    Ok(None) => None,
+                    Err(_) => Some((Ok(": ping\n\n".to_string()), (rx, done, frames))),
+                }
+            }
+        },
+    );
+    let mut resp = axum::response::Response::new(axum::body::Body::from_stream(stream));
+    resp.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("text/event-stream"),
+    );
+    Ok(resp)
+}
+
+/// One chat.completion.chunk SSE frame.
+fn chat_chunk(id: &str, created: u64, model: &str, delta: serde_json::Value) -> String {
+    format!(
+        "data: {}\n\n",
+        serde_json::json!({
+            "id": id, "object": "chat.completion.chunk", "created": created, "model": model,
+            "choices": [{"index": 0, "delta": delta, "finish_reason": null}],
+        })
+    )
+}
+
+/// Buffered chat.completion render of a chain outcome.
+fn chat_completion_json(
+    out: &CutoffOutcome,
+    model: &str,
+    include_usage: bool,
+    prompt_chars: usize,
+) -> Response {
+    let text = &out.assembled.text;
+    let completion_tokens = text.chars().count() / 4;
+    let prompt_tokens = prompt_chars / 4;
+    let mut body = serde_json::json!({
+        "id": format!("chatcmpl-{}", uuid::Uuid::new_v4().simple()),
+        "object": "chat.completion",
+        "created": framer_core::rotation::now_ms() / 1000,
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": text},
+            "finish_reason": "stop",
+        }],
+    });
+    if include_usage {
+        body["usage"] = serde_json::json!({
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
+        });
+        body["x-framerize-usage"] = serde_json::Value::String("estimated".into());
+    }
+    axum::Json(body).into_response()
+}
+
 async fn custom_real_once(
     s: AppState,
     headers: &HeaderMap,
@@ -504,7 +710,7 @@ async fn custom_real_once(
     body_max_legs: Option<u32>,
     body_stop: Option<u32>,
     tried: &[String],
-) -> Result<Response, (ApiError, Option<String>)> {
+) -> Result<CutoffOutcome, (ApiError, Option<String>)> {
     // A caller-pinned account is strict: its failures never hop silently.
     let pinned = hdr(headers, "x-framerize-account").is_some();
     let local = |account: &framer_core::account::ManagedAccount| -> Option<String> {
@@ -910,14 +1116,12 @@ async fn custom_real_once(
                 assembled.outcome,
                 chat_session,
             );
-            let mut resp = sse_response(&assembled, &req_id, refunded);
-            resp.headers_mut().insert(
-                "x-framerize-session",
-                chat_session
-                    .parse()
-                    .unwrap_or(axum::http::HeaderValue::from_static("")),
-            );
-            Ok(resp)
+            Ok(CutoffOutcome {
+                assembled,
+                req_id,
+                chat_session,
+                refunded,
+            })
         }
         Err(e) => {
             eprintln!("[custom-route] req={} account={} model={} FAILED: {}",
