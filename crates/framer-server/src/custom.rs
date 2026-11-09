@@ -1119,7 +1119,7 @@ mod tests {
             // Fixture live balance: comfortably above the preflight floor so
             // the no-spend gate passes and legs run.
             Box::pin(async move {
-                Ok(CreditSnapshot { available: 500.0, funds: 1, grants: 1, allocated: 500.0 })
+                Ok(CreditSnapshot { available: 500.0, funds: 1, grants: 1, allocated: 500.0 , renews_at: None})
             })
         }
         denied!(claim_workspace_grant<'b>(_session: &'b Session) -> Result<bool, String>);

@@ -136,6 +136,26 @@ pub fn cached_live_balance(team: &str) -> Option<f64> {
 /// dead-marks the workspace for DEAD_TTL_MS: dead workspaces are skipped
 /// without a fresh read (fast next time), and the mark clears the moment a
 /// positive balance arrives (a credited workspace returns by itself).
+/// Renewal dates per team (ISO strings from funds[].renewsAt): a drained
+/// workspace is a date, not a death. Fed by the same live reads that feed
+/// the balance cache; surfaced in the accounts view.
+static RENEWALS: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
+
+pub fn note_live_renewal(team: &str, renews_at: Option<String>) {
+    if let Some(date) = renews_at {
+        if let Ok(mut g) = RENEWALS.lock() {
+            g.get_or_insert_with(HashMap::new).insert(team.to_string(), date);
+        }
+    }
+}
+
+pub fn cached_renewal(team: &str) -> Option<String> {
+    RENEWALS
+        .lock()
+        .ok()
+        .and_then(|g| g.as_ref()?.get(team).cloned())
+}
+
 pub fn note_live_balance(team: &str, balance: f64) {
     let mut g = LIVE_BAL.lock().unwrap();
     g.get_or_insert_with(HashMap::new)

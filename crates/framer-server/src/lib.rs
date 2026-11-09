@@ -652,6 +652,7 @@ async fn pick_funded_scope(
             None => match s.client.usage(session, &sc.team).await {
                 Ok(snap) => {
                     framer_core::rotation::note_live_balance(&team, snap.available);
+                    framer_core::rotation::note_live_renewal(&team, snap.renews_at.clone());
                     Some(snap.available)
                 }
                 Err(_) => None,
@@ -2354,6 +2355,7 @@ async fn accounts_live(State(s): State<AppState>) -> Result<Json<serde_json::Val
                 if let Some(sess) = sess {
                     if let Ok(snap) = client.usage(&sess, &framer_core::ids::TeamId(team.clone())).await {
                         framer_core::rotation::note_live_balance(&team2, snap.available);
+                        framer_core::rotation::note_live_renewal(&team2, snap.renews_at.clone());
                     }
                 }
             }
@@ -2390,6 +2392,10 @@ async fn accounts_live(State(s): State<AppState>) -> Result<Json<serde_json::Val
                 "balance": balance,
                 "source": source,
                 "mark": mark,
+                // A drained workspace refills on this date (free grants renew
+                // monthly) -- visible so "when does capacity return" is a
+                // lookup, not a guess.
+                "renews_at": framer_core::rotation::cached_renewal(&team),
             }));
         }
         let now = framer_core::rotation::now_ms();
@@ -2442,6 +2448,7 @@ async fn pool_shape(State(s): State<AppState>) -> Result<Json<serde_json::Value>
         .map(|(team, accounts)| {
             serde_json::json!({
                 "team": team,
+                "renews_at": framer_core::rotation::cached_renewal(team),
                 "accounts": accounts.iter().map(|a| {
                     serde_json::json!({
                         "account_id": a.id,

@@ -404,7 +404,7 @@ impl FramerClient for Ports {
     }
     fn usage<'s, 'b, 'c, 'a>(&'s self, _session: &'b Session, _team: &'c TeamId) -> BoxFuture<'a, Result<CreditSnapshot, String>>
     where 's: 'a, 'b: 'a, 'c: 'a, Self: 'a {
-        Box::pin(async { Ok(CreditSnapshot { available: 1000.0, funds: 1, grants: 1, allocated: 1000.0 }) })
+        Box::pin(async { Ok(CreditSnapshot { available: 1000.0, funds: 1, grants: 1, allocated: 1000.0 , renews_at: None}) })
     }
 }
 
@@ -730,7 +730,7 @@ async fn typed_pipeline_cleanup_fences_only_the_held_account() {
     activated(&state, 1).await;
     activated(&state, 2).await;
     ports.records.lock().unwrap()[0].credit = Some(CreditSnapshot {
-        available: 1000.0, funds: 1, grants: 1, allocated: 1000.0,
+        available: 1000.0, funds: 1, grants: 1, allocated: 1000.0, renews_at: None,
     });
     let before = records(&ports);
     *ports.inference_error.lock().unwrap() =
@@ -753,7 +753,7 @@ async fn typed_pipeline_store_and_unrelated_errors_do_not_fence() {
         let (state, ports) = fixture(1, 1);
         activated(&state, 1).await;
         ports.records.lock().unwrap()[0].credit = Some(CreditSnapshot {
-            available: 1000.0, funds: 1, grants: 1, allocated: 1000.0,
+            available: 1000.0, funds: 1, grants: 1, allocated: 1000.0, renews_at: None,
         });
         let before = records(&ports);
         let local = "account browser cleanup is unconfirmed; retry after cleanup";

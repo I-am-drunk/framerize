@@ -224,7 +224,7 @@ pub async fn admit(
     };
 
     account.current_team = Some(fresh.team.clone());
-    account.credit = Some(fresh.snapshot);
+    account.credit = Some(fresh.snapshot.clone());
     deps.state.upsert(account).await.map_err(CoreError::Store)?;
     Ok(fresh.team.clone())
 }
@@ -238,7 +238,7 @@ mod tests {
     fn wc(team: &str, available: f64) -> WorkspaceCredit {
         WorkspaceCredit {
             team: TeamId(team.to_string()),
-            snapshot: CreditSnapshot { available, funds: 1, grants: 1, allocated: available },
+            snapshot: CreditSnapshot { available, funds: 1, grants: 1, allocated: available, renews_at: None },
         }
     }
 

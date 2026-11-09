@@ -93,7 +93,7 @@ impl FramerClient for FixturePorts {
             if !self.import { self.unexpected("client"); }
             self.client_calls.fetch_add(1, Ordering::SeqCst);
             assert_eq!(team.0, "team-2");
-            Ok(CreditSnapshot { available: 100.0, funds: 1, grants: 1, allocated: 100.0 })
+            Ok(CreditSnapshot { available: 100.0, funds: 1, grants: 1, allocated: 100.0 , renews_at: None})
         })
     }
 

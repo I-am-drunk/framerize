@@ -57,11 +57,22 @@ pub async fn usage(
         })
         .unwrap_or(0.0);
 
+    // Soonest renewal across the funds (ISO strings sort chronologically).
+    let renews_at: Option<String> = v["funds"]
+        .as_array()
+        .map(|funds| {
+            funds
+                .iter()
+                .filter_map(|f| f["renewsAt"].as_str().map(str::to_string))
+                .min()
+        })
+        .unwrap_or(None);
     Ok(CreditSnapshot {
         available: v["availableCredits"].as_f64().unwrap_or(0.0),
         funds: v["funds"].as_array().map(|a| a.len() as u32).unwrap_or(0),
         grants,
         allocated,
+        renews_at,
     })
 }
 

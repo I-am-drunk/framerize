@@ -10,7 +10,7 @@ pub struct Workspace {
 
 /// A point-in-time read of a team's credit ledger
 /// (GET /web/teams/{teamId}/ai-credits, or the X-Framer-AI-Usage response header).
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreditSnapshot {
     pub available: f64,
     /// Number of non-expired funds in the ledger.
@@ -25,6 +25,13 @@ pub struct CreditSnapshot {
     /// opposed to `available` which is what is left after consumption.
     #[serde(default)]
     pub allocated: f64,
+    /// Soonest fund renewal (ISO-8601 from funds[].renewsAt). Free grants
+    /// REFILL monthly (observed 2026-11-09: a drained workspace carried
+    /// renewsAt 2026-11-29) -- a dead workspace is a date, not a death.
+    /// Surfaced in the accounts view so "when does capacity come back" is a
+    /// lookup, not a guess.
+    #[serde(default)]
+    pub renews_at: Option<String>,
 }
 
 impl CreditSnapshot {
