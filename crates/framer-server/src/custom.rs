@@ -168,8 +168,29 @@ struct EnvelopePageStream {
     team: String,
 }
 
+/// RUNWAY RULE (2026-11-09): the in-page abort is deterministic only while
+/// the server is still generating when it lands. Generation ends at the
+/// upstream token cap (or a model early-stop). One SSE data line carries AT
+/// MOST one token of content -- empty lines count as stop events too -- so
+/// the stop fires at <= stop_after GENERATED tokens. Requiring the cap to
+/// be at least RUNWAY x stop_after guarantees the stream is mid-generation
+/// when ctl.abort() fires, no matter how fast the model is: the race cannot
+/// be lost to speed. The only residual race is a model early-stop below
+/// stop_after (a complete short answer); the per-leg raced flag + the
+/// ledger guard still catch that, and RED ALERT stops the chain on any
+/// settle. The cap costs nothing: the abort means the runway tokens are
+/// never generated.
+const LEG_CAP_RUNWAY: u64 = 3;
+/// Bound the worst-case settle if a leg ever races anyway.
+const LEG_CAP_MAX: u64 = 16_000;
+
+fn leg_cap_with_runway(caller: Option<u64>, stop_after: u32) -> u64 {
+    let floor = (stop_after as u64).saturating_mul(LEG_CAP_RUNWAY).max(64);
+    caller.unwrap_or(4_000).max(floor).min(LEG_CAP_MAX)
+}
+
 impl EnvelopePageStream {
-    fn wrap(&self, payload: &serde_json::Value) -> serde_json::Value {
+    fn wrap(&self, payload: &serde_json::Value, stop_after: u32) -> serde_json::Value {
         // The direct Responses route takes {model, input, stream}, not
         // {messages}: reshape the engine's chat-shaped leg. The leg's user
         // content is the whole instruction; input is that string.
@@ -197,15 +218,17 @@ impl EnvelopePageStream {
         native["model"] = serde_json::Value::String(model);
         // Token cap name per route: the direct Responses route takes
         // max_output_tokens (and 400s "Unknown parameter: 'max_tokens'");
-        // the chat route takes max_tokens.
-        if self.deps.path.contains("responses") {
-            if native.get("max_output_tokens").and_then(|v| v.as_u64()).is_none() {
-                native["max_output_tokens"] =
-                    serde_json::Value::Number(serde_json::Number::from(4000));
-            }
-        } else if native.get("max_tokens").and_then(|v| v.as_u64()).is_none() {
-            native["max_tokens"] = serde_json::Value::Number(serde_json::Number::from(4000));
-        }
+        // the chat route takes max_tokens. Either way the cap obeys the
+        // RUNWAY RULE (leg_cap_with_runway): never below 3x stop_after, so a
+        // fast model cannot reach the terminal before the in-page abort.
+        let cap_key = if self.deps.path.contains("responses") {
+            "max_output_tokens"
+        } else {
+            "max_tokens"
+        };
+        let caller_cap = native.get(cap_key).and_then(|v| v.as_u64());
+        native[cap_key] =
+            serde_json::Value::Number(serde_json::Number::from(leg_cap_with_runway(caller_cap, stop_after)));
         // STREAMING keeps the leg on the metered path the page abort guards:
         // the stop fires mid-stream before the usage/terminal frame, so the
         // leg never settles. stream:false legs bill at dispatch (the meter
@@ -238,7 +261,7 @@ impl framer_custom::PageStream for EnvelopePageStream {
         dialect: framer_custom::Dialect,
         stop_after: u32,
     ) -> Result<String, String> {
-        let body = self.wrap(payload);
+        let body = self.wrap(payload, stop_after);
         match self.inner.open_stream(&body, dialect, stop_after).await {
             Err(e) if Self::is_unauthorized(&e) => {
                 // One retry with a fresh JWT (mirrors forward): evict the
@@ -269,7 +292,7 @@ impl framer_custom::PageStream for EnvelopePageStream {
                     self.team.clone(),
                     self.deps.path.to_string(),
                 );
-                let body = self.wrap(payload);
+                let body = self.wrap(payload, stop_after);
                 self.inner.open_stream(&body, dialect, stop_after).await
             }
             other => other,
@@ -646,6 +669,25 @@ async fn custom_real(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn leg_cap_runway_guarantees_mid_generation_abort() {
+        // Small stops keep the 4000 default.
+        assert_eq!(leg_cap_with_runway(None, 100), 4_000);
+        // A big stop_after raises the cap to 3x -- the server is still
+        // generating when the abort fires at stop_after events.
+        assert_eq!(leg_cap_with_runway(None, 2_000), 6_000);
+        // A caller's small cap can never sit below the runway floor: that
+        // was the bill-at-cap race (terminal beats the abort by design).
+        assert_eq!(leg_cap_with_runway(Some(50), 200), 600);
+        // Caller caps above the floor pass through.
+        assert_eq!(leg_cap_with_runway(Some(8_000), 100), 8_000);
+        // The worst-case settle stays bounded.
+        assert_eq!(leg_cap_with_runway(None, 8_000), LEG_CAP_MAX);
+        // Degenerate stops still get a sane cap.
+        assert_eq!(leg_cap_with_runway(Some(1), 1), 64);
+    }
+
     use framer_core::account::{AccountState, ManagedAccount};
     use framer_core::ids::{FramerUserId, ProjectId, TeamId};
     use framer_core::port::{CastleToken, ChainConfig, SessionStore, StateStore, WorkspaceSpec};
