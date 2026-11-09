@@ -165,6 +165,17 @@ pub fn pick_at(pool: &[ManagedAccount], now: u64) -> Option<&ManagedAccount> {
         .filter(|a| account_might_bill(a))
         .cloned()
         .collect();
+    // Prove the exclusion in the daemon log: a known-dead account dropping
+    // out of the candidate set is exactly the behavior the operator asked
+    // for ("exclude it from the pool count").
+    for a in &available {
+        if !account_might_bill(a) {
+            eprintln!(
+                "[rotation] excluding account {} (all workspaces known-empty)",
+                &a.id.0.to_string()[..8.min(a.id.0.to_string().len())]
+            );
+        }
+    }
     let available = if billable.is_empty() { available } else { billable };
 
     // Workspace-saturation steering: skip accounts whose team is currently

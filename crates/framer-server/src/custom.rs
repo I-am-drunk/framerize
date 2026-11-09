@@ -346,6 +346,17 @@ async fn custom_real(
     let account = s
         .serving_accounts
         .select(pool, hdr(headers, "x-framerize-account").as_deref())?;
+    // Same exclusion the free paths get: known-dead accounts (all workspaces
+    // empty per the live ledger cache) never serve a leg.
+    if !framer_core::rotation::account_might_bill(&account) {
+        eprintln!(
+            "[custom-route] req={req_short} account {} skipped (no funded workspace)",
+            short_id(&account.id)
+        );
+        return Err(ApiError::ServingCapacity(
+            "no funded workspace on the selected account; pick another or credit one".into(),
+        ));
+    }
     eprintln!("[custom-route] req={req_short} stage=lease account={}", short_id(&account.id));
     let residency = RequestResidency::new(
         tokio::time::timeout(STAGE_TIMEOUT, lease_account(&s, account.id))

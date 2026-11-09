@@ -689,6 +689,50 @@ async fn pick_funded_scope(
     Ok(funded[start].clone())
 }
 
+/// Select an account and give it a FUNDED workspace, failing over to fresh
+/// accounts when one has none. Before this, every route selected first and
+/// checked funding after: a dead account (all workspaces empty) surfaced a
+/// 503 to the client ("account X has no funded workspace") instead of just
+/// routing around it. Now the dead account is logged + skipped, and the
+/// request lands on a funded one. Max 3 account attempts per request.
+async fn select_funded_account(
+    s: &AppState,
+    account_hdr: Option<String>,
+) -> Result<(ManagedAccount, RequestResidency, framer_core::port::Session, framer_core::account::WorkspaceScope), ApiError> {
+    let mut tried: Vec<String> = Vec::new();
+    for _ in 0..3 {
+        let pool = s.state.list().await.map_err(ApiError::Internal)?;
+        let account = if tried.is_empty() {
+            s.serving_accounts.select(pool, account_hdr.as_deref())?
+        } else {
+            s.serving_accounts.select_fresh(pool, &tried)?
+        };
+        let residency = RequestResidency::new(lease_account(s, account.id).await?);
+        let account = current_account(s, account.id).await?;
+        let session = s
+            .sessions
+            .load(&account.framer_user_id)
+            .await
+            .map_err(ApiError::Internal)?
+            .ok_or_else(|| ApiError::Internal("account has no session".into()))?;
+        match pick_funded_scope(s, &account, &session).await {
+            Ok(scope) => return Ok((account, residency, session, scope)),
+            Err(e) => {
+                eprintln!(
+                    "[select] account {} has no funded workspace; failing over ({})",
+                    &account.id.0.to_string()[..8.min(account.id.0.to_string().len())],
+"(dead workspace)"
+                );
+                tried.push(account.id.0.to_string());
+                continue;
+            }
+        }
+    }
+    Err(ApiError::ServingCapacity(
+        "no account has a funded workspace right now (credit one or drop the dead ones from the pool)".into(),
+    ))
+}
+
 /// Free mode, ANY client dialect, LOSSLESS: convert the client's request to
 /// Anthropic Messages shape with full fidelity (tools, system, tool_choice,
 /// content blocks — convert::to_anthropic_request), run the unmetered
@@ -929,20 +973,11 @@ async fn free_complete(
             retry_after_secs: remaining.as_secs().saturating_add(1),
         });
     }
-    let pool = s.state.list().await.map_err(ApiError::Internal)?;
-    let account = s.serving_accounts.select(
-        pool,
-        hdr(headers, "x-framerize-account").as_deref(),
-    )?;
-    let residency = RequestResidency::new(lease_account(&s, account.id).await?);
-    let account = current_account(&s, account.id).await?;
-    let mut session = s
-        .sessions
-        .load(&account.framer_user_id)
-        .await
-        .map_err(ApiError::Internal)?
-        .ok_or_else(|| ApiError::Internal("account has no session".into()))?;
-    let mut scope = pick_funded_scope(&s, &account, &session).await?;
+    let (account, residency, mut session, mut scope) = select_funded_account(
+        &s,
+        hdr(headers, "x-framerize-account"),
+    )
+    .await?;
     let mut project = scope.project.clone();
     let mut scope_team = scope.team.clone();
     let mut chat_session =
@@ -1384,20 +1419,11 @@ async fn native_complete(
             retry_after_secs: remaining.as_secs().saturating_add(1),
         });
     }
-    let pool = s.state.list().await.map_err(ApiError::Internal)?;
-    let account = s.serving_accounts.select(
-        pool,
-        hdr(headers, "x-framerize-account").as_deref(),
-    )?;
-    let residency = RequestResidency::new(lease_account(&s, account.id).await?);
-    let account = current_account(&s, account.id).await?;
-    let mut session = s
-        .sessions
-        .load(&account.framer_user_id)
-        .await
-        .map_err(ApiError::Internal)?
-        .ok_or_else(|| ApiError::Internal("account has no session".into()))?;
-    let mut scope = pick_funded_scope(&s, &account, &session).await?;
+    let (account, residency, mut session, mut scope) = select_funded_account(
+        &s,
+        hdr(headers, "x-framerize-account"),
+    )
+    .await?;
     let mut project = scope.project.clone();
     let mut scope_team = scope.team.clone();
     let mut chat_session =
