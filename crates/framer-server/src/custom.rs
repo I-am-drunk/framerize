@@ -695,12 +695,14 @@ async fn custom_real_once(
             &scope_team.0[..8.min(scope_team.0.len())],
             live_credits,
         );
-        if !live_credits.is_finite() || live_credits < 25.0 {
+        let floor = framer_core::rotation::bill_floor();
+        if !live_credits.is_finite() || live_credits < floor {
             return Err((
                 ApiError::Internal(format!(
-                    "custom-route: scope workspace {} shows live balance {:.2} (need >= 25); not opening a leg",
+                    "custom-route: scope workspace {} shows live balance {:.2} (need >= {:.0}); not opening a leg",
                     &scope_team.0[..8.min(scope_team.0.len())],
                     live_credits,
+                    floor,
                 )),
                 local(&account),
             ));

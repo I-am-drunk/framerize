@@ -66,13 +66,23 @@ pub fn is_saturated(team: &str) -> bool {
     saturated_until(team).map(|u| u > now_ms()).unwrap_or(false)
 }
 
-/// The billing floor for "this workspace can serve": matches the server-side
-/// FRAMERIZE_CREDIT_FLOOR default.
+/// The billing floor for "this workspace can serve". Default 2.0 (env
+/// FRAMERIZE_CREDIT_FLOOR overrides): sized from measured settles, not fear.
+/// A streamed leg settles ~0.1 credits (custom-chain ledger deltas); the
+/// worst settle ever observed was 1.18 (the raced sol leg, 2026-11-09). The
+/// old default of 25 dead-marked every workspace under 25 credits -- with
+/// per-request costs at ~0.1 that stranded ~250 requests per workspace and
+/// skipped whole accounts over it (shopping_footgear977 sat dead with 4.4
+/// credits it could have served ~40 requests from). 2.0 covers even the
+/// worst single settle with room; a workspace that dips below it mid-chain
+/// 402s once and fails over, which is exactly what the failover is for.
+pub const DEFAULT_CREDIT_FLOOR: f64 = 2.0;
+
 pub fn bill_floor() -> f64 {
     std::env::var("FRAMERIZE_CREDIT_FLOOR")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(25.0)
+        .unwrap_or(DEFAULT_CREDIT_FLOOR)
 }
 
 /// True when the account MIGHT bill somewhere: at least one workspace is not

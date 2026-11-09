@@ -271,10 +271,7 @@ async fn compat_forward(
     // the floor (env FRAMERIZE_CREDIT_FLOOR, default 25) so a workspace can
     // never be burned to death again; free models stay unlimited.
     if let Some(team) = Some(&funded.team) {
-        let floor: f64 = std::env::var("FRAMERIZE_CREDIT_FLOOR")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(25.0);
+        let floor: f64 = framer_core::rotation::bill_floor();
         match s.client.usage(&session, team).await {
             Ok(snap) => {
                 if snap.available < floor {
@@ -643,10 +640,7 @@ async fn pick_funded_scope(
     if scopes.is_empty() {
         return Err(ApiError::Internal("account has no current project".into()));
     }
-    let floor: f64 = std::env::var("FRAMERIZE_CREDIT_FLOOR")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(25.0);
+    let floor: f64 = framer_core::rotation::bill_floor();
     let mut funded: Vec<framer_core::account::WorkspaceScope> = Vec::new();
     let mut skipped: Vec<String> = Vec::new();
     for sc in &scopes {
@@ -2269,10 +2263,7 @@ async fn accounts(State(s): State<AppState>) -> Result<Json<Vec<ManagedAccount>>
 async fn accounts_live(State(s): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
     let pool = s.state.list().await.map_err(ApiError::Internal)?;
     let residents = s.serving_accounts.residents.snapshot().map_err(|e| ApiError::Internal(e.to_string()))?;
-    let floor: f64 = std::env::var("FRAMERIZE_CREDIT_FLOOR")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(25.0);
+    let floor: f64 = framer_core::rotation::bill_floor();
     // Sessions for every account up front (one store read each), so the live
     // reads below run in PARALLEL per workspace instead of serial per account.
     let mut sessions_by_user: std::collections::HashMap<String, framer_core::port::Session> =
