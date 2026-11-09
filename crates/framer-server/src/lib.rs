@@ -1330,7 +1330,27 @@ async fn free_complete(
         if let Some(team) = account.current_team.clone() {
             match s.client.team_projects(&session, &team).await {
                 Ok(ps) => {
-                    if let Some(p) = ps.into_iter().next() {
+                    let p = match ps.into_iter().next() {
+                        Some(p) => Some(p),
+                        // The funded team may have no project at all (the
+                        // account's only project lived in the dead one) --
+                        // create it, else the pair can never be repaired.
+                        None => match s.client.create_project(&session, &team).await {
+                            Ok(p) => {
+                                eprintln!(
+                                    "[select] created project {} in funded team {} (repair)",
+                                    p.0,
+                                    &team.0[..8.min(team.0.len())],
+                                );
+                                Some(p)
+                            }
+                            Err(e) => {
+                                eprintln!("[select] repair project creation failed (non-fatal): {e}");
+                                None
+                            }
+                        },
+                    };
+                    if let Some(p) = p {
                         if account.current_project.as_ref() != Some(&p) {
                             eprintln!(
                                 "[select] repaired project/team mismatch on {}: project {} now pairs with funded team {}",
