@@ -179,6 +179,18 @@ impl SidecarBridge {
         // a 20-minute release cycle.)
         let ext = dirs_home().join(".framerize/camoufox_host.py");
         if ext.exists() {
+            // The override wins and we never write it (the user's escape
+            // hatch) -- but a STALE override silently runs old behavior while
+            // the binary carries newer fixes (2026-11-09: three host-side
+            // velocity fixes shipped embedded and never executed, because
+            // this file predated them). Say so loudly on every spawn.
+            if let Ok(ext_bytes) = std::fs::read(&ext) {
+                if ext_bytes != SCRIPT.as_bytes() {
+                    eprintln!(
+                        "[sidecar] WARNING: ~/.framerize/camoufox_host.py differs from the                          embedded script -- the OVERRIDE wins; any embedded fixes are NOT live"
+                    );
+                }
+            }
             return ext;
         }
         self.state_root.join(".bin").join("camoufox_host.py")
