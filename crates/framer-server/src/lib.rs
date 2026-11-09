@@ -969,7 +969,13 @@ async fn free_complete(
     // (chat→responses is OpenAI→OpenAI). Anthropic clients use the existing
     // anthro chain. The conversion that caused the "no tools" bug class is
     // dead for OpenAI clients.
-    if dialect != ClientDialect::AnthropicMessages {
+    // EXCEPTION (2026-11-09, proved live): the responses route plan-gates
+    // premium anthro models (opus-5.5 -> 403 paid_plan_only_model on
+    // /ai/v3/responses/) while the messages route serves them (200 Ok). So
+    // anthro-family models take the anthro chain for EVERY client dialect;
+    // the render layer hands the result back in the client's own shape.
+    let anthro_family = convert::is_anthropic_model(&client_model);
+    if dialect != ClientDialect::AnthropicMessages && !anthro_family {
         return native_complete(s, headers, dialect, payload, wants_stream, include_usage, max_tokens).await;
     }
 
@@ -1391,6 +1397,77 @@ async fn free_complete(
 /// run the responses-native chain verbatim; chat clients map thinly onto it.
 /// No Anthropic conversion for OpenAI clients — tools, reasoning items,
 /// service tiers, and ids all survive by construction.
+/// True when the error is the plan gate: the responses route refuses this
+/// model ("Upgrade your workspace to use this model"). The Anthropic
+/// messages route serves the SAME model fine (proved live 2026-11-09:
+/// opus-5.5 200 on /ai/v3/messages/, 403 on /ai/v3/responses/), so the
+/// daemon retries there instead of failing the client.
+fn is_plan_gated(e: &str) -> bool {
+    e.contains("Upgrade your workspace to use this model") || e.contains("paid_plan_only_model")
+}
+
+/// Anthropic-chain result rendered as the Responses shape: one message item
+/// carrying the assembled text, usage carried across. Used when the native
+/// responses route plan-gates and the anthro chain answers instead.
+fn anthro_as_responses(a: &framer_core::convert::AssembledResponse) -> framer_core::convert::AssembledResponses {
+    let text: String = a
+        .content
+        .iter()
+        .filter_map(|b| b["text"].as_str())
+        .collect::<Vec<_>>()
+        .join("");
+    framer_core::convert::AssembledResponses {
+        id: a.id.clone(),
+        created_at: 0,
+        output: vec![serde_json::json!({
+            "id": a.id,
+            "type": "message",
+            "role": "assistant",
+            "status": "completed",
+            "content": [{"type": "output_text", "text": text, "annotations": []}],
+        })],
+        status: "completed".into(),
+        incomplete_details: None,
+        usage: a.usage.clone(),
+        service_tier: serde_json::Value::Null,
+        input_tokens: a.input_tokens,
+        output_tokens: a.output_tokens,
+        chunks: a.chunks,
+        metered_chunks: a.metered_chunks,
+    }
+}
+
+/// Retry a plan-gated request on the Anthropic messages route (the
+/// non-gated endpoint for these models) with the same account/session/
+/// scope/lease, and synthesize the Responses-shape result.
+#[allow(clippy::too_many_arguments)]
+async fn anthro_route_fallback(
+    s: &AppState,
+    dialect: ClientDialect,
+    payload: &serde_json::Value,
+    cfg: &framer_core::port::ChainConfig,
+    account: &framer_core::account::ManagedAccount,
+    session: &framer_core::port::Session,
+    project: &framer_core::ids::ProjectId,
+    chat_session: &str,
+) -> Result<framer_core::convert::AssembledResponses, String> {
+    let anthro = convert::to_anthropic_request(dialect, payload)?;
+    let assembled = s
+        .client
+        .freechat_long(
+            session,
+            s.browser.as_ref(),
+            &account.id,
+            project,
+            anthro,
+            cfg,
+            chat_session,
+            None,
+        )
+        .await?;
+    Ok(anthro_as_responses(&assembled))
+}
+
 async fn native_complete(
     s: AppState,
     headers: &axum::http::HeaderMap,
@@ -1473,6 +1550,9 @@ async fn native_complete(
         let mut chat_session2 = chat_session.clone();
         let explicit_chat_session = hdr(headers, "x-framerize-session");
         let log_model = gate_model.clone();
+        // The plan-gate fallback needs the ORIGINAL client payload (the
+        // anthro chain is built from it, not from native_payload).
+        let payload_fallback = payload.clone();
         let handle = AbortOnDrop(tokio::spawn(async move {
             let t0 = std::time::Instant::now();
             let emitted_content = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1556,6 +1636,27 @@ async fn native_complete(
                     }
                 }
                 break r;
+            };
+            // Plan-gate on the responses route: the messages route serves the
+            // same model (proved live), so retry there before the client ever
+            // sees the gate. Only when no content was emitted (a mid-stream
+            // fallback would duplicate blocks).
+            let result = match result {
+                Ok(r) => Ok(r),
+                Err(e)
+                    if is_plan_gated(&e)
+                        && !emitted_content.load(std::sync::atomic::Ordering::Relaxed) =>
+                {
+                    eprintln!(
+                        "[nativechain] plan-gated on responses route; retrying via messages route ({log_model})"
+                    );
+                    anthro_route_fallback(
+                        &s2, dialect, &payload_fallback, &cfg2, &account, &session, &project,
+                        &chat_session2,
+                    )
+                    .await
+                }
+                Err(e) => Err(e),
             };
             let mut ev = framer_core::observability::Event::new("ai.chain")
                 .account(&account.id)
@@ -1720,6 +1821,17 @@ async fn native_complete(
         };
         ev.emit();
     }
+    let result = match result {
+        Ok(r) => Ok(r),
+        // The responses route plan-gates; the messages route serves the same
+        // model. Retry there (the gate is per-route, proved live) before the
+        // client ever sees an error.
+        Err(e) if is_plan_gated(&e) => anthro_route_fallback(
+            &s, dialect, &payload, &cfg, &account, &session, &project, &chat_session,
+        )
+        .await,
+        Err(e) => Err(e),
+    };
     let result = match result {
         Ok(r) => r,
         Err(e) => {

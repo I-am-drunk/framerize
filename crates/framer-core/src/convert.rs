@@ -60,6 +60,15 @@ pub enum ModelRoute {
     Unavailable(&'static str),
 }
 
+/// True for Anthropic-family model ids in any spelling (claude-*, anthropic/*).
+/// These are served natively by the messages route; the responses route
+/// plan-gates the premium ones (paid_plan_only_model, proved live 2026-11-09).
+pub fn is_anthropic_model(model: &str) -> bool {
+    let slug = model.rsplit('/').next().unwrap_or(model);
+    let base = slug.split(':').next().unwrap_or(slug); // strip :free-style suffixes
+    base.starts_with("claude-") || model.starts_with("anthropic/")
+}
+
 pub fn model_route(model: &str) -> ModelRoute {
     let slug = model.rsplit('/').next().unwrap_or(model);
     match slug {
