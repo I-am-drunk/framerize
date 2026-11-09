@@ -594,21 +594,20 @@ async fn custom_real_once(
         })?
         .map_err(|e| (ApiError::Internal(e), local(&account)))?
         .ok_or_else(|| (ApiError::Internal("account has no session".into()), local(&account)))?;
-    // Scope rule (matches the oracle the engine actually reads): the page
-    // credits fetch hits scope_team, so the scope MUST be the account's live
-    // current_team/current_project (the workspace the oracle + envelope bill
-    // against) -- never a rotated extra workspace. pick_scope's rotation is
-    // for the multi-workspace free chains; the custom route pins primary.
-    let (project, scope_team) = match (
-        account.current_team.clone(),
-        account.current_project.clone(),
-    ) {
-        (Some(team), Some(proj)) => (proj, team),
-        _ => {
-            let scope = pick_scope(&account).map_err(|e| (e, local(&account)))?;
-            (scope.project.clone(), scope.team.clone())
-        }
-    };
+    // Scope rule: the oracle (in-page credits GET) and the envelope must bill
+    // the SAME workspace -- but which workspace is the FUNDED one, not
+    // blindly the primary. The old pin-primary rule failed requests on
+    // accounts whose primary was dead while a funded extra sat ready
+    // (measured live 2026-11-09: evasion's primary read 0.00 with 636
+    // credits across its extras; the route refused in front of them).
+    // pick_funded_scope skips known-dead/saturated scopes and pairs each
+    // team with its own project (the billing pairing bug fix); the preflight
+    // below re-verifies the picked scope's live balance before any leg opens.
+    let scope = crate::pick_funded_scope(&s, &account, &session)
+        .await
+        .map_err(|e| (e, local(&account)))?;
+    let project = scope.project.clone();
+    let scope_team = scope.team.clone();
     let chat_session =
         hdr(headers, "x-framerize-session").unwrap_or_else(|| stable_session(&account.id));
 
@@ -1251,7 +1250,7 @@ mod tests {
         let resp = custom_complete_handler(
             State(state.clone()),
             HeaderMap::new(),
-            Json(CompleteBody { prompt: "explain X".into(), model: "".into(), max_legs: None, stop: None }),
+            Json(CompleteBody { prompt: "explain X".into(), model: "".into(), max_legs: None , stop: None}),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::OK);
@@ -1288,7 +1287,7 @@ mod tests {
         let resp = custom_complete_handler(
             State(state),
             HeaderMap::new(),
-            Json(CompleteBody { prompt: "  ".into(), model: "".into(), max_legs: None, stop: None }),
+            Json(CompleteBody { prompt: "  ".into(), model: "".into(), max_legs: None , stop: None}),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
@@ -1308,7 +1307,7 @@ mod tests {
         let resp = custom_complete_handler(
             State(state),
             headers,
-            Json(CompleteBody { prompt: "explain X".into(), model: "".into(), max_legs: None, stop: None }),
+            Json(CompleteBody { prompt: "explain X".into(), model: "".into(), max_legs: None , stop: None}),
         )
         .await;
         // Unknown account pin: no eligible account, no page touched.
