@@ -2172,7 +2172,7 @@ class Host:
                     # idle-window kill is also a 403 but arrives after 8+s of
                     # silence — retrying that on a fresh device would just die
                     # again and wrongly cool the device. Only rotate on fast 403s.
-                    if r["status"] == 403 and r.get("_fetch_ms", 9999) < 4000 and attempt + 1 < attempts:
+                    if r["status"] == 403 and r.get("_fetch_ms", 9999) < 4000:
                         # TTL vs velocity (2026-10-05): TTL enforcement (~600s) makes
                         # OLD tokens 403 — that is EXPIRY, not a velocity ban, and
                         # cooling the device over it drains the pool for nothing
@@ -2182,11 +2182,35 @@ class Host:
                         if tid and tok_age > self.TOKEN_TTL_S * 0.8:
                             acc.token_pool.pop(tid, None)  # expired — refresh, same device
                             trace(f"{account[:8]}: token 403 at age {tok_age:.0f}s — TTL expiry, refreshing (device NOT cooled)")
-                            continue
+                            if attempt + 1 < attempts:
+                                continue
+                            # Stale token on the FINAL attempt: the device is
+                            # healthy — report a short local wait, never a raw
+                            # 403 (which the server would read as account health).
+                            r = {"status": 0, "usage": None,
+                                 "body": "velocity-paused: refreshing token; retry in 2s"}
+                            break
                         # velocity ban is per-device (proven): cool this one,
                         # rotate, retry — invisible to the caller.
                         self._cool_device(acc, used_dev, account)
-                        continue
+                        if attempt + 1 < attempts:
+                            continue
+                        # VELOCITY STAYS LOCAL (2026-11-09): a velocity 403 is a
+                        # PER-DEVICE condition. The final attempt used to return
+                        # the raw 403, and the server's classify_403 read it as
+                        # a Castle risk refusal -> whole-account escalating
+                        # cooldown + wave-guard fuel: one device's ban parked
+                        # the ACCOUNT and two such accounts paused the SERVER
+                        # (the recurring "overloaded" storms). Report the local
+                        # truth instead — this account's devices cool for Ns —
+                        # so the server parks only this account (for the real
+                        # device window), fails over to another, and the wave
+                        # guard never hears about a per-device ban.
+                        w = self._device_ready_in(acc)
+                        w = 1 if w is None else max(1, int(w))
+                        trace(f"{account[:8]}: velocity ban exhausted device retries — local cooldown {w}s (raw 403 stays OFF the wire)")
+                        r = {"status": 0, "usage": None,
+                             "body": f"velocity-paused: every device is cooling; retry in {w}s"}
                     break
             finally:
                 pass  # device-context pages are long-lived; nothing to release
