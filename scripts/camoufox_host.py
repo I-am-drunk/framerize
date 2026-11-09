@@ -2004,6 +2004,15 @@ class Host:
                 finally:
                     self._token_release(acc, tid)
                 if st == 403:
+                    hb_body = r.get("body", "")
+                    if ("Upgrade your workspace" in hb_body
+                            or "paid_plan_only" in hb_body
+                            or "team_credit_balance_exhausted" in hb_body):
+                        # Entitlement gate on the beat's workspace: nothing
+                        # to train, nothing to cool -- just back off.
+                        hb_interval = min(hb_interval * 2, 7200)
+                        trace(f"{account[:8]}: heartbeat hit a workspace/model gate -- backing off {int(hb_interval)}s (device spared)")
+                        continue
                     # Same account-scoped detection as ai_post (2026-11-09):
                     # a beat is often the device's FIRST request in its
                     # window, so a fast ban right after another device's ban
@@ -2225,6 +2234,21 @@ class Host:
                         # risk envelope, OR a dead session; each wants a
                         # different fix and the body is the only truth.
                         trace(f"{account[:8]}: fast-403 body: {r.get('body', '')[:200]!r}")
+                        body_txt = r.get("body", "")
+                        if ("Upgrade your workspace" in body_txt
+                                or "paid_plan_only" in body_txt
+                                or "team_credit_balance_exhausted" in body_txt):
+                            # ENTITLEMENT GATE, NOT VELOCITY (2026-11-09):
+                            # every "velocity ban" in today's logs was this
+                            # body -- the WORKSPACE lacks entitlement (dead
+                            # workspace, or a model the plan gates). Cooling
+                            # devices over it parked whole accounts that had
+                            # FUNDED workspaces. The device is innocent; the
+                            # account is innocent. Pass the 403 through raw:
+                            # the server marks the SCOPE / learns the model
+                            # gate from the preserved body.
+                            trace(f"{account[:8]}: 403 is entitlement gate (workspace/model), NOT velocity -- passing through, no cool")
+                            break
                         # TTL vs velocity (2026-10-05): TTL enforcement (~600s) makes
                         # OLD tokens 403 — that is EXPIRY, not a velocity ban, and
                         # cooling the device over it drains the pool for nothing

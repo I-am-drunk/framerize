@@ -52,7 +52,18 @@ impl Refusal {
 
 /// Markers that only OpenRouter / a downstream provider emits. Their presence
 /// proves the request reached the proxy, i.e. Framer's edge ADMITTED it.
+///
+/// 2026-11-09: the WORKSPACE-ENTITLEMENT envelope ("Upgrade your workspace to
+/// use this model" / paid_plan_only_* / team_credit_balance_exhausted) is
+/// Framer's edge, not the provider -- but it is likewise NOT account health:
+/// the workspace lacks entitlement while the account stays sound (measured:
+/// an account with 237 funded credits kept serving 200s while its dead-scope
+/// beats drew this envelope). Classifying it Castle cooled healthy accounts
+/// and fed the wave guard over a workspace condition.
 const UPSTREAM_MARKERS: &[&str] = &[
+    "upgrade your workspace", // entitlement gate: workspace/model, not the account
+    "paid_plan_only",
+    "team_credit_balance_exhausted",
     "\"request_id\"",   // OpenRouter stamps every generation
     "gen-",             // ...and its ids are gen-<epoch>-<rand>
     "provider",
@@ -118,6 +129,13 @@ pub fn classify_403(body: &str, elapsed_ms: u64) -> Refusal {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn entitlement_envelope_is_not_account_health() {
+        // The exact body shape that masqueraded as velocity all day.
+        let body = r#"{"error":{"message":"Upgrade your workspace to use this model","status":403,"timestamp":"2026-11-09T08:13:02Z","ref":"9oHLQ","data":{"reason":"paid_plan_only_model"}}}"#;
+        assert_eq!(classify_403(body, 120), Refusal::Upstream);
+    }
+
     use super::*;
 
     const FRAMER_SECURITY_REFUSAL: &str =
