@@ -776,8 +776,14 @@ fn is_castle_refusal(e: &str) -> bool {
 }
 
 fn should_retry_account(error: &str) -> bool {
+    // credits-exhausted (2026-11-09): the chain's scope died mid-request.
+    // The account's OTHER workspaces (or a fresh account's) may be funded;
+    // the ledger cache dead-marks the drained scope on its next read, so the
+    // re-pick routes around it. Without this, one drained workspace failed
+    // the whole request in front of six funded accounts.
     is_castle_refusal(error) || AccountCooldown::from_error(error).is_some()
         || pool_control::cleanup_unconfirmed(error)
+        || error.ends_with("credits-exhausted")
 }
 
 /// Pick a serving account excluding the ones already tried for this request.

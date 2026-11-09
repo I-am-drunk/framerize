@@ -237,7 +237,24 @@ impl ServingAccountPolicy {
                 return Err(Self::cooling(until, now));
             }
         }
-        framer_core::rotation::pick_at(pool, now).cloned()
+        // No ready residents: the final fallback must still keep KNOWN-DEAD
+        // accounts out. Without this filter (2026-11-09, "stream
+        // disconnected: credits-exhausted"), rotation landed on
+        // all-workspaces-empty accounts whenever few residents were warm,
+        // and the failover loop burned its tries on corpses while funded
+        // accounts idled. Fail-open when nothing is known-funded (fresh
+        // accounts whose ledger read has not landed must not starve).
+        let billable: Vec<_> = pool
+            .iter()
+            .filter(|a| framer_core::rotation::account_might_bill(a))
+            .cloned()
+            .collect();
+        let pool_ref: &[ManagedAccount] = if billable.is_empty() {
+            pool
+        } else {
+            &billable
+        };
+        framer_core::rotation::pick_at(pool_ref, now).cloned()
             .ok_or_else(|| self.no_eligible_account())
     }
 }
