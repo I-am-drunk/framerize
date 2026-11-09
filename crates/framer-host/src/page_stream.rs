@@ -142,13 +142,30 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
               slot.buf += (d === null || d === "") ? "\u0000" : d;
               slot.chunks++;
               events++;
-              // THE STOP: same tick as the stopAfter-th DATA LINE (framed
-              // delta). The usage/terminal frame is the NEXT one -- never
-              // read, never billed.
-              if (events >= stopAfter) {
+              // THE FINISH CUTOFF (2026-11-09, measured): the meter settles
+              // when the terminal/usage frame arrives -- NOT on generation
+              // completion (an early-closed stream settled ~0 with the full
+              // content delivered). The finish_reason delta is the LAST
+              // content line; the terminal is the NEXT one. Aborting here
+              // captures the COMPLETE answer at zero settle, with the event
+              // count as the exact output-token count -- no legs, no
+              // continuation, and tool-call turns work (the call is complete
+              // before the finish line). The stop_after rule stays as the
+              // length backstop behind it.
+              let fin = null;
+              try {
+                const ch = j.choices && j.choices[0];
+                if (ch && typeof ch.finish_reason === "string" && ch.finish_reason) fin = ch.finish_reason;
+                // Responses dialect deliberately NOT cut here: a multi-item
+                // turn (text + tool call) has no safe per-item cut point --
+                // that needs the item-aware work from ADR-003. Chat's
+                // finish_reason is unambiguous (the turn IS over).
+              } catch (e) {}
+              if (fin !== null || events >= stopAfter) {
                 try { ctl.abort(); } catch (e) {}
                 try { await reader.cancel(); } catch (e) {}
-                slot.stopped = true; slot.stopAt = stopAfter;
+                slot.stopped = true; slot.stopAt = events;
+                if (fin !== null) { slot.finished = true; slot.finishReason = String(fin); }
                 slot.streamLive = false; slot.done = true; break;
               }
             }
@@ -184,6 +201,7 @@ pub const DRAIN_SNIPPET: &str = r#"(() => {
   try { slot.wireTap = ""; } catch (e) {}
   return { present: true, text: text, done: !!slot.done,
     stopped: !!slot.stopped, stopAt: slot.stopAt || 0,
+    finished: !!slot.finished, finishReason: slot.finishReason || "",
     status: slot.status, usage: slot.usage, error: slot.error || "",
     chunks: slot.chunks || 0, wireTap: tap,
     streamLive: !!slot.streamLive };
@@ -200,6 +218,7 @@ pub const PEEK_SNIPPET: &str = r#"(() => {
   if (!slot || (!slot.open && !slot.closed)) return { present: false };
   return { present: true, text_len: slot.buf.length, done: !!slot.done,
     stopped: !!slot.stopped, stopAt: slot.stopAt || 0,
+    finished: !!slot.finished, finishReason: slot.finishReason || "",
     status: slot.status, usage: slot.usage, error: slot.error || "",
     chunks: slot.chunks || 0, wireTap: slot.wireTap || "",
     streamLive: !!slot.streamLive };
@@ -624,7 +643,10 @@ mod tests {
         assert!(OPEN_SNIPPET.contains("castleToken"));
         assert!(OPEN_SNIPPET.contains("castlePublishableAPIKey"));
         assert!(OPEN_SNIPPET.contains("%CHUNK%"));
-        assert!(OPEN_SNIPPET.contains("if (events >= stopAfter)"));
+        assert!(OPEN_SNIPPET.contains("events >= stopAfter"));
+        // The finish cutoff: the pump aborts on the finish_reason delta,
+        // before the terminal/usage frame the meter settles on.
+        assert!(OPEN_SNIPPET.contains("finish_reason"));
         assert!(OPEN_SNIPPET.contains("reader.cancel()"));
         // Fire-and-poll open: the pump (fetch + reader + decoder) runs
         // detached; the eval itself only starts it and returns instantly.
