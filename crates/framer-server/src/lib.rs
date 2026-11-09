@@ -699,9 +699,17 @@ async fn select_funded_account(
     s: &AppState,
     account_hdr: Option<String>,
 ) -> Result<(ManagedAccount, RequestResidency, framer_core::port::Session, framer_core::account::WorkspaceScope), ApiError> {
+    // Try the WHOLE pool: dead accounts are dead-marked during the walk and
+    // skipped fast on the next request; the first request after a restart may
+    // still pay one live ledger read per account, then every later request is
+    // instant. Each account is tried at most once. The attempt cap is learned
+    // from the FIRST pool read (which also serves the first selection), so a
+    // rejected request still costs exactly one read (admission tests count).
+    let mut pool_len = usize::MAX;
     let mut tried: Vec<String> = Vec::new();
-    for _ in 0..3 {
+    while tried.len() < pool_len {
         let pool = s.state.list().await.map_err(ApiError::Internal)?;
+        pool_len = pool.len().max(1);
         let account = if tried.is_empty() {
             s.serving_accounts.select(pool, account_hdr.as_deref())?
         } else {

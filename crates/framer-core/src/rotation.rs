@@ -87,9 +87,14 @@ pub fn account_might_bill(a: &ManagedAccount) -> bool {
     if scopes.is_empty() {
         return false;
     }
-    scopes.iter().any(|sc| match cached_live_balance(&sc.team.0) {
-        Some(b) => b >= floor,
-        None => true,
+    scopes.iter().any(|sc| {
+        if is_dead(&sc.team.0) {
+            return false;
+        }
+        match cached_live_balance(&sc.team.0) {
+            Some(b) => b >= floor,
+            None => true,
+        }
     })
 }
 
@@ -117,17 +122,45 @@ pub fn cached_live_balance(team: &str) -> Option<f64> {
 }
 
 /// Record a fresh live balance for a workspace (any reader: preflight reads,
-/// usage-header observations, the account view).
+/// usage-header observations, the account view). A below-floor read ALSO
+/// dead-marks the workspace for DEAD_TTL_MS: dead workspaces are skipped
+/// without a fresh read (fast next time), and the mark clears the moment a
+/// positive balance arrives (a credited workspace returns by itself).
 pub fn note_live_balance(team: &str, balance: f64) {
     let mut g = LIVE_BAL.lock().unwrap();
     g.get_or_insert_with(HashMap::new)
         .insert(team.to_string(), (balance, now_ms()));
+    let mut d = DEAD.lock().unwrap();
+    let m = d.get_or_insert_with(HashMap::new);
+    if balance < bill_floor() {
+        m.insert(team.to_string(), now_ms() + DEAD_TTL_MS);
+    } else {
+        m.remove(team);
+    }
+}
+
+/// Dead-workspace marks: workspace -> dead-until (unix ms). Dead workspaces
+/// are the ones that 402 at dispatch; marking them makes selection instant.
+static DEAD: Mutex<Option<HashMap<String, u64>>> = Mutex::new(None);
+/// A dead workspace stays marked for 5 minutes (they refill on minutes, not
+/// seconds); the 60s balance cache alone would re-admit them every minute.
+pub const DEAD_TTL_MS: u64 = 300_000;
+
+/// True when the workspace is currently dead-marked.
+pub fn is_dead(team: &str) -> bool {
+    DEAD.lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|m| m.get(team).copied())
+        .map(|u| u > now_ms())
+        .unwrap_or(false)
 }
 
 /// Force-refresh marker for tests: drop a workspace's cached read.
 #[cfg(test)]
 pub fn clear_live_balance_cache() {
     *LIVE_BAL.lock().unwrap() = None;
+    *DEAD.lock().unwrap() = None;
 }
 
 /// Pick the account to serve the next request, or `None` if the pool is dry.
@@ -404,6 +437,25 @@ mod tests {
         let b = acct("dead-b", 0, AccountState::Ready);
         let pool = vec![a, b];
         assert!(pick(&pool).is_some(), "all-dead must still pick (loud failure beats none)");
+    }
+
+    #[test]
+    fn dead_marked_workspace_skips_until_revived_by_a_positive_read() {
+        clear_live_balance_cache();
+        let mut dead = acct("dead", 0, AccountState::Ready);
+        dead.current_team = Some(TeamId("deadteam".into()));
+        note_live_balance("deadteam", 0.0); // dead-marks it
+        let mut healthy = acct("healthy", 0, AccountState::Ready);
+        healthy.current_team = Some(TeamId("goodteam".into()));
+        let pool = vec![dead.clone(), healthy.clone()];
+        for _ in 0..4 {
+            assert_eq!(pick(&pool).expect("a pick").alias, "healthy");
+        }
+        // A positive read clears the dead mark: the account returns.
+        note_live_balance("deadteam", 400.0);
+        assert!(account_might_bill(&dead));
+        let picks: Vec<&str> = (0..4).map(|_| pick(&pool).unwrap().alias.as_str()).collect();
+        assert!(picks.contains(&"dead"), "revived account must return: {picks:?}");
     }
 
     #[test]

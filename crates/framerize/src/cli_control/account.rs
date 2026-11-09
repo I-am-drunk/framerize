@@ -80,7 +80,10 @@ pub async fn run_accounts(args: AccountsArgs) -> Result<(), String> {
         .await;
     }
     let (method, path, body) = match command {
-        AccountCommand::List => (Method::GET, "/api/accounts", None),
+        // The live-marks endpoint wraps the same accounts with verdict +
+        // funded/dead workspace counts (dead accounts show "skipped", never
+        // "ready").
+        AccountCommand::List => (Method::GET, "/api/accounts/live", None),
         AccountCommand::Remove { account_id, wipe_profile } => (Method::POST, "/api/accounts/remove",
             Some(json!({"account_id": account_id.to_string(), "wipe_profile": wipe_profile}))),
         AccountCommand::Dedupe { apply } => (Method::POST, "/api/accounts/dedupe", Some(json!({"apply": apply}))),

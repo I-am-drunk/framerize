@@ -61,15 +61,31 @@ fn redact_account_proxies(value: &mut Value) {
 }
 
 fn account_lines(value: &Value) -> Result<String, String> {
-    let accounts = value.as_array().ok_or("account list response must be an array")?;
+    // Live marks: /api/accounts/live wraps the array; the plain /api/accounts
+    // array is the fallback for an older daemon.
+    let accounts: Vec<Value> = if let Some(arr) = value.get("accounts").and_then(Value::as_array) {
+        arr.clone()
+    } else {
+        value.as_array().cloned().unwrap_or_default()
+    };
     if accounts.is_empty() { return Ok("No saved accounts. Use framerize login to add one.".into()); }
-    let mut lines = vec!["ACCOUNT ID                            STATE           NAME".to_string()];
+    let mut lines = vec!["ACCOUNT ID                            STATE                   WORKSPACES (funded/dead)  NAME".to_string()];
     for account in accounts {
         let id = text(account.get("id").and_then(Value::as_str).ok_or("account response lacks id")?);
-        let state = text(account.get("state").and_then(Value::as_str).unwrap_or("unknown"));
+        // STATE is the VERDICT (active/skipped/unused) when the live endpoint
+        // provides it: a deactivated account must not read "ready".
+        let verdict = account.get("verdict").and_then(Value::as_str);
+        let state = text(verdict.or_else(|| account.get("state").and_then(Value::as_str)).unwrap_or("unknown"));
+        let marks = match (
+            account.get("funded_workspaces").and_then(Value::as_u64),
+            account.get("unfunded_workspaces").and_then(Value::as_u64),
+        ) {
+            (Some(f), Some(u)) => format!("{f} funded / {u} dead"),
+            _ => String::new(),
+        };
         let name = text(account.get("email").and_then(Value::as_str)
             .or_else(|| account.get("alias").and_then(Value::as_str)).unwrap_or(""));
-        lines.push(format!("{id:36}  {state:14}  {name}"));
+        lines.push(format!("{id:36}  {state:22}  {marks:24}  {name}"));
     }
     Ok(lines.join("\n"))
 }
