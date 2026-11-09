@@ -2075,14 +2075,51 @@ async fn accounts_live(State(s): State<AppState>) -> Result<Json<serde_json::Val
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(25.0);
+    // Sessions for every account up front (one store read each), so the live
+    // reads below run in PARALLEL per workspace instead of serial per account.
+    let mut sessions_by_user: std::collections::HashMap<String, framer_core::port::Session> =
+        std::collections::HashMap::new();
+    for account in &pool {
+        let user = account.framer_user_id.0.clone();
+        if sessions_by_user.contains_key(&user) {
+            continue;
+        }
+        if let Ok(Some(sess)) = s.sessions.load(&account.framer_user_id).await {
+            sessions_by_user.insert(user, sess);
+        }
+    }
+    // Fetch every stale team's live balance in PARALLEL (one GET per team per
+    // 60s, all at once) — the serial per-account read made the first cold call
+    // take ~20s under 24 workspaces, hanging every consumer of this endpoint.
+    let mut stale: Vec<(String, String)> = Vec::new(); // (user, team)
+    for account in &pool {
+        if !sessions_by_user.contains_key(&account.framer_user_id.0) {
+            continue;
+        }
+        for sc in &account.all_scopes() {
+            let team = sc.team.0.clone();
+            if framer_core::rotation::cached_live_balance(&team).is_none() {
+                stale.push((account.framer_user_id.0.clone(), team));
+            }
+        }
+    }
+    {
+        let fetches = stale.into_iter().map(|(user, team)| {
+            let sess = sessions_by_user.get(&user).cloned();
+            let team2 = team.clone();
+            let client = s.client.clone();
+            async move {
+                if let Some(sess) = sess {
+                    if let Ok(snap) = client.usage(&sess, &framer_core::ids::TeamId(team.clone())).await {
+                        framer_core::rotation::note_live_balance(&team2, snap.available);
+                    }
+                }
+            }
+        });
+        futures::future::join_all(fetches).await;
+    }
     let mut out = Vec::new();
     for account in &pool {
-        let session = s
-            .sessions
-            .load(&account.framer_user_id)
-            .await
-            .ok()
-            .flatten();
         let scopes = account.all_scopes();
         let mut workspaces = Vec::new();
         let mut funded = 0usize;
@@ -2091,19 +2128,7 @@ async fn accounts_live(State(s): State<AppState>) -> Result<Json<serde_json::Val
             let team = sc.team.0.clone();
             let (balance, source) = match framer_core::rotation::cached_live_balance(&team) {
                 Some(b) => (Some(b), "live-cache"),
-                None => {
-                    if let Some(sess) = session.as_ref() {
-                        match s.client.usage(sess, &sc.team).await {
-                            Ok(snap) => {
-                                framer_core::rotation::note_live_balance(&team, snap.available);
-                                (Some(snap.available), "live")
-                            }
-                            Err(_) => (account.credit.as_ref().map(|c| c.available), "cached"),
-                        }
-                    } else {
-                        (account.credit.as_ref().map(|c| c.available), "cached")
-                    }
-                },
+                None => (account.credit.as_ref().map(|c| c.available), "cached"),
             };
             let saturated = framer_core::rotation::is_saturated(&team);
             let dead = matches!(balance, Some(b) if b < floor);
