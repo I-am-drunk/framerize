@@ -168,6 +168,41 @@ struct EnvelopePageStream {
     team: String,
 }
 
+/// CUSTOM-ROUTE-ONLY refusal marks (2026-11-09): a Castle refusal on the
+/// in-page open is specific to the OPEN pattern (ambient-page mint + fetch)
+/// -- the same account often serves ai_post fine from its device contexts
+/// (measured live: e9d59f78 refused two custom opens while its regular-route
+/// traffic returned 200s). So it must NOT cool the account (rotation.rs)
+/// and must NOT feed the wave guard: that would park healthy serving. Mark
+/// it here instead: the custom route skips the marked account for the TTL
+/// while every other route keeps using it.
+static OPEN_REFUSAL: std::sync::Mutex<
+    Option<std::collections::HashMap<String, std::time::Instant>>,
+> = std::sync::Mutex::new(None);
+const OPEN_REFUSAL_TTL: std::time::Duration = std::time::Duration::from_secs(600);
+
+fn mark_open_refused(account: &str) {
+    if let Ok(mut guard) = OPEN_REFUSAL.lock() {
+        guard
+            .get_or_insert_with(Default::default)
+            .insert(account.to_string(), std::time::Instant::now());
+    }
+}
+
+fn open_refusal_active(account: &str) -> bool {
+    if let Ok(mut guard) = OPEN_REFUSAL.lock() {
+        if let Some(map) = guard.as_mut() {
+            if let Some(at) = map.get(account) {
+                if at.elapsed() < OPEN_REFUSAL_TTL {
+                    return true;
+                }
+                map.remove(account);
+            }
+        }
+    }
+    false
+}
+
 /// RUNWAY RULE (2026-11-09): the in-page abort is deterministic only while
 /// the server is still generating when it lands. Generation ends at the
 /// upstream token cap (or a model early-stop). One SSE data line carries AT
@@ -392,17 +427,94 @@ async fn custom_real(
     headers: &HeaderMap,
     body: &CompleteBody,
 ) -> Result<Response, ApiError> {
+    // ACCOUNT FAILOVER (2026-11-09): a Castle-refused open, a dead scope, or
+    // lease/session/bearer trouble is ONE account's condition. The chain
+    // used to run on a single picked account and return its error raw, and
+    // nothing marked the account -- so the next request picked the SAME hot
+    // account and hit the same wall (measured live: two consecutive custom
+    // requests refused on e9d59f78 while eleven other accounts stood ready).
+    // Account-local failures now retry on a fresh account (bounded at 3;
+    // the attempt marks the custom-only refusal and excludes the failed
+    // id). Request- or server-wide failures (gated model, wave pause,
+    // saturated gate, a chain that already opened legs) return as-is --
+    // retrying those buys nothing.
+    let mut tried: Vec<String> = Vec::new();
+    let mut last: Option<ApiError> = None;
+    for _ in 0..3 {
+        match custom_real_once(s.clone(), headers, body, &tried).await {
+            Ok(resp) => return Ok(resp),
+            Err((e, Some(failed))) => {
+                eprintln!(
+                    "[custom-route] account-local failure on {}; failing over to a fresh account",
+                    &failed[..8.min(failed.len())],
+                );
+                tried.push(failed);
+                last = Some(e);
+            }
+            Err((e, None)) => return Err(e),
+        }
+    }
+    Err(last.unwrap_or_else(|| {
+        ApiError::ServingCapacity("custom route: no account could serve this request".into())
+    }))
+}
+
+/// One account's attempt. The error tuple carries `Some(account_id)` when
+/// the failure is local to that account (safe to fail over) and `None` when
+/// it is request- or server-wide (return as-is).
+async fn custom_real_once(
+    s: AppState,
+    headers: &HeaderMap,
+    body: &CompleteBody,
+    tried: &[String],
+) -> Result<Response, (ApiError, Option<String>)> {
+    // A caller-pinned account is strict: its failures never hop silently.
+    let pinned = hdr(headers, "x-framerize-account").is_some();
+    let local = |account: &framer_core::account::ManagedAccount| -> Option<String> {
+        if pinned {
+            None
+        } else {
+            Some(account.id.0.to_string())
+        }
+    };
     let req_id = uuid::Uuid::new_v4().to_string();
     let req_short = req_id[..8].to_string();
     if let Some(remaining) = s.wave.check() {
-        return Err(ApiError::Cooling {
-            retry_after_secs: remaining.as_secs().saturating_add(1),
-        });
+        return Err((
+            ApiError::Cooling {
+                retry_after_secs: remaining.as_secs().saturating_add(1),
+            },
+            None,
+        ));
     }
-    let pool = s.state.list().await.map_err(ApiError::Internal)?;
-    let account = s
-        .serving_accounts
-        .select(pool, hdr(headers, "x-framerize-account").as_deref())?;
+    let pool = s
+        .state
+        .list()
+        .await
+        .map_err(|e| (ApiError::Internal(e), None))?;
+    // Unpinned requests fail over across accounts (tried excludes the ones
+    // this request already burned, and the custom-refusal marks skip
+    // recently refused opens); a caller pin stays strict.
+    let account = match hdr(headers, "x-framerize-account") {
+        Some(pin) => s
+            .serving_accounts
+            .select(pool, Some(pin.as_str()))
+            .map_err(|e| (e, None))?,
+        None => s
+            .serving_accounts
+            .select_fresh(pool, tried)
+            .map_err(|e| (e, None))?,
+    };
+    if open_refusal_active(&account.id.0.to_string()) {
+        eprintln!(
+            "[custom-route] req={req_short} account {} skipped (custom open refused it recently)",
+            short_id(&account.id)
+        );
+        return Err((
+            ApiError::ServingCapacity("custom open refused recently on this account".into()),
+            local(&account),
+        ));
+    }
     // Same exclusion the free paths get: known-dead accounts (all workspaces
     // empty per the live ledger cache) never serve a leg.
     if !framer_core::rotation::account_might_bill(&account) {
@@ -410,8 +522,11 @@ async fn custom_real(
             "[custom-route] req={req_short} account {} skipped (no funded workspace)",
             short_id(&account.id)
         );
-        return Err(ApiError::ServingCapacity(
-            "no funded workspace on the selected account; pick another or credit one".into(),
+        return Err((
+            ApiError::ServingCapacity(
+                "no funded workspace on the selected account; pick another or credit one".into(),
+            ),
+            local(&account),
         ));
     }
     eprintln!("[custom-route] req={req_short} stage=lease account={}", short_id(&account.id));
@@ -420,19 +535,28 @@ async fn custom_real(
             .await
             .map_err(|_| {
                 eprintln!("[custom-route] req={req_short} stage=lease timed out after 90s");
-                ApiError::Internal("custom route: account lease timed out after 90s".into())
-            })??,
+                (
+                    ApiError::Internal("custom route: account lease timed out after 90s".into()),
+                    local(&account),
+                )
+            })?
+            .map_err(|e| (e, local(&account)))?,
     );
-    let account = current_account(&s, account.id).await?;
+    let account = current_account(&s, account.id)
+        .await
+        .map_err(|e| (e, local(&account)))?;
     eprintln!("[custom-route] req={req_short} stage=session account={}", short_id(&account.id));
     let session = tokio::time::timeout(STAGE_TIMEOUT, s.sessions.load(&account.framer_user_id))
         .await
         .map_err(|_| {
             eprintln!("[custom-route] req={req_short} stage=session timed out after 90s");
-            ApiError::Internal("custom route: session load timed out after 90s".into())
+            (
+                ApiError::Internal("custom route: session load timed out after 90s".into()),
+                local(&account),
+            )
         })?
-        .map_err(ApiError::Internal)?
-        .ok_or_else(|| ApiError::Internal("account has no session".into()))?;
+        .map_err(|e| (ApiError::Internal(e), local(&account)))?
+        .ok_or_else(|| (ApiError::Internal("account has no session".into()), local(&account)))?;
     // Scope rule (matches the oracle the engine actually reads): the page
     // credits fetch hits scope_team, so the scope MUST be the account's live
     // current_team/current_project (the workspace the oracle + envelope bill
@@ -444,7 +568,7 @@ async fn custom_real(
     ) {
         (Some(team), Some(proj)) => (proj, team),
         _ => {
-            let scope = pick_scope(&account)?;
+            let scope = pick_scope(&account).map_err(|e| (e, local(&account)))?;
             (scope.project.clone(), scope.team.clone())
         }
     };
@@ -475,9 +599,12 @@ async fn custom_real(
         if std::env::var("FRAMERIZE_CUSTOM_DIRECT").map(|v| v == "1").unwrap_or(false) {
             framer_api::proxy::Dialect::OpenAiResponses
         } else {
-            return Err(ApiError::Internal(format!(
-                "model {model} is a direct-route model; the custom route's abort can lose the race and bill (proved live: -1.18 on a raced leg). It is opt-in only (FRAMERIZE_CUSTOM_DIRECT=1)."
-            )));
+            return Err((
+                ApiError::Internal(format!(
+                    "model {model} is a direct-route model; the custom route's abort can lose the race and bill (proved live: -1.18 on a raced leg). It is opt-in only (FRAMERIZE_CUSTOM_DIRECT=1)."
+                )),
+                None,
+            ));
         }
     } else {
         DIALECT
@@ -492,11 +619,16 @@ async fn custom_real(
         .await
         .map_err(|_| {
             eprintln!("[custom-route] req={req_short} gate wait timed out (key={gate_key})");
-            ApiError::ServingCapacity(
-                "custom route concurrency gate is saturated; retry shortly".into(),
+            (
+                ApiError::ServingCapacity(
+                    "custom route concurrency gate is saturated; retry shortly".into(),
+                ),
+                None,
             )
         })?;
-    current_account(&s, account.id).await?;
+    current_account(&s, account.id)
+        .await
+        .map_err(|e| (e, local(&account)))?;
 
     // AI bearer JWT: the same per-account cached mint forward() uses.
     eprintln!("[custom-route] req={req_short} stage=bearer account={}", short_id(&account.id));
@@ -504,9 +636,12 @@ async fn custom_real(
         .await
         .map_err(|_| {
             eprintln!("[custom-route] req={req_short} stage=bearer timed out after 90s");
-            ApiError::Internal("custom route: bearer mint timed out after 90s".into())
+            (
+                ApiError::Internal("custom route: bearer mint timed out after 90s".into()),
+                local(&account),
+            )
         })?
-        .map_err(ApiError::Internal)?;
+        .map_err(|e| (ApiError::Internal(e), local(&account)))?;
     // Seed the browser cookie jar (mirrors attempt: imported accounts start
     // with an empty jar; in-page fetches authenticate from it).
     eprintln!("[custom-route] req={req_short} stage=seed account={}", short_id(&account.id));
@@ -517,9 +652,12 @@ async fn custom_real(
     .await
     .map_err(|_| {
         eprintln!("[custom-route] req={req_short} stage=seed timed out after 90s");
-        ApiError::Internal("custom route: session seed timed out after 90s".into())
+        (
+            ApiError::Internal("custom route: session seed timed out after 90s".into()),
+            local(&account),
+        )
     })?
-    .map_err(ApiError::Internal)?;
+    .map_err(|e| (ApiError::Internal(e), local(&account)))?;
 
     // Direct-route (agent-panel) legs run under agents/message (the route's
     // own category); the chat passthrough keeps translation/translate.
@@ -558,11 +696,14 @@ async fn custom_real(
             live_credits,
         );
         if !live_credits.is_finite() || live_credits < 25.0 {
-            return Err(ApiError::Internal(format!(
-                "custom-route: scope workspace {} shows live balance {:.2} (need >= 25); not opening a leg",
-                &scope_team.0[..8.min(scope_team.0.len())],
-                live_credits,
-            )));
+            return Err((
+                ApiError::Internal(format!(
+                    "custom-route: scope workspace {} shows live balance {:.2} (need >= 25); not opening a leg",
+                    &scope_team.0[..8.min(scope_team.0.len())],
+                    live_credits,
+                )),
+                local(&account),
+            ));
         }
     }
     let page = framer_host::page_stream::HostPageStream::new(
@@ -611,10 +752,13 @@ async fn custom_real(
     )
     .await
     .map_err(|_| {
-        ApiError::Internal(format!(
-            "chain: engine run exceeded {}s with no terminal or stop (req {req_short})",
-            ENGINE_TIMEOUT.as_secs()
-        ))
+        (
+            ApiError::Internal(format!(
+                "chain: engine run exceeded {}s with no terminal or stop (req {req_short})",
+                ENGINE_TIMEOUT.as_secs()
+            )),
+            None,
+        )
     })?;
     let result = residency.observe_result(account.id, result);
     record_account_health(&s, &account, &result).await;
@@ -661,7 +805,17 @@ async fn custom_real(
             {
                 framer_core::rotation::mark_saturated(&scope_team.0, 300_000);
             }
-            Err(ApiError::Internal(e))
+            // An OPEN refusal (leg 1 never streamed) is this account's
+            // custom-open pattern being risk-hot: mark it (custom-only --
+            // the account keeps serving other routes) and fail over. A
+            // failure after legs opened returns as-is.
+            let retry = if e.contains("leg 1 failed") && e.contains("page stream open failed") {
+                mark_open_refused(&account.id.0.to_string());
+                local(&account)
+            } else {
+                None
+            };
+            Err((ApiError::Internal(e), retry))
         }
     }
 }
@@ -669,6 +823,16 @@ async fn custom_real(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn open_refusal_marks_are_custom_route_only_and_scoped() {
+        let id = format!("test-acc-{}", uuid::Uuid::new_v4());
+        assert!(!open_refusal_active(&id));
+        mark_open_refused(&id);
+        assert!(open_refusal_active(&id));
+        // Other accounts are unaffected.
+        assert!(!open_refusal_active(&format!("{id}-other")));
+    }
 
     #[test]
     fn leg_cap_runway_guarantees_mid_generation_abort() {

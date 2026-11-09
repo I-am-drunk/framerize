@@ -739,7 +739,7 @@ async fn select_funded_account(
             .ok_or_else(|| ApiError::Internal("account has no session".into()))?;
         match pick_funded_scope(s, &account, &session).await {
             Ok(scope) => return Ok((account, residency, session, scope)),
-            Err(e) => {
+            Err(_e) => {
                 eprintln!(
                     "[select] account {} has no funded workspace; failing over ({})",
                     &account.id.0.to_string()[..8.min(account.id.0.to_string().len())],
