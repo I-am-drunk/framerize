@@ -1589,14 +1589,29 @@ class Host:
             acc.dev_reqs[dev] = deque()
         self._request_window(acc, dev, now).append(now)
 
+    def _velocity_is_account_scoped(self, acc, dev, now):
+        """Comparative rule (2026-11-09): a device banned at FEWER in-window
+        requests than the device banned seconds before it cannot be tripping
+        its own budget -- the trip line cannot shrink between devices in
+        seconds unless the budget is shared upstream (account/IP-scoped).
+        The old freshness test (first-request-only) never fired in practice:
+        heartbeats + traffic put >1 request in every window. Rotating under
+        a shared budget just burns innocent device contexts into 600s cools
+        (measured: ce9b4ff3 banned 2-3s after its first serve, twice)."""
+        reqs = len(self._request_window(acc, dev, now))
+        last_reqs = getattr(acc, "last_ban_reqs", 0)
+        last_age = now - getattr(acc, "last_velocity_ban", 0)
+        return last_age < 30 and last_reqs >= 1 and reqs < max(2, last_reqs)
+
     def _cool_device(self, acc, dev, account):
         acc.dev_cooling[dev] = time.monotonic() + DEV_COOLDOWN_S
         acc.last_velocity_ban = time.monotonic()
+        acc.last_ban_reqs = len(self._request_window(acc, dev, time.monotonic()))
         # burn the device's outstanding coupons: a banned device's tokens all
         # draw from its drained velocity budget
         for tid in [k for k, v in acc.token_pool.items() if v.get("dev") == dev]:
             del acc.token_pool[tid]
-        trace(f"{account[:8]}: device {str(dev)[:8]} velocity-cooling {int(DEV_COOLDOWN_S)}s (rotating)")
+        trace(f"{account[:8]}: device {str(dev)[:8]} velocity-cooling {int(DEV_COOLDOWN_S)}s (reqs_in_window={acc.last_ban_reqs}, rotating)")
 
     @staticmethod
     def _rewrap_token(token):
@@ -1990,10 +2005,9 @@ class Host:
                     # the interval backoff below still applies (stop poking a
                     # hot account), but the device pool stops bleeding.
                     now_v = time.monotonic()
-                    if len(self._request_window(acc, used_dev, now_v)) <= 1 \
-                            and getattr(acc, "last_velocity_ban", 0) > now_v - 10:
+                    if self._velocity_is_account_scoped(acc, used_dev, now_v):
                         acc.velocity_hot_until = now_v + DEV_COOLDOWN_S
-                        trace(f"{account[:8]}: heartbeat insta-banned on a fresh device — account-scoped; parking {int(DEV_COOLDOWN_S)}s, device spared")
+                        trace(f"{account[:8]}: heartbeat banned at {len(self._request_window(acc, used_dev, now_v))} reqs right after a ban at {getattr(acc, 'last_ban_reqs', 0)} — account-scoped; parking {int(DEV_COOLDOWN_S)}s, device spared")
                     else:
                         self._cool_device(acc, used_dev, account)
                     # The heartbeat ITSELF got velocity-banned: this account's
@@ -2227,10 +2241,9 @@ class Host:
                         # just burns the pool. Park the account, spare the
                         # device, let the server fail over.
                         now_v = time.monotonic()
-                        if len(self._request_window(acc, used_dev, now_v)) <= 1 \
-                                and getattr(acc, "last_velocity_ban", 0) > now_v - 10:
+                        if self._velocity_is_account_scoped(acc, used_dev, now_v):
                             acc.velocity_hot_until = now_v + DEV_COOLDOWN_S
-                            trace(f"{account[:8]}: fresh device insta-banned right after another ban — velocity is account-scoped; parking {int(DEV_COOLDOWN_S)}s (devices spared)")
+                            trace(f"{account[:8]}: ban at {len(self._request_window(acc, used_dev, now_v))} reqs right after a ban at {getattr(acc, 'last_ban_reqs', 0)} — velocity is account-scoped; parking {int(DEV_COOLDOWN_S)}s (devices spared)")
                             r = {"status": 0, "usage": None,
                                  "body": f"velocity-paused: every device is cooling; retry in {int(DEV_COOLDOWN_S)}s"}
                             break
