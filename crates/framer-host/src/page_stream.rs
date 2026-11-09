@@ -189,6 +189,22 @@ pub const DRAIN_SNIPPET: &str = r#"(() => {
     streamLive: !!slot.streamLive };
 })()"#;
 
+/// JS: the open-wait's read — PEEK ONLY. DRAIN_SNIPPET moves the cursor
+/// (slot.cursor = slot.buf.length), so any content arriving during the
+/// open-wait used to be eaten before the rung's first drain (measured
+/// 2026-11-09: a fast model's whole 43-chunk answer arrived during the
+/// 3-poll open; the rung captured 0 of its 206 chars). The peek reads the
+/// same flags without touching buf/cursor; the rung's drains own the text.
+pub const PEEK_SNIPPET: &str = r#"(() => {
+  const slot = window.__customPS;
+  if (!slot || (!slot.open && !slot.closed)) return { present: false };
+  return { present: true, text_len: slot.buf.length, done: !!slot.done,
+    stopped: !!slot.stopped, stopAt: slot.stopAt || 0,
+    status: slot.status, usage: slot.usage, error: slot.error || "",
+    chunks: slot.chunks || 0, wireTap: slot.wireTap || "",
+    streamLive: !!slot.streamLive };
+})()"#;
+
 /// JS: BACKSTOP cancel only. The normal stop fires inside the page loop
 /// (see OPEN_SNIPPET); this eval exists for the Rust side to release a
 /// stuck slot (hung fetch, teardown). It aborts + cancels and marks the
@@ -381,7 +397,7 @@ impl<E: PageEval> framer_custom::PageStream for HostPageStream<E> {
                 attempts += 1;
                 match self
                     .eval
-                    .eval_small(&self.account, DRAIN_SNIPPET.to_string())
+                    .eval_small(&self.account, PEEK_SNIPPET.to_string())
                     .await
                 {
                     Ok(vv) if vv["present"].as_bool() == Some(true) => {
@@ -389,7 +405,7 @@ impl<E: PageEval> framer_custom::PageStream for HostPageStream<E> {
                             "[custom-route] open-wait poll={} present=true status={} text_len={} done={} stopped={} chunks={} live={} err={:?} tap={:?}",
                             attempts,
                             vv["status"].as_i64().unwrap_or(-1),
-                            vv["text"].as_str().map(|t| t.len()).unwrap_or(0),
+                            vv["text_len"].as_i64().unwrap_or(-1),
                             vv["done"].as_bool().unwrap_or(false),
                             vv["stopped"].as_bool().unwrap_or(false),
                             vv["chunks"].as_i64().unwrap_or(-1),
@@ -406,7 +422,7 @@ impl<E: PageEval> framer_custom::PageStream for HostPageStream<E> {
                             }
                         }
                         let reported = vv["status"].as_i64().unwrap_or(0) != 0
-                            || !vv["text"].as_str().unwrap_or("").is_empty()
+                            || vv["text_len"].as_i64().unwrap_or(0) > 0
                             || vv["done"].as_bool().unwrap_or(false)
                             || vv["stopped"].as_bool().unwrap_or(false);
                         if reported {
@@ -693,7 +709,10 @@ mod tests {
         assert!(seen[0].contains("slot.closed = true"), "first eval is stale cancel");
         assert!(seen[0].contains("__customPS"), "cancel targets the slot");
         assert!(seen[1].contains("stopAfter"), "second eval is the open");
-        assert!(seen[2].contains("slot.cursor"), "third eval is the verify drain");
+        // The verify read is a PEEK (never moves the cursor): content that
+        // lands during the open-wait must survive to the rung first drain.
+        assert!(seen[2].contains("text_len"), "third eval is the verify peek");
+        assert!(!seen[2].contains("slot.cursor"), "peek never touches the cursor");
     }
 
     #[tokio::test]
