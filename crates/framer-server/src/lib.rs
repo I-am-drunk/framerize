@@ -1320,6 +1320,33 @@ async fn free_complete(
     // is always safe to retry on a fresh account. The health mark lands first
     // (below), so the repick never selects the same account twice.
     result = residency.observe_result(account.id, result);
+    // REPAIR-ON-402 (2026-11-09): a credits-exhausted on an account whose
+    // checked team reads funded means the envelope's projectId billed a
+    // DIFFERENT (dead) workspace -- the account's current_project was never
+    // re-paired when the team rotated (credits.rs used to set current_team
+    // only). Re-pair it now so the NEXT request bills the funded workspace;
+    // without this the account 402s forever in front of its own credits.
+    if matches!(&result, Err(e) if e.ends_with("credits-exhausted")) {
+        if let Some(team) = account.current_team.clone() {
+            match s.client.team_projects(&session, &team).await {
+                Ok(ps) => {
+                    if let Some(p) = ps.into_iter().next() {
+                        if account.current_project.as_ref() != Some(&p) {
+                            eprintln!(
+                                "[select] repaired project/team mismatch on {}: project {} now pairs with funded team {}",
+                                &account.id.0.to_string()[..8.min(account.id.0.to_string().len())],
+                                p.0,
+                                &team.0[..8.min(team.0.len())],
+                            );
+                            account.current_project = Some(p);
+                            let _ = s.state.upsert(&account).await;
+                        }
+                    }
+                }
+                Err(e) => eprintln!("[select] project repair lookup failed (non-fatal): {e}"),
+            }
+        }
+    }
     if matches!(&result, Err(e) if should_retry_account(e)) && acct_attempt < 2 {
         tried_accounts.push(account.id.0.to_string());
         // Mark BEFORE re-picking: the store must know this account is poisoned

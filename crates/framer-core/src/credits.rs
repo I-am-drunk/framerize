@@ -60,6 +60,15 @@ pub async fn rotate_workspace(
                 if !snap.looks_exhausted() {
                     account.current_team = Some(team.clone());
                     account.credit = Some(snap);
+                    // The project MUST belong to the team we bill against:
+                    // the envelope's projectId decides which workspace pays,
+                    // and a stale cross-team project silently drains the OLD
+                    // workspace while the picker validates the NEW one
+                    // (measured 2026-11-09: reis drained 8261f85f to 0 via a
+                    // project living there while 7dd4520d sat funded and
+                    // untouched, then every request 402'd credits-exhausted
+                    // in front of 500 credits).
+                    pair_project_with_team(deps, account, session, &team).await;
                     deps.state.upsert(account).await.map_err(CoreError::Store)?;
                     return Ok(team);
                 }
@@ -75,8 +84,51 @@ pub async fn rotate_workspace(
         .map_err(CoreError::Framer)?;
     account.current_team = Some(team.clone());
     account.credit = None;
+    pair_project_with_team(deps, account, session, &team).await;
     deps.state.upsert(account).await.map_err(CoreError::Store)?;
     Ok(team)
+}
+
+/// Point `current_project` at a project that lives in `team` (creating one if
+/// the workspace has none). Billing follows the envelope's projectId, so a
+/// team rotation without this bills the OLD team's workspace forever.
+/// Best-effort: a lookup/creation failure leaves the stale project in place
+/// (the 402-repair path in framer-server catches it on the next refusal).
+async fn pair_project_with_team(
+    deps: &Deps<'_>,
+    account: &mut ManagedAccount,
+    session: &Session,
+    team: &TeamId,
+) {
+    match deps.client.team_projects(session, team).await {
+        Ok(ps) => {
+            if let Some(p) = ps.into_iter().next() {
+                if account.current_project.as_ref() != Some(&p) {
+                    eprintln!(
+                        "[credits] re-paired project {} -> team {} (was {:?})",
+                        p.0,
+                        &team.0[..8.min(team.0.len())],
+                        account.current_project.as_ref().map(|p| p.0.clone()),
+                    );
+                    account.current_project = Some(p);
+                }
+                return;
+            }
+        }
+        Err(e) => {
+            eprintln!("[credits] project lookup for team {} failed: {e}", &team.0[..8.min(team.0.len())]);
+        }
+    }
+    match deps.client.create_project(session, team).await {
+        Ok(p) => {
+            eprintln!("[credits] created project {} in team {}", p.0, &team.0[..8.min(team.0.len())]);
+            account.current_project = Some(p);
+        }
+        Err(e) => eprintln!(
+            "[credits] project creation in team {} failed (non-fatal): {e}",
+            &team.0[..8.min(team.0.len())]
+        ),
+    }
 }
 
 /// One workspace's credit verdict.
