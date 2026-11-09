@@ -49,6 +49,9 @@ pub struct StreamBatch {
     pub raced: bool,
     /// Page cancelled mid-stream at the stop.
     pub aborted: bool,
+    /// The page aborted on the FINISH cutoff (finish_reason delta): the
+    /// captured content is the complete answer. False on a length cut.
+    pub finished: bool,
 }
 
 impl StreamBatch {
@@ -65,6 +68,9 @@ impl StreamBatch {
         }
         if self.raced && self.aborted {
             return Err("page batch claims raced and aborted at once".to_string());
+        }
+        if self.finished && !self.aborted {
+            return Err("page batch claims finished without the abort".to_string());
         }
         if self.raced && !matches!(self.events.last(), Some(Event::Done)) {
             return Err("page batch claims raced with no terminal Done".to_string());
@@ -110,6 +116,8 @@ pub struct BridgeStreamTransport<P: PageStream> {
     stream_id: Option<String>,
     pending: std::collections::VecDeque<Event>,
     terminal_seen: bool,
+    /// The last leg ended on the finish cutoff (complete answer captured).
+    finished_cut: bool,
     failed: Option<String>,
     /// Consecutive empty drains: stall detection needs MANY in a row (a live
     /// model pauses between tokens); one empty batch is normal, not failure.
@@ -139,6 +147,7 @@ impl<P: PageStream> BridgeStreamTransport<P> {
             stream_id: None,
             pending: std::collections::VecDeque::new(),
             terminal_seen: false,
+            finished_cut: false,
             failed: None,
             empty_streak: 0,
         }
@@ -173,6 +182,7 @@ impl<P: PageStream> CustomTransport for BridgeStreamTransport<P> {
     async fn stream_reply(&mut self, payload: &serde_json::Value) -> Result<(), String> {
         self.pending.clear();
         self.terminal_seen = false;
+        self.finished_cut = false;
         self.failed = None;
         self.empty_streak = 0;
         let id = self
@@ -237,6 +247,10 @@ impl<P: PageStream> CustomTransport for BridgeStreamTransport<P> {
         // across the last drains); without an explicit terminal the rung
         // starved 240 polls with deltas=3 on the finished stream.
         if batch.aborted {
+            // A finish-cut batch carries the COMPLETE answer: flag it for
+            // the chain (which ends instead of continuing) while the event
+            // flow stays Aborted (no terminal arrived BY DESIGN).
+            self.finished_cut = batch.finished;
             self.pending.extend(batch.events);
             self.pending.push_back(Event::Aborted);
             return self.pending.pop_front();
@@ -266,6 +280,10 @@ impl<P: PageStream> CustomTransport for BridgeStreamTransport<P> {
         self.empty_streak = 0;
         self.pending.extend(batch.events);
         self.pending.pop_front()
+    }
+
+    fn last_leg_finished(&self) -> bool {
+        self.finished_cut
     }
 
     async fn cancel(&mut self) {
@@ -330,6 +348,7 @@ mod tests {
                 events: vec![],
                 raced: false,
                 aborted: false,
+                finished: false,
             }))
         }
 
@@ -364,6 +383,7 @@ mod tests {
             events,
             raced,
             aborted,
+            finished: false,
         }
     }
 
@@ -400,6 +420,7 @@ mod tests {
                 events: vec![Event::Delta("x ".into())],
                 raced: true,
                 aborted: false,
+                finished: false,
             }],
             100.0,
         );
@@ -429,6 +450,7 @@ mod tests {
             events: vec![Event::Delta("x".into()); MAX_BATCH_EVENTS + 1],
             raced: false,
             aborted: false,
+            finished: false,
         };
         let page = ScriptPage::new(vec![big], 100.0);
         let mut t = BridgeStreamTransport::new(page, Dialect::Chat);
@@ -454,7 +476,7 @@ mod tests {
                     return Ok(batch(&["late text "], false));
                 }
                 self.n -= 1;
-                Ok(StreamBatch { events: vec![], raced: false, aborted: false })
+                Ok(StreamBatch { events: vec![], raced: false, aborted: false, finished: false })
             }
             async fn cancel(&mut self, _: &str) -> Result<bool, String> {
                 Ok(true)
@@ -477,7 +499,7 @@ mod tests {
     #[tokio::test]
     async fn contradictory_batch_rejected() {
         let page = ScriptPage::new(
-            vec![StreamBatch { events: vec![Event::Delta("x ".into())], raced: true, aborted: true }],
+            vec![StreamBatch { events: vec![Event::Delta("x ".into())], raced: true, aborted: true, finished: false }],
             100.0,
         );
         let mut t = BridgeStreamTransport::new(page, Dialect::Chat);
@@ -502,7 +524,7 @@ mod tests {
                 Ok("s".into())
             }
             async fn drain(&mut self, _: &str) -> Result<StreamBatch, String> {
-                Ok(StreamBatch { events: vec![], raced: false, aborted: false })
+                Ok(StreamBatch { events: vec![], raced: false, aborted: false, finished: false })
             }
             async fn cancel(&mut self, _: &str) -> Result<bool, String> {
                 Ok(true)
@@ -538,7 +560,7 @@ mod tests {
         let page = ScriptPage::new(
             vec![
                 batch(&["hello "], false),
-                StreamBatch { events: vec![], raced: false, aborted: true },
+                StreamBatch { events: vec![], raced: false, aborted: true, finished: false },
             ],
             100.0,
         );

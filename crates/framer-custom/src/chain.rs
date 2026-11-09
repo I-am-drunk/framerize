@@ -133,6 +133,10 @@ pub enum ChainOutcome {
     LegCap,
     /// A leg kept debiting past its retry budget: text is partial, debit>0.
     Quarantined,
+    /// The finish cutoff fired: the pump aborted on the model's
+    /// finish_reason delta, so the captured text is the COMPLETE answer and
+    /// the meter's terminal frame never arrived. The clean ending.
+    Finished,
 }
 
 /// Last `n` chars of `text`, widened forward to a char boundary so
@@ -155,6 +159,7 @@ pub fn last_anchor_chars(n: usize, text: &str) -> &str {
 /// What the chain serves (ADR-003): a plain prompt (the /api/custom/complete
 /// path, unchanged) or a full native chat payload — the dialect routes run
 /// the same cutoff engine on the client's own messages.
+#[derive(Clone)]
 pub enum ChainRequest {
     /// Plain prompt: leg 1 is the length directive + the prompt; continuations
     /// are the nudge + tail anchor (the proven shape).
@@ -359,6 +364,37 @@ async fn complete_inner<T: CustomTransport>(
         let debited = !ledger::is_settled(before, after);
         leg_debit += delta;
         eprintln!("{}", leg_line("attempt", leg_index + 1, stop, &rung_out, before, after));
+
+        // THE FINISH CUTOFF (2026-11-09): the pump aborted on the model's
+        // finish_reason delta -- the captured text is the COMPLETE answer
+        // and the meter's terminal frame never arrived (raced stays false;
+        // if the terminal slipped through in the same burst the ledger delta
+        // records it and the settle-reversal refunds it downstream). The
+        // chain ENDS: continuation legs would regenerate a finished answer.
+        if rung_out.finished {
+            total_debit += leg_debit;
+            let growth = merge::trim_overlap(&rung_out.captured, &accumulated).to_string();
+            eprintln!(
+                "[custom-route] finish-cutoff leg={} stop={} events={} captured={} debited={} -- complete answer, chain ends",
+                leg_index + 1,
+                stop,
+                rung_out.events,
+                rung_out.captured.len(),
+                debited
+            );
+            accumulated.push_str(&growth);
+            kept.push(growth.clone());
+            legs.push(Leg {
+                text: growth,
+                raced: rung_out.raced,
+                debited,
+                stop_used: stop,
+                debit: leg_debit,
+                events: rung_out.events,
+            });
+            outcome = ChainOutcome::Finished;
+            break;
+        }
 
         match ledger::after_leg(rung_out.raced, debited) {
             ledger::Policy::RetryHalved | ledger::Policy::QuarantineAndReport

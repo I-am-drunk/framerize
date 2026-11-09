@@ -524,10 +524,12 @@ impl<E: PageEval> framer_custom::PageStream for HostPageStream<E> {
         }
         // A stopped page closed the slot itself: mark the batch so the
         // transport stops polling this stream after delivering the text.
+        let page_finished = v["finished"].as_bool().unwrap_or(false);
         let batch = framer_custom::StreamBatch {
             events,
             raced,
             aborted: page_stopped,
+            finished: page_finished,
         };
         batch.check()?;
         Ok(batch)

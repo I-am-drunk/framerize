@@ -71,6 +71,15 @@ pub trait CustomTransport: Send + Sync {
     /// Fire-and-forget by contract: implementations must not block (the rung
     /// caps the call), and the engine never depends on its outcome.
     async fn cancel(&mut self);
+
+    /// True when the last leg ended on the FINISH CUTOFF (the pump aborted
+    /// on the model's finish_reason delta): the captured content is the
+    /// COMPLETE answer, so the chain ends instead of continuing. Distinct
+    /// from the stop_after cutoff (a length cut = partial answer, chain
+    /// continues). Default false: scripted transports never finish-cut.
+    fn last_leg_finished(&self) -> bool {
+        false
+    }
     /// Credits oracle: current balance behind the teams ai-credits endpoint.
     /// Must be total and cheap; the engine calls it twice per attempt under
     /// an oracle timeout.

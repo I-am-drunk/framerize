@@ -55,6 +55,9 @@ pub struct RungResult {
     pub raced: bool,
     /// Stream events consumed (deltas + terminal), for diagnostics.
     pub events: u32,
+    /// The leg ended on the finish cutoff: the captured text is the
+    /// COMPLETE answer and the chain should end (not continue).
+    pub finished: bool,
 }
 
 /// Cancel with a timeout: the trait contract says fire-and-forget, and this
@@ -101,9 +104,11 @@ pub async fn run_rung<T: CustomTransport>(
     payload: &serde_json::Value,
     stop_steps: u32,
 ) -> Result<RungResult, String> {
-    tokio::time::timeout(LEG_TIMEOUT, run_inner(transport, payload, stop_steps))
+    let mut out = tokio::time::timeout(LEG_TIMEOUT, run_inner(transport, payload, stop_steps))
         .await
-        .map_err(|_| "rung: leg timed out after 600s with no terminal or stop".to_string())?
+        .map_err(|_| "rung: leg timed out after 600s with no terminal or stop".to_string())??;
+    out.finished = transport.last_leg_finished();
+    Ok(out)
 }
 
 async fn run_inner<T: CustomTransport>(
@@ -136,12 +141,12 @@ async fn run_inner<T: CustomTransport>(
                 deltas += 1;
                 if deltas >= stop_steps {
                     cancel_bounded(transport, stop_steps, deltas).await;
-                    return Ok(RungResult { captured, raced: false, events });
+                    return Ok(RungResult { captured, raced: false, events, finished: false });
                 }
             }
             Some(Event::Done) => {
                 events = events.saturating_add(1);
-                return Ok(RungResult { captured, raced: true, events });
+                return Ok(RungResult { captured, raced: true, events, finished: false });
             }
             Some(Event::Aborted) => {
                 // The page stopped itself at the stop (graceful abort, no
@@ -151,13 +156,13 @@ async fn run_inner<T: CustomTransport>(
                 // stream (harmless); the ledger assert still verifies $0.
                 events = events.saturating_add(1);
                 cancel_bounded(transport, stop_steps, deltas).await;
-                return Ok(RungResult { captured, raced: false, events });
+                return Ok(RungResult { captured, raced: false, events, finished: false });
             }
             None => {
                 if !live {
                     // Scripted: only an untouched stream may close on None.
                     if events == 0 {
-                        return Ok(RungResult { captured, raced: false, events });
+                        return Ok(RungResult { captured, raced: false, events, finished: false });
                     }
                     return Err(format!(
                         "rung: scripted transport yielded None after {events} framed events (deltas={deltas}): scripts are total, end with Done"
