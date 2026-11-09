@@ -434,10 +434,20 @@ async fn custom_real(
     // responses/ -- the OpenRouter passthroughs never carry them. The custom
     // route's cutoff makes them free the same way the chat route does: the
     // meter settles at response.completed, the page abort lands before it.
+    // RED-ALERT GATE (2026-11-09): a raced direct-route leg BILLED -1.18 on
+    // a live workspace (the terminal beat the abort). Fast models race often,
+    // so the direct route is OFF by default: it stays opt-in behind
+    // FRAMERIZE_CUSTOM_DIRECT=1 until the race is provably won.
     let dialect = if framer_core::convert::model_route(&model)
         == framer_core::convert::ModelRoute::DirectResponses
     {
-        framer_api::proxy::Dialect::OpenAiResponses
+        if std::env::var("FRAMERIZE_CUSTOM_DIRECT").map(|v| v == "1").unwrap_or(false) {
+            framer_api::proxy::Dialect::OpenAiResponses
+        } else {
+            return Err(ApiError::Internal(format!(
+                "model {model} is a direct-route model; the custom route's abort can lose the race and bill (proved live: -1.18 on a raced leg). It is opt-in only (FRAMERIZE_CUSTOM_DIRECT=1)."
+            )));
+        }
     } else {
         DIALECT
     };
