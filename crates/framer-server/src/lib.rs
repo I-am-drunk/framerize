@@ -140,6 +140,7 @@ pub fn router(state: AppState, web_dir: &str) -> Router {
         .route("/accounts/begin", post(begin_login))
         .route("/accounts/complete", post(complete_login))
         .route("/accounts/import", post(import_account))
+        .route("/accounts/live", get(accounts_live))
         .route("/run", post(run))
         .with_state(state.clone());
 
@@ -256,10 +257,11 @@ async fn compat_forward(
         .await
         .map_err(ApiError::Internal)?
         .ok_or_else(|| ApiError::Internal("account has no session".into()))?;
-    let project = account
-        .current_project
-        .clone()
-        .ok_or_else(|| ApiError::Internal("account has no current project".into()))?;
+    // Paid path picks a FUNDED scope like the free paths do (an empty
+    // workspace 402s at dispatch either way); the bond guard below remains
+    // the final backstop for the chosen scope.
+    let funded = pick_funded_scope(&s, &account, &session).await?;
+    let project = funded.project.clone();
     let chat_session = session_hdr.unwrap_or_else(|| stable_session(&account.id));
 
     // CREDIT-BOND GUARD (2026-10-05): metered (direct) routes spend the SAME
@@ -268,7 +270,7 @@ async fn compat_forward(
     // workspaces in one evening and killed both. Refuse metered calls below
     // the floor (env FRAMERIZE_CREDIT_FLOOR, default 25) so a workspace can
     // never be burned to death again; free models stay unlimited.
-    if let Some(team) = account.current_team.as_ref() {
+    if let Some(team) = Some(&funded.team) {
         let floor: f64 = std::env::var("FRAMERIZE_CREDIT_FLOOR")
             .ok()
             .and_then(|v| v.parse().ok())
@@ -624,6 +626,69 @@ fn pick_scope(account: &ManagedAccount) -> Result<framer_core::account::Workspac
     Ok(scopes[start].clone())
 }
 
+/// Pick a FUNDED scope for this account: the workspace the leg bills against
+/// must carry live credits, or the request 402s at dispatch and the client
+/// sees "credits-exhausted". Every scope is checked against the 60s live
+/// ledger cache (fresh reads fetched on demand); empty workspaces and
+/// saturated ones are skipped. The rotation cursor walks only the funded
+/// set, so round-robin spreads load without ever landing on a dead one.
+/// When nothing is funded, the error NAMES the dead scopes so the operator
+/// (or the account view) can drop them from the pool.
+async fn pick_funded_scope(
+    s: &AppState,
+    account: &ManagedAccount,
+    session: &framer_core::port::Session,
+) -> Result<framer_core::account::WorkspaceScope, ApiError> {
+    let scopes = account.all_scopes();
+    if scopes.is_empty() {
+        return Err(ApiError::Internal("account has no current project".into()));
+    }
+    let floor: f64 = std::env::var("FRAMERIZE_CREDIT_FLOOR")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(25.0);
+    let mut funded: Vec<framer_core::account::WorkspaceScope> = Vec::new();
+    let mut skipped: Vec<String> = Vec::new();
+    for sc in &scopes {
+        let team = sc.team.0.clone();
+        // Live balance: fresh cache read, else fetch (one GET per stale team
+        // per 60s -- the ledger endpoint is rate-limited, the cache carries it).
+        let live = match framer_core::rotation::cached_live_balance(&team) {
+            Some(b) => Some(b),
+            None => match s.client.usage(session, &sc.team).await {
+                Ok(snap) => {
+                    framer_core::rotation::note_live_balance(&team, snap.available);
+                    Some(snap.available)
+                }
+                Err(_) => None,
+            },
+        };
+        if framer_core::rotation::is_saturated(&team) {
+            skipped.push(format!("{} saturated", &team[..8.min(team.len())]));
+            continue;
+        }
+        match live {
+            Some(b) if b < floor => {
+                skipped.push(format!("{} empty ({:.0})", &team[..8.min(team.len())], b));
+            }
+            Some(_) => funded.push(sc.clone()),
+            // Unreadable ledger (rate-limited right now): admit it only if it
+            // has never been seen empty -- the request's own ledger read at
+            // dispatch will catch a dead one, and retry lands elsewhere.
+            None => funded.push(sc.clone()),
+        }
+    }
+    if funded.is_empty() {
+        return Err(ApiError::ServingCapacity(format!(
+            "account {} has no funded workspace (all skipped: {}); exclude it from the pool or credit a workspace",
+            &account.id.0.to_string()[..8.min(account.id.0.to_string().len())],
+            skipped.join(", ")
+        )));
+    }
+    let start = framer_core::rotation::next_scope_idx(&account.id.0.to_string(), funded.len());
+    Ok(funded[start].clone())
+}
+
 /// Free mode, ANY client dialect, LOSSLESS: convert the client's request to
 /// Anthropic Messages shape with full fidelity (tools, system, tool_choice,
 /// content blocks — convert::to_anthropic_request), run the unmetered
@@ -877,7 +942,7 @@ async fn free_complete(
         .await
         .map_err(ApiError::Internal)?
         .ok_or_else(|| ApiError::Internal("account has no session".into()))?;
-    let mut scope = pick_scope(&account)?;
+    let mut scope = pick_funded_scope(&s, &account, &session).await?;
     let mut project = scope.project.clone();
     let mut scope_team = scope.team.clone();
     let mut chat_session =
@@ -1332,7 +1397,7 @@ async fn native_complete(
         .await
         .map_err(ApiError::Internal)?
         .ok_or_else(|| ApiError::Internal("account has no session".into()))?;
-    let mut scope = pick_scope(&account)?;
+    let mut scope = pick_funded_scope(&s, &account, &session).await?;
     let mut project = scope.project.clone();
     let mut scope_team = scope.team.clone();
     let mut chat_session =
@@ -1999,6 +2064,94 @@ async fn accounts(State(s): State<AppState>) -> Result<Json<Vec<ManagedAccount>>
 /// risk is per DEVICE. So three records on one team share one credit pool and
 /// one concurrency budget, and only spread device risk -- which looks like
 /// capacity but isn't. This endpoint makes that visible instead of inferred.
+/// Frame-wise account view: per account, its workspaces with live balances
+/// and dead/saturated marks, funded-vs-not counts, and a verdict
+/// (active / skipped / unused) so operators can drop the dead ones. Every
+/// ledger read rides the 60s cache; fresh fetches run in parallel per team.
+async fn accounts_live(State(s): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
+    let pool = s.state.list().await.map_err(ApiError::Internal)?;
+    let residents = s.serving_accounts.residents.snapshot().map_err(|e| ApiError::Internal(e.to_string()))?;
+    let floor: f64 = std::env::var("FRAMERIZE_CREDIT_FLOOR")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(25.0);
+    let mut out = Vec::new();
+    for account in &pool {
+        let session = s
+            .sessions
+            .load(&account.framer_user_id)
+            .await
+            .ok()
+            .flatten();
+        let scopes = account.all_scopes();
+        let mut workspaces = Vec::new();
+        let mut funded = 0usize;
+        let mut unfunded = 0usize;
+        for sc in &scopes {
+            let team = sc.team.0.clone();
+            let (balance, source) = match framer_core::rotation::cached_live_balance(&team) {
+                Some(b) => (Some(b), "live-cache"),
+                None => {
+                    if let Some(sess) = session.as_ref() {
+                        match s.client.usage(sess, &sc.team).await {
+                            Ok(snap) => {
+                                framer_core::rotation::note_live_balance(&team, snap.available);
+                                (Some(snap.available), "live")
+                            }
+                            Err(_) => (account.credit.as_ref().map(|c| c.available), "cached"),
+                        }
+                    } else {
+                        (account.credit.as_ref().map(|c| c.available), "cached")
+                    }
+                },
+            };
+            let saturated = framer_core::rotation::is_saturated(&team);
+            let dead = matches!(balance, Some(b) if b < floor);
+            let mark = if saturated {
+                "saturated"
+            } else if dead {
+                "dead"
+            } else if balance.is_some() {
+                "funded"
+            } else {
+                "unknown"
+            };
+            if mark == "funded" { funded += 1; } else { unfunded += 1; }
+            workspaces.push(serde_json::json!({
+                "team": team,
+                "project": sc.project.0,
+                "balance": balance,
+                "source": source,
+                "mark": mark,
+            }));
+        }
+        let now = framer_core::rotation::now_ms();
+        let cooling = account.cooling_until_ms.filter(|u| *u > now);
+        let resident = residents.residents.iter().find(|r| r.account == account.id);
+        let verdict = if scopes.is_empty() {
+            "unused"
+        } else if funded > 0 && cooling.is_none() {
+            "active"
+        } else {
+            "skipped"
+        };
+        out.push(serde_json::json!({
+            "id": account.id.0,
+            "alias": account.alias,
+            "state": account.state,
+            "state_detail": format!("{:?}", account.state),
+            "consecutive_failures": account.consecutive_failures,
+            "cooling_until_ms": cooling,
+            "resident": resident.map(|r| format!("{:?}", r.status)),
+            "workspaces": workspaces,
+            "funded_workspaces": funded,
+            "unfunded_workspaces": unfunded,
+            "verdict": verdict,
+        }));
+    }
+    Ok(Json(serde_json::json!({ "floor": floor, "accounts": out })))
+}
+
 async fn pool_shape(State(s): State<AppState>) -> Result<Json<serde_json::Value>, ApiError> {
     let pool = s.state.list().await.map_err(ApiError::Internal)?;
     let now = framer_core::rotation::now_ms();

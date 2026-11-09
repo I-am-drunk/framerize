@@ -66,6 +66,43 @@ pub fn is_saturated(team: &str) -> bool {
     saturated_until(team).map(|u| u > now_ms()).unwrap_or(false)
 }
 
+// ---- Live workspace ledger cache (2026-11-09) ----
+// The credits endpoint is rate-limited and the ledger is the ground truth for
+// "can this workspace bill". Reading it per request per workspace is the only
+// way to never route onto an empty workspace (the 402 at dispatch). Cached
+// 60s: the meter settles per request, and a 60s-old read is still a thousand
+// times fresher than the per-account snapshot (which went stale by 500
+// credits and caused the credits-exhausted chains).
+static LIVE_BAL: Mutex<Option<HashMap<String, (f64, u64)>>> = Mutex::new(None);
+/// Fresh-read horizon: balance reads older than this are re-fetched.
+pub const LIVE_BAL_TTL_MS: u64 = 60_000;
+
+/// The cached live balance for a workspace, only when fresh.
+pub fn cached_live_balance(team: &str) -> Option<f64> {
+    let now = now_ms();
+    LIVE_BAL
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|m| m.get(team).copied())
+        .filter(|(_, at)| now.saturating_sub(*at) < LIVE_BAL_TTL_MS)
+        .map(|(b, _)| b)
+}
+
+/// Record a fresh live balance for a workspace (any reader: preflight reads,
+/// usage-header observations, the account view).
+pub fn note_live_balance(team: &str, balance: f64) {
+    let mut g = LIVE_BAL.lock().unwrap();
+    g.get_or_insert_with(HashMap::new)
+        .insert(team.to_string(), (balance, now_ms()));
+}
+
+/// Force-refresh marker for tests: drop a workspace's cached read.
+#[cfg(test)]
+pub fn clear_live_balance_cache() {
+    *LIVE_BAL.lock().unwrap() = None;
+}
+
 /// Pick the account to serve the next request, or `None` if the pool is dry.
 ///
 /// Health first: an account with fewer consecutive failures always wins, so a
