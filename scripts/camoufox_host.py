@@ -2366,18 +2366,22 @@ class Host:
             # custom-route stream to the account's ambient page so open,
             # drain, cancel and credits all share one window.
             if "window.__customPS" in req.get("expr", ""):
-                # AFFINITY WITHOUT NAVIGATION (2026-11-08 fix): the old
-                # _ensure_editor call here navigated the ambient page on
-                # EVERY custom-route eval (open + each 0.5s drain). Each
-                # navigation wiped window.__customPS (open ok, then every
-                # drain present=false) AND raced ai_post's own editor
-                # residency (connection resets on the account lane). The
-                # pump inherits the ambient page's existing context as-is;
-                # no navigation -- affinity is what matters.
+                # DEVICE-CONTEXT AFFINITY (2026-11-09): the custom stream ran
+                # on the account's AMBIENT page, whose fetches Castle
+                # risk-refuses while ai_post's device contexts pass (measured
+                # live: three custom opens refused on accounts serving 200s
+                # via ai_post in the same minutes). Run the stream on a
+                # velocity-picked device's context page instead -- same
+                # fingerprint story as every other AI call. The sticky picker
+                # pins open+drains+cancel+credits to the one device page
+                # (the affinity the pump state needs), no navigation, no
+                # race with ai_post's ambient residency.
                 acc = await self._account(account)
-                if acc.page is None or acc.page.is_closed():
-                    raise RuntimeError("custom page unavailable (ambient page closed)")
-                return await acc.page.evaluate(req["expr"])
+                dev = self._pick_device_sticky(acc) or self._pick_device(acc, account)
+                if dev is None:
+                    raise RuntimeError("no ready device for the custom page stream")
+                page = (await self._dev_page(acc, account, dev)).page
+                return await page.evaluate(req["expr"])
             async with self._page(account) as page:
                 return await page.evaluate(req["expr"])
         raise RuntimeError("unknown cmd %s" % cmd)
