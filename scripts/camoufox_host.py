@@ -594,7 +594,10 @@ DEVICE_POOL = int(os.environ.get("FRAMERIZE_DEVICE_POOL", "4"))  # realistic hum
 # steady rhythm reads as normal at production rates. So every pool device is
 # kept at a constant light-user cadence of REAL free-route requests, forever.
 # Cost: 8 devices x ~7.5/hr = 60 requests/hour/account of unmetered traffic.
-HEARTBEAT_S = float(os.environ.get("FRAMERIZE_HEARTBEAT_S", "60"))
+# 60 -> 300 (2026-11-09): beats settle real credits now (~0.2 each), and
+# real traffic trains the budget for free -- the beat is only a keep-warm
+# for idle accounts, and one beat per half budget-window (600s) is plenty.
+HEARTBEAT_S = float(os.environ.get("FRAMERIZE_HEARTBEAT_S", "300"))
 # BURST-RESERVE DEVICES (user's burn-and-replace idea, scoped to emergencies
 # only, 2026-10-07): the velocity counter is fingerprint-BLIND (measured: a
 # fresh __cuid on a KNOWN, previously-banned fingerprint still gets the full
@@ -1957,6 +1960,12 @@ class Host:
                 if not acc.devices or not acc.devpool_ready or not acc.project:
                     continue
                 now = time.monotonic()
+                # Beats settle real credits now (~0.2 each): 12 accounts on a
+                # 60s cadence burned ~144/hour in the background. Real traffic
+                # trains the budget for free -- stand down for 15 min after
+                # any real request instead of double-paying.
+                if now - getattr(acc, "last_real", 0) < 900:
+                    continue
                 # A parked account must not be poked AT ALL: a beat during
                 # the park insta-bans and RE-EXTENDS the park (measured:
                 # parks at 07:40 re-parked at 07:52 the moment they expired,
@@ -2307,6 +2316,11 @@ class Host:
                     break
             finally:
                 pass  # device-context pages are long-lived; nothing to release
+            # Real traffic trains the velocity budget better than beats ever
+            # did; the heartbeat reads this to stand down (2026-11-09: beats
+            # settle ~0.2 credits each now -- 12 accounts x 60s was ~144
+            # credits/hour of silent background burn).
+            acc.last_real = time.monotonic()
             emit("ai.post", account=account[:8], path=req["path"], status=r["status"],
                  duration_ms=int((time.monotonic()-t0)*1000),
                  queue_wait_ms=int(queue_wait*1000),
