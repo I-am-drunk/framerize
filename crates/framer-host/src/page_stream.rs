@@ -139,6 +139,27 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
                 const c = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content;
                 if (typeof c === "string") { d = c; }
                 else if (typeof j.delta === "string" && typeof j.type === "string" && j.type.indexOf("response.") === 0) { d = j.delta; }
+                // TOOL CALLS (2026-11-09): a tool turn ends with
+                // finish_reason=tool_calls and the call is COMPLETE before
+                // the finish line -- so the finish cutoff captures tool
+                // turns free too. Accumulate the streamed fragments per
+                // call index: id+type+name arrive on the first delta,
+                // arguments stream as string fragments after it.
+                try {
+                  const tcs = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.tool_calls;
+                  if (tcs && tcs.length) {
+                    if (!slot.toolCalls) slot.toolCalls = {};
+                    for (const tc of tcs) {
+                      const ix = (tc.index === undefined || tc.index === null) ? 0 : tc.index;
+                      const acc = slot.toolCalls[ix] || (slot.toolCalls[ix] = { id: "", type: "function", name: "", arguments: "" });
+                      if (tc.id) acc.id = tc.id;
+                      if (tc.type) acc.type = tc.type;
+                      const fn = tc.function || {};
+                      if (fn.name) acc.name = fn.name;
+                      if (typeof fn.arguments === "string") acc.arguments += fn.arguments;
+                    }
+                  }
+                } catch (e) {}
                 // THE FINISH CUTOFF (inside the parse block: j is scoped
                 // here). finish_reason is the LAST content line; the
                 // usage/terminal frame is the NEXT one, and the meter
@@ -192,9 +213,17 @@ pub const DRAIN_SNIPPET: &str = r#"(() => {
   slot.cursor = slot.buf.length;
   const tap = slot.wireTap || "";
   try { slot.wireTap = ""; } catch (e) {}
+  const tcs = [];
+  try {
+    if (slot.toolCalls) {
+      const keys = Object.keys(slot.toolCalls).sort();
+      for (const k of keys) tcs.push(slot.toolCalls[k]);
+    }
+  } catch (e) {}
   return { present: true, text: text, done: !!slot.done,
     stopped: !!slot.stopped, stopAt: slot.stopAt || 0,
     finished: !!slot.finished, finishReason: slot.finishReason || "",
+    toolCalls: tcs,
     status: slot.status, usage: slot.usage, error: slot.error || "",
     chunks: slot.chunks || 0, wireTap: tap,
     streamLive: !!slot.streamLive };
@@ -518,11 +547,18 @@ impl<E: PageEval> framer_custom::PageStream for HostPageStream<E> {
         // A stopped page closed the slot itself: mark the batch so the
         // transport stops polling this stream after delivering the text.
         let page_finished = v["finished"].as_bool().unwrap_or(false);
+        // Tool calls the pump accumulated (complete only on a finish-cut
+        // leg; a length cut leaves them partial and the chain drops them).
+        let tool_calls: Vec<serde_json::Value> = v["toolCalls"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
         let batch = framer_custom::StreamBatch {
             events,
             raced,
             aborted: page_stopped,
             finished: page_finished,
+            tool_calls,
         };
         batch.check()?;
         Ok(batch)

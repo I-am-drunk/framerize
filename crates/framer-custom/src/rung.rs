@@ -58,6 +58,8 @@ pub struct RungResult {
     /// The leg ended on the finish cutoff: the captured text is the
     /// COMPLETE answer and the chain should end (not continue).
     pub finished: bool,
+    /// The finished leg's complete tool calls (empty for text turns).
+    pub tool_calls: Vec<serde_json::Value>,
 }
 
 /// Cancel with a timeout: the trait contract says fire-and-forget, and this
@@ -108,6 +110,9 @@ pub async fn run_rung<T: CustomTransport>(
         .await
         .map_err(|_| "rung: leg timed out after 600s with no terminal or stop".to_string())??;
     out.finished = transport.last_leg_finished();
+    if out.finished {
+        out.tool_calls = transport.take_tool_calls();
+    }
     Ok(out)
 }
 
@@ -141,12 +146,12 @@ async fn run_inner<T: CustomTransport>(
                 deltas += 1;
                 if deltas >= stop_steps {
                     cancel_bounded(transport, stop_steps, deltas).await;
-                    return Ok(RungResult { captured, raced: false, events, finished: false });
+                    return Ok(RungResult { captured, raced: false, events, finished: false, tool_calls: Vec::new() });
                 }
             }
             Some(Event::Done) => {
                 events = events.saturating_add(1);
-                return Ok(RungResult { captured, raced: true, events, finished: false });
+                return Ok(RungResult { captured, raced: true, events, finished: false, tool_calls: Vec::new() });
             }
             Some(Event::Aborted) => {
                 // The page stopped itself at the stop (graceful abort, no
@@ -156,13 +161,13 @@ async fn run_inner<T: CustomTransport>(
                 // stream (harmless); the ledger assert still verifies $0.
                 events = events.saturating_add(1);
                 cancel_bounded(transport, stop_steps, deltas).await;
-                return Ok(RungResult { captured, raced: false, events, finished: false });
+                return Ok(RungResult { captured, raced: false, events, finished: false, tool_calls: Vec::new() });
             }
             None => {
                 if !live {
                     // Scripted: only an untouched stream may close on None.
                     if events == 0 {
-                        return Ok(RungResult { captured, raced: false, events, finished: false });
+                        return Ok(RungResult { captured, raced: false, events, finished: false, tool_calls: Vec::new() });
                     }
                     return Err(format!(
                         "rung: scripted transport yielded None after {events} framed events (deltas={deltas}): scripts are total, end with Done"

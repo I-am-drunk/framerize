@@ -52,6 +52,11 @@ pub struct StreamBatch {
     /// The page aborted on the FINISH cutoff (finish_reason delta): the
     /// captured content is the complete answer. False on a length cut.
     pub finished: bool,
+    /// Tool calls accumulated by the page pump (chat tool_calls deltas,
+    /// assembled per call index). Only the FINISHED leg's set is complete;
+    /// a length-cut leg's partial calls are dropped (a tool call cannot
+    /// split across legs).
+    pub tool_calls: Vec<serde_json::Value>,
 }
 
 impl StreamBatch {
@@ -118,6 +123,8 @@ pub struct BridgeStreamTransport<P: PageStream> {
     terminal_seen: bool,
     /// The last leg ended on the finish cutoff (complete answer captured).
     finished_cut: bool,
+    /// The finished leg's complete tool calls (empty for text turns).
+    tool_calls: Vec<serde_json::Value>,
     failed: Option<String>,
     /// Consecutive empty drains: stall detection needs MANY in a row (a live
     /// model pauses between tokens); one empty batch is normal, not failure.
@@ -148,6 +155,7 @@ impl<P: PageStream> BridgeStreamTransport<P> {
             pending: std::collections::VecDeque::new(),
             terminal_seen: false,
             finished_cut: false,
+            tool_calls: Vec::new(),
             failed: None,
             empty_streak: 0,
         }
@@ -183,6 +191,7 @@ impl<P: PageStream> CustomTransport for BridgeStreamTransport<P> {
         self.pending.clear();
         self.terminal_seen = false;
         self.finished_cut = false;
+        self.tool_calls = Vec::new();
         self.failed = None;
         self.empty_streak = 0;
         let id = self
@@ -251,6 +260,9 @@ impl<P: PageStream> CustomTransport for BridgeStreamTransport<P> {
             // the chain (which ends instead of continuing) while the event
             // flow stays Aborted (no terminal arrived BY DESIGN).
             self.finished_cut = batch.finished;
+            if !batch.tool_calls.is_empty() {
+                self.tool_calls = batch.tool_calls.clone();
+            }
             self.pending.extend(batch.events);
             self.pending.push_back(Event::Aborted);
             return self.pending.pop_front();
@@ -284,6 +296,10 @@ impl<P: PageStream> CustomTransport for BridgeStreamTransport<P> {
 
     fn last_leg_finished(&self) -> bool {
         self.finished_cut
+    }
+
+    fn take_tool_calls(&mut self) -> Vec<serde_json::Value> {
+        std::mem::take(&mut self.tool_calls)
     }
 
     async fn cancel(&mut self) {
@@ -349,6 +365,7 @@ mod tests {
                 raced: false,
                 aborted: false,
                 finished: false,
+                tool_calls: Vec::new(),
             }))
         }
 
@@ -384,6 +401,7 @@ mod tests {
             raced,
             aborted,
             finished: false,
+                tool_calls: Vec::new(),
         }
     }
 
@@ -421,6 +439,7 @@ mod tests {
                 raced: true,
                 aborted: false,
                 finished: false,
+                tool_calls: Vec::new(),
             }],
             100.0,
         );
@@ -451,6 +470,7 @@ mod tests {
             raced: false,
             aborted: false,
             finished: false,
+                tool_calls: Vec::new(),
         };
         let page = ScriptPage::new(vec![big], 100.0);
         let mut t = BridgeStreamTransport::new(page, Dialect::Chat);
@@ -476,7 +496,7 @@ mod tests {
                     return Ok(batch(&["late text "], false));
                 }
                 self.n -= 1;
-                Ok(StreamBatch { events: vec![], raced: false, aborted: false, finished: false })
+                Ok(StreamBatch { events: vec![], raced: false, aborted: false, finished: false, tool_calls: Vec::new() })
             }
             async fn cancel(&mut self, _: &str) -> Result<bool, String> {
                 Ok(true)
@@ -499,7 +519,7 @@ mod tests {
     #[tokio::test]
     async fn contradictory_batch_rejected() {
         let page = ScriptPage::new(
-            vec![StreamBatch { events: vec![Event::Delta("x ".into())], raced: true, aborted: true, finished: false }],
+            vec![StreamBatch { events: vec![Event::Delta("x ".into())], raced: true, aborted: true, finished: false, tool_calls: Vec::new() }],
             100.0,
         );
         let mut t = BridgeStreamTransport::new(page, Dialect::Chat);
@@ -524,7 +544,7 @@ mod tests {
                 Ok("s".into())
             }
             async fn drain(&mut self, _: &str) -> Result<StreamBatch, String> {
-                Ok(StreamBatch { events: vec![], raced: false, aborted: false, finished: false })
+                Ok(StreamBatch { events: vec![], raced: false, aborted: false, finished: false, tool_calls: Vec::new() })
             }
             async fn cancel(&mut self, _: &str) -> Result<bool, String> {
                 Ok(true)
@@ -560,7 +580,7 @@ mod tests {
         let page = ScriptPage::new(
             vec![
                 batch(&["hello "], false),
-                StreamBatch { events: vec![], raced: false, aborted: true, finished: false },
+                StreamBatch { events: vec![], raced: false, aborted: true, finished: false, tool_calls: Vec::new() },
             ],
             100.0,
         );

@@ -122,6 +122,8 @@ pub struct Assembled {
     pub total_debit: f64,
     /// How the chain ended: leg cap, model dry, or quarantine.
     pub outcome: ChainOutcome,
+    /// Complete tool calls from the finish-cut leg (empty for text turns).
+    pub tool_calls: Vec<serde_json::Value>,
 }
 
 /// Terminal state of a chain run.
@@ -345,6 +347,7 @@ async fn complete_inner<T: CustomTransport>(
     let mut retries_this_leg: u32 = 0;
     let mut leg_debit = 0.0f64;
     let mut outcome = ChainOutcome::Capped;
+    let mut tool_calls: Vec<serde_json::Value> = Vec::new();
 
     let mut leg_index: u32 = 0;
     while leg_index < max_legs {
@@ -392,6 +395,7 @@ async fn complete_inner<T: CustomTransport>(
                 debit: leg_debit,
                 events: rung_out.events,
             });
+            tool_calls = rung_out.tool_calls.clone();
             outcome = ChainOutcome::Finished;
             break;
         }
@@ -516,6 +520,7 @@ async fn complete_inner<T: CustomTransport>(
         legs,
         total_debit,
         outcome,
+        tool_calls,
     })
 }
 

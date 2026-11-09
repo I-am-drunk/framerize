@@ -1010,7 +1010,6 @@ async fn free_complete(
     if dialect == ClientDialect::OpenAiChat
         && !anthro_family
         && cutoff_chat
-        && payload.get("tools").is_none()
         // A caller-pinned account keeps the native path exactly: the pin is
         // an operator/debug instrument, and the cutoff chain own selection
         // would silently hop off it.

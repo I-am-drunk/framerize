@@ -510,8 +510,9 @@ pub(super) async fn cutoff_run(
             Ok(out) => return Ok(out),
             Err((e, Some(failed))) => {
                 eprintln!(
-                    "[custom-route] account-local failure on {}; failing over to a fresh account",
+                    "[custom-route] account-local failure on {} ({}); failing over to a fresh account",
                     &failed[..8.min(failed.len())],
+                    format!("{e:?}").chars().take(160).collect::<String>(),
                 );
                 tried.push(failed);
                 last = Some(e);
@@ -615,12 +616,16 @@ pub(super) async fn chat_via_cutoff(
                         let completion_tokens = answer.chars().count() / 4;
                         let prompt_tokens = prompt_chars / 4;
                         frames.push_back(chat_chunk(&id, created, &model, serde_json::json!({"role": "assistant"})));
+                        if !out.assembled.tool_calls.is_empty() {
+                            frames.push_back(chat_chunk(&id, created, &model, serde_json::json!({"tool_calls": out.assembled.tool_calls})));
+                        }
                         let chars: Vec<char> = answer.chars().collect();
                         for piece in chars.chunks(400) {
                             let piece: String = piece.iter().collect();
                             frames.push_back(chat_chunk(&id, created, &model, serde_json::json!({"content": piece})));
                         }
-                        let mut finchunk = serde_json::json!({"id": id, "object": "chat.completion.chunk", "created": created, "model": model, "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]});
+                        let fin_reason = if out.assembled.tool_calls.is_empty() { "stop" } else { "tool_calls" };
+                        let mut finchunk = serde_json::json!({"id": id, "object": "chat.completion.chunk", "created": created, "model": model, "choices": [{"index": 0, "delta": {}, "finish_reason": fin_reason}]});
                         if include_usage {
                             finchunk["usage"] = serde_json::json!({
                                 "prompt_tokens": prompt_tokens,
@@ -680,6 +685,12 @@ fn chat_completion_json(
     let text = &out.assembled.text;
     let completion_tokens = text.chars().count() / 4;
     let prompt_tokens = prompt_chars / 4;
+    let has_tools = !out.assembled.tool_calls.is_empty();
+    let message = if has_tools {
+        serde_json::json!({"role": "assistant", "content": if text.is_empty() { serde_json::Value::Null } else { serde_json::json!(text) }, "tool_calls": out.assembled.tool_calls})
+    } else {
+        serde_json::json!({"role": "assistant", "content": text})
+    };
     let mut body = serde_json::json!({
         "id": format!("chatcmpl-{}", uuid::Uuid::new_v4().simple()),
         "object": "chat.completion",
@@ -687,8 +698,8 @@ fn chat_completion_json(
         "model": model,
         "choices": [{
             "index": 0,
-            "message": {"role": "assistant", "content": text},
-            "finish_reason": "stop",
+            "message": message,
+            "finish_reason": if has_tools { "tool_calls" } else { "stop" },
         }],
     });
     if include_usage {

@@ -80,6 +80,12 @@ pub trait CustomTransport: Send + Sync {
     fn last_leg_finished(&self) -> bool {
         false
     }
+
+    /// Take the tool calls captured on the finished leg (empty for text
+    /// turns; only a finish-cut leg's calls are complete).
+    fn take_tool_calls(&mut self) -> Vec<serde_json::Value> {
+        Vec::new()
+    }
     /// Credits oracle: current balance behind the teams ai-credits endpoint.
     /// Must be total and cheap; the engine calls it twice per attempt under
     /// an oracle timeout.
