@@ -2220,6 +2220,11 @@ class Host:
                     # silence — retrying that on a fresh device would just die
                     # again and wrongly cool the device. Only rotate on fast 403s.
                     if r["status"] == 403 and r.get("_fetch_ms", 9999) < 4000:
+                        # DIAGNOSTIC (2026-11-09): log the refusal body so the
+                        # class is provable -- a fast 403 is velocity, a Castle
+                        # risk envelope, OR a dead session; each wants a
+                        # different fix and the body is the only truth.
+                        trace(f"{account[:8]}: fast-403 body: {r.get('body', '')[:200]!r}")
                         # TTL vs velocity (2026-10-05): TTL enforcement (~600s) makes
                         # OLD tokens 403 — that is EXPIRY, not a velocity ban, and
                         # cooling the device over it drains the pool for nothing
