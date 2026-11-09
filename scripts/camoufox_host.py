@@ -1982,7 +1982,20 @@ class Host:
                 finally:
                     self._token_release(acc, tid)
                 if st == 403:
-                    self._cool_device(acc, used_dev, account)
+                    # Same account-scoped detection as ai_post (2026-11-09):
+                    # a beat is often the device's FIRST request in its
+                    # window, so a fast ban right after another device's ban
+                    # cannot be the device's own budget — the account is hot
+                    # upstream. Park the account, spare the innocent device;
+                    # the interval backoff below still applies (stop poking a
+                    # hot account), but the device pool stops bleeding.
+                    now_v = time.monotonic()
+                    if len(self._request_window(acc, used_dev, now_v)) <= 1 \
+                            and getattr(acc, "last_velocity_ban", 0) > now_v - 10:
+                        acc.velocity_hot_until = now_v + DEV_COOLDOWN_S
+                        trace(f"{account[:8]}: heartbeat insta-banned on a fresh device — account-scoped; parking {int(DEV_COOLDOWN_S)}s, device spared")
+                    else:
+                        self._cool_device(acc, used_dev, account)
                     # The heartbeat ITSELF got velocity-banned: this account's
                     # score is so escalated that even background beats trip it.
                     # Back off hard — every further beat just keeps the score
