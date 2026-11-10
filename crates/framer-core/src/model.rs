@@ -33,7 +33,10 @@ pub enum ModelClass {
 }
 
 /// Zero-proved base ids (normalized: provider-stripped, dotted versions).
-const FREE_BASE: &[&str] = &["gpt-4.1-mini", "claude-haiku-4.5", "gpt-6-astra"];
+const FREE_BASE: &[&str] = &["gpt-4.1-mini", "claude-haiku-4.5", "gpt-6-astra", "claude-fable-5.2"];
+/// Suffixed ids PROVEN TO BILL (2026-11-10): fable:floor settled -1.77 live.
+/// Exact-deny even when the base is free (suffixes significant).
+const DENIED_SUFFIX_MODELS: &[&str] = &["anthropic/claude-fable-5.2:floor"];
 
 /// Suffixed ids proven $0 (matched EXACT — the suffix is significant: normalize()
 /// would collapse these to the blocked base).
@@ -143,6 +146,9 @@ pub fn effective_upstream_model(model: &str) -> String {
 /// premium id ever reaches a gate unmapped, it must be refused, not silently
 /// billed on the blocked base endpoint.
 pub fn spend_allowed(model: &str) -> bool {
+    if DENIED_SUFFIX_MODELS.contains(&model.trim()) {
+        return false;
+    }
     matches!(classify(model), ModelClass::FreeBase | ModelClass::FreeSuffix)
 }
 

@@ -979,7 +979,7 @@ async fn free_complete(
             && framer_core::rotation::is_model_gated(&client_model)
         {
             return Err(ApiError::InvalidRequest(format!(
-                "model {client_model} is unavailable on your workspaces right now (learned from a live refusal; it retries on its own shortly). Working free models: gpt-4.1, gpt-4.1-mini, kimi-k3, claude-haiku-4.5, gemini-2.5-flash."
+                "model {client_model} is unavailable on your workspaces right now (learned from a live refusal; it retries on its own shortly). Working free models: gpt-4.1-mini, claude-haiku-4.5, claude-fable-5.2, gpt-6-astra (when its guardrail allows)."
             )));
         }
     }
