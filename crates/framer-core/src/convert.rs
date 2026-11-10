@@ -239,6 +239,18 @@ pub fn to_anthropic_request(d: ClientDialect, body: &Value) -> Result<Value, Str
         ClientDialect::OpenAiChat => chat_to_anthropic(body)?,
         ClientDialect::OpenAiResponses => responses_to_anthropic(body)?,
     };
+    // NITRO-MAP (2026-11-10, single source = model::effective_upstream_model): bare
+    // premium claude / kimi-k3* ride their :nitro/:floor endpoints (proved $0 live).
+    // Mapped HERE (the single anthro-request choke point) so the gate key, the freechat
+    // payload, and the spend gate all see the mapped id -- mapping only in free_complete
+    // left the native anthro path serving the bare id straight into the spend-gate wall.
+    if let Some(m) = out.get("model").and_then(|v| v.as_str()).map(|s| s.to_string()) {
+        let mapped = crate::model::effective_upstream_model(&m);
+        if mapped != m {
+            eprintln!("[nitro-map] {m} -> {mapped} (anthro boundary, proved $0 live)");
+            out["model"] = serde_json::Value::String(mapped);
+        }
+    }
     // Free-route thinking cap: thinking tokens hog the chunk budget (Fable/
     // Opus burn 200-2000 thinking tokens even on trivia) — and when the
     // upstream degrades to single-digit tok/s, a 32000-token thinking budget
