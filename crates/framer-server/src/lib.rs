@@ -917,18 +917,6 @@ fn stable_session(account: &AccountId) -> String {
     out
 }
 
-/// Stamp X-Framerize-Nitro-Mapped on responses served via the :nitro bypass
-/// (paid-plan models appended with Nitro by default, user directive 2026-11-10).
-fn with_nitro_header(mut resp: axum::response::Response, mapped: bool) -> axum::response::Response {
-    if mapped {
-        resp.headers_mut().insert(
-            "x-framerize-nitro-mapped",
-            axum::http::HeaderValue::from_static("1"),
-        );
-    }
-    resp
-}
-
 async fn free_complete(
     s: AppState,
     headers: &axum::http::HeaderMap,
@@ -980,19 +968,36 @@ async fn free_complete(
             payload["model"] = serde_json::Value::String(mapped.clone());
         }
     }
-    let nitro_mapped = payload["model"].as_str().unwrap_or_default().ends_with(":nitro");
+
     let client_model = payload["model"].as_str().unwrap_or_default().to_string();
     // Codex "custom" tools (exec, apply_patch, …) ride upstream in an
     // {"input": …} wrapper; the render side unwraps them by name.
     let custom_tools = convert::custom_tool_names(&payload);
-    // Gated models fail FAST, before any account lease or browser burn:
-    // a known plan-gated/blocked model's retries used to mint+post per
-    // attempt, velocity-cooling devices for 600s and 503ing everything else
-    // (the recurring "overloaded" storm). Learned once, then crisp + free.
-    if framer_core::rotation::is_model_gated(&client_model) {
-        return Err(ApiError::InvalidRequest(format!(
-            "model {client_model} is unavailable on your workspaces right now (learned from a live refusal; it retries on its own shortly). Working free models: gpt-4.1, gpt-4.1-mini, kimi-k3, claude-haiku-4.5, gemini-2.5-flash."
-        )));
+    // MODEL GATE (2026-11-10, user directive; default OFF): the learned-gate refusal
+    // ("model X is unavailable ... learned from a live refusal") fires ONLY when
+    // FRAMERIZE_MODEL_GATE=1 AND the request would ride the CUTOFF chain or a
+    // NON-STREAMING native call. Rationale: on streaming native calls the refusal
+    // surfaces live in-stream and the client retries/fails over itself -- blocking
+    // there only wedges clients (measured: T3's reconnect storm). The gate keeps
+    // LEARNING always (marks still recorded); the env only controls whether it BLOCKS.
+    // Nitro-mapped models (:nitro suffix) never hit the gate: the suffix endpoint is
+    // a different entitlement surface that the learned base-model refusal doesn't cover.
+    {
+        let gate_env = std::env::var("FRAMERIZE_MODEL_GATE").map(|v| v == "1").unwrap_or(false);
+        let nitro = client_model.ends_with(":nitro");
+        // Mirror the cutoff-route conditions below (chat + responses, non-anthro, unpinned).
+        let cutoff_would_run = (!convert::is_anthropic_model(&client_model))
+            && hdr(headers, "x-framerize-account").is_none()
+            && ((dialect == ClientDialect::OpenAiChat)
+                || (dialect == ClientDialect::OpenAiResponses));
+        let wants_stream = payload["stream"].as_bool().unwrap_or(false);
+        if gate_env && !nitro && (cutoff_would_run || !wants_stream)
+            && framer_core::rotation::is_model_gated(&client_model)
+        {
+            return Err(ApiError::InvalidRequest(format!(
+                "model {client_model} is unavailable on your workspaces right now (learned from a live refusal; it retries on its own shortly). Working free models: gpt-4.1, gpt-4.1-mini, kimi-k3, claude-haiku-4.5, gemini-2.5-flash."
+            )));
+        }
     }
     // Honest model routing (2026-10-05, user rule: never substitute silently).
     // gpt-6.x are direct-route models (OpenAI Responses, metered): Codex and
@@ -1056,7 +1061,14 @@ async fn free_complete(
     // tools stay native (a tool call cannot split across legs); on a cutoff
     // failure the request falls back to the native chain LOUDLY (serving
     // beats free). FRAMERIZE_ENGINE_CHAT=native is the escape hatch.
-    let cutoff_chat = std::env::var("FRAMERIZE_ENGINE_CHAT").map(|v| v != "native").unwrap_or(true);
+    // DIRECT-NITRO (2026-11-10, user directive; proved live): the :nitro endpoint
+    // settles $0 even on bundled terminal-reading posts, so the cutoff chain's aborts
+    // buy nothing on nitro traffic -- they only add moving parts (page pump, stops,
+    // drains, quarantines, breaker halts). FRAMERIZE_DIRECT_NITRO=0 restores the old
+    // cutoff-first routing; default ON routes straight to native. The spend gate still
+    // guards every native open, so non-nitro billable models can never slip through.
+    let direct_nitro = std::env::var("FRAMERIZE_DIRECT_NITRO").map(|v| v != "0").unwrap_or(true);
+    let cutoff_chat = std::env::var("FRAMERIZE_ENGINE_CHAT").map(|v| v != "native").unwrap_or(true) && !direct_nitro;
     if dialect == ClientDialect::OpenAiChat
         && !anthro_family
         && cutoff_chat
@@ -1077,7 +1089,7 @@ async fn free_complete(
         // -> pick_ready -> AccountCooling) with the same error shape and the
         // same one-read I/O budget the endpoint tests pin.
         match custom::chat_via_cutoff(s.clone(), headers, payload.clone(), wants_stream, include_usage).await {
-            Ok(resp) => return Ok(with_nitro_header(resp, nitro_mapped)),
+            Ok(resp) => return Ok(resp),
             // Admission rejections (cooling/wave/pool-exhausted) are
             // deterministic and identical on the native path: return them
             // as-is (the endpoint tests pin the shape AND the one-read I/O
@@ -1100,7 +1112,7 @@ async fn free_complete(
     // down to the chat shape, run the cutoff chain (the finish cutoff
     // captures text AND tool calls before the settling terminal frame), and
     // render back. FRAMERIZE_ENGINE_RESPONSES=native is the escape hatch.
-    let cutoff_responses = std::env::var("FRAMERIZE_ENGINE_RESPONSES").map(|v| v != "native").unwrap_or(true);
+    let cutoff_responses = std::env::var("FRAMERIZE_ENGINE_RESPONSES").map(|v| v != "native").unwrap_or(true) && !direct_nitro;
     if dialect == ClientDialect::OpenAiResponses
         && !anthro_family
         && cutoff_responses
@@ -1112,7 +1124,7 @@ async fn free_complete(
             });
         }
         match custom::responses_via_cutoff(s.clone(), headers, payload.clone(), wants_stream).await {
-            Ok(resp) => return Ok(with_nitro_header(resp, nitro_mapped)),
+            Ok(resp) => return Ok(resp),
             Err(e @ ApiError::AccountCooling { .. }) | Err(e @ ApiError::Cooling { .. })
             | Err(e @ ApiError::ServingCapacity(_)) | Err(e @ ApiError::PoolBusy(_)) => {
                 return Err(e)
@@ -1128,7 +1140,7 @@ async fn free_complete(
         }
     }
     if dialect != ClientDialect::AnthropicMessages && !anthro_family {
-        return native_complete(s, headers, dialect, payload, wants_stream, include_usage, max_tokens).await.map(|r| with_nitro_header(r, nitro_mapped));
+        return native_complete(s, headers, dialect, payload, wants_stream, include_usage, max_tokens).await;
     }
 
     // Client request → faithful Anthropic Messages payload (model normalized).
