@@ -405,10 +405,14 @@ impl<E: PageEval> framer_custom::PageStream for HostPageStream<E> {
         // slot-busy, cancel-then-reopen (the busy page may be ours now);
         // the verify drain immediately after open proves the pump is on a
         // page drains can see. Bounded: 3 pages x (cancel+open+verify).
-        let stop_after = stop_after.clamp(
-            framer_custom::MIN_STOP,
-            framer_custom::MAX_STOP,
-        );
+        // Micro-stop passes through (see rung.rs): the page aborts at
+        // events >= stopAfter, so stopAfter=1 ends the pump on the first
+        // data line. Normal stops clamp as before.
+        let stop_after = if stop_after < framer_custom::MIN_STOP {
+            stop_after.max(1)
+        } else {
+            stop_after.clamp(framer_custom::MIN_STOP, framer_custom::MAX_STOP)
+        };
         let mut last_err = "page stream open failed: no attempt".to_string();
         for _ in 0..3 {
             // Best-effort stale cancel on this rotation's page.
@@ -787,9 +791,9 @@ mod tests {
     #[tokio::test]
     async fn open_clamps_stop_into_engine_bounds() {
         use framer_custom::PageStream;
-        // 0 clamps to MIN_STOP=40 (engine clamped_stop, not DEFAULT_STOP);
-        // u32::MAX clamps to MAX_STOP=10000.
-        for (send, baked) in [(0u32, "40"), (u32::MAX, "10000"), (40u32, "40")] {
+        // Micro-stops pass through (debited-race recovery: abort after the
+        // first delta); u32::MAX clamps to MAX_STOP=10000; 40 stays 40.
+        for (send, baked) in [(0u32, "1"), (1u32, "1"), (u32::MAX, "10000"), (40u32, "40")] {
             let mut s = test_stream(vec![
                 serde_json::json!({"cancelled": false}),
                 serde_json::json!({"ok": true, "status": 200}),

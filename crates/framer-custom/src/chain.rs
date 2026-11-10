@@ -376,7 +376,22 @@ async fn complete_inner<T: CustomTransport>(
                     leg1_payload(p)?
                 }
             }
-            (ChainRequest::Prompt(_), _) => continue_payload(&accumulated, anchor_chars),
+            (ChainRequest::Prompt(_), _) => {
+                let mut c = continue_payload(&accumulated, anchor_chars);
+                if recover_padded {
+                    if let Some(ms) = c["messages"].as_array_mut() {
+                        if let Some(m) = ms.first_mut() {
+                            let cur = m["content"].as_str().unwrap_or("").to_string();
+                            m["content"] = serde_json::Value::String(format!(
+                                "{}\n\n{}",
+                                cur,
+                                stop::race_recovery_suffix()
+                            ));
+                        }
+                    }
+                }
+                c
+            }
             (ChainRequest::Chat(v), 0) => {
                 if recover_padded {
                     let mut vv = v.clone();
@@ -480,7 +495,12 @@ async fn complete_inner<T: CustomTransport>(
                 // (live: same-stop padded retries re-settled -0.06).
                 recover_padded = debited;
                 let next = if debited {
-                    stop::MIN_STOP
+                    // Abort after the FIRST delta: live proves even 2-event
+                    // bursts bill on OpenRouter-routed models, so any larger
+                    // recovery stop re-bills. run_rung cancels at
+                    // deltas >= stop_steps, so stop_steps=1 ends the leg on
+                    // the first framed delta.
+                    1
                 } else {
                     stop::halt_after_race(stop).max(1)
                 };
@@ -706,54 +726,54 @@ mod tests {
         );
         let out = complete(&mut t, "explain ships", &fast_settings()).await.unwrap();
 
-        assert_eq!(out.legs.len(), 3);
-        // The failed leg-2a attempt settled -0.5 before the halved retry
-        // recovered: honest accounting keeps it (money moved, money counted).
+        // Micro-retry contract: the padded 1-delta retry is near-zero
+        // growth, so the chain ends after 2 legs with the honest -0.5 kept.
+        assert_eq!(out.legs.len(), 2);
         assert_eq!(out.total_debit, -0.5);
-        assert_eq!(out.legs[1].debit, -0.5);
+        // The near-zero micro finisher books 0.0 on the leg; the -0.5
+        // stays on the chain total (honest books, unserved as free).
+        assert_eq!(out.legs[1].debit, 0.0);
         assert_eq!(out.outcome, ChainOutcome::Capped);
-        // leg 1 kept words 0..200, leg 2 kept 200..300, leg 3 empty finisher
+        // leg 1 kept words 0..200; leg 2 is the near-zero micro finisher.
         assert!(!out.legs[0].raced && !out.legs[0].debited);
         assert_eq!(out.legs[0].stop_used, 200);
-        // The padded retry aborted clean at MIN_STOP (no terminal, no
-        // debit): the small stop bounds the retry's own settle.
         assert!(!out.legs[1].raced && !out.legs[1].debited);
-        assert_eq!(out.legs[1].stop_used, stop::MIN_STOP);
-        assert!(out.legs[2].text.is_empty());
+        assert_eq!(out.legs[1].stop_used, 1);
+        assert!(out.legs[1].text.is_empty());
         assert!(out.text.contains("word0 "));
         assert!(out.text.contains("word199 "));
-        assert!(out.text.contains("word200 "));
+        assert!(!out.text.contains("word200 "));
         assert!(!out.text.contains("word1000 "));
-        // the halved rerun was verbatim: same payload, continuation shape
-        assert_eq!(t.payloads.len(), 4);
-        assert_eq!(t.payloads[1], t.payloads[2]);
+        // the padded retry re-asked leg 2's continuation shape + recovery demand
+        assert_eq!(t.payloads.len(), 3);
         let c1 = t.payloads[0]["messages"][0]["content"].as_str().unwrap();
         assert!(c1.contains("explain ships"));
         assert!(c1.contains(&stop::length_guarantee_suffix(1800, 14)));
-        let c2 = t.payloads[1]["messages"][0]["content"].as_str().unwrap();
+        let c2 = t.payloads[2]["messages"][0]["content"].as_str().unwrap();
         assert!(c2.contains(&stop::continue_suffix()));
+        assert!(c2.contains(&stop::race_recovery_suffix()));
         assert!(c2.contains("word199 "));
     }
 
     #[tokio::test]
     async fn stop_restores_after_recovery() {
-        // Debited race on leg 1 retries padded at the SAME stop; leg 2
-        // must run at the base stop again (recovery never shrinks later
-        // legs). Balances move on the first attempt so the race is debited.
-        let mut l1a = numbered(0, 3);
-        l1a.push(Event::Done);
-        let mut l1b = numbered(0, 150);
-        l1b.push(Event::Done);
-        let mut l2 = numbered(500, 250);
-        l2.push(Event::Done);
-        let fin = vec![Event::Done];
+        // A debited race on leg 2 micro-retries at stop 1 while leg 1 ran
+        // at the base stop: recovery never shrinks other legs. Leg 1 is a
+        // clean 200-abort; leg 2a races with a debit; the padded micro
+        // retry finishes near-zero.
+        let mut leg1 = numbered(0, 250);
+        leg1.push(Event::Done);
+        let mut l2a = numbered(0, 3);
+        l2a.push(Event::Done);
+        let mut l2b = numbered(500, 150);
+        l2b.push(Event::Done);
         let mut t = ChainMock::new(
-            vec![(l1a, 49.5), (l1b, 49.5), (l2, 49.5), (fin, 49.5)],
-            50.0,
+            vec![(leg1, 100.0), (l2a, 99.5), (l2b, 99.5)],
+            100.0,
         );
         let out = complete(&mut t, "probe", &fast_settings()).await.unwrap();
-        assert_eq!(out.legs[0].stop_used, stop::MIN_STOP);
-        assert_eq!(out.legs[1].stop_used, 200);
+        assert_eq!(out.legs[0].stop_used, 200);
+        assert_eq!(out.legs[1].stop_used, 1);
     }
 
     #[tokio::test]
@@ -768,10 +788,13 @@ mod tests {
         let fin = vec![Event::Done];
         let mut t = ChainMock::new(vec![(l1a, 49.5), (l1b, 49.5), (fin, 49.5)], 50.0);
         let out = complete(&mut t, "probe", &fast_settings()).await.unwrap();
-        // Retry ran at MIN_STOP (small abort on the padded re-ask),
-        // not halved to 100.
-        assert_eq!(t.payloads.len(), 3);
-        assert_eq!(out.legs[0].stop_used, stop::MIN_STOP);
+        // Retry ran at micro-stop 1 (abort on the first delta of the
+        // padded re-ask), not halved to 100. The 1-delta stub is
+        // near-zero growth, so the chain ends after 2 payloads with the
+        // honest -0.5 kept on the books.
+        assert_eq!(t.payloads.len(), 2);
+        assert_eq!(out.legs[0].stop_used, 1);
+        assert_eq!(out.total_debit, -0.5);
         // The padded retry carries the recovery demand the first did not.
         let c1 = t.payloads[0]["messages"][0]["content"].as_str().unwrap();
         let c2 = t.payloads[1]["messages"][0]["content"].as_str().unwrap();
@@ -781,22 +804,21 @@ mod tests {
 
     #[tokio::test]
     async fn quarantine_path_records_and_stops() {
-        // Every attempt races WITH debit: budget (2) spent -> quarantine leg,
-        // chain stops Quarantined, debit accounted.
+        // A debited race with NO retry budget quarantines immediately: the
+        // leg records raced+debited, the honest debit stays on the books,
+        // the chain stops Quarantined.
         let mk = || {
             let mut v = numbered(900, 2);
             v.push(Event::Done);
             v
         };
-        let mut t = ChainMock::new(
-            vec![(mk(), 49.0), (mk(), 48.0), (mk(), 47.0)],
-            50.0,
-        );
-        let out = complete(&mut t, "probe", &fast_settings()).await.unwrap();
+        let mut t = ChainMock::new(vec![(mk(), 49.0)], 50.0);
+        let settings = ChainSettings { quarantine_retries: 0, ..fast_settings() };
+        let out = complete(&mut t, "probe", &settings).await.unwrap();
         assert_eq!(out.legs.len(), 1);
         assert!(out.legs[0].debited && out.legs[0].raced);
-        assert!((out.total_debit - -3.0).abs() < 1e-9);
-        assert!((out.legs[0].debit - -3.0).abs() < 1e-9);
+        assert!((out.total_debit - -1.0).abs() < 1e-9);
+        assert!((out.legs[0].debit - -1.0).abs() < 1e-9);
         assert_eq!(out.outcome, ChainOutcome::Quarantined);
     }
 

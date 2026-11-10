@@ -121,7 +121,14 @@ async fn run_inner<T: CustomTransport>(
     payload: &serde_json::Value,
     stop_steps: u32,
 ) -> Result<RungResult, String> {
-    let stop_steps = stop::clamped_stop(stop_steps);
+    // Micro-stop (2026-11-10): a caller-explicit stop below MIN_STOP is a
+    // deliberate 1-delta abort bound (debited-race recovery), not caller
+    // error -- honor it verbatim. All other stops clamp as before.
+    let stop_steps = if stop_steps < stop::MIN_STOP {
+        stop_steps.max(1)
+    } else {
+        stop::clamped_stop(stop_steps)
+    };
     // Bake the stop into live transports before opening: the page aborts
     // itself in-loop at the stop (the billing guard); the Rust-side cancel
     // at the stop below is the backstop. No-op for scripted transports.
@@ -396,12 +403,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn zero_stop_clamped_not_silent() {
+    async fn zero_stop_means_micro_abort() {
+        // stop=0 is a caller-explicit micro-stop (debited-race recovery):
+        // abort after the first delta, not the MIN_STOP clamp.
         let mut t = MockTransport::new(MockTransport::deltas(50));
         let r = run_rung(&mut t, &payload(), 0).await.unwrap();
-        assert_eq!(r.captured.matches("word").count(), 40);
+        assert_eq!(r.captured.matches("word").count(), 1);
         assert!(!r.raced);
-        assert_eq!(t.cancel_pos(), Some(40));
+        assert_eq!(t.cancel_pos(), Some(1));
     }
 
     #[tokio::test]
