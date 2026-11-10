@@ -434,6 +434,18 @@ impl BrowserBridge for SidecarBridge {
         bearer: &str,
         body: &Value,
     ) -> Result<(u16, Option<String>, String), String> {
+        {
+            let m = body
+                .get("request")
+                .and_then(|r| r.get("model"))
+                .and_then(|v| v.as_str())
+                .or_else(|| body.get("model").and_then(|v| v.as_str()))
+                .unwrap_or("");
+            if let Some(reason) = framer_core::rotation::spend_gate_check(path, m) {
+                eprintln!("[spend-gate] SIDECAR DENIED path={path} model={m} -- {reason}");
+                return Err(reason);
+            }
+        }
         let v = self
             .call_account(
                 account,

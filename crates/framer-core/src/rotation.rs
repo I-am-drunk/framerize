@@ -100,6 +100,22 @@ pub fn spend_allowed(model: &str) -> bool {
     CUTOFF_FREE_MODELS.contains(&slug)
 }
 
+/// Bridge-level rule (2026-11-10): Some(reason) when an upstream POST to
+/// `path` carrying `model` must be REFUSED before it fires. Free paths
+/// (auth, users/me, credits, refund) always pass (None); inference routes
+/// pass only via spend_allowed(). The three bridge/stream mouths share this
+/// so the rule cannot drift between them.
+pub fn spend_gate_check(path: &str, model: &str) -> Option<String> {
+    let billable = path.starts_with("/ai/v3/chat")
+        || path.starts_with("/ai/v3/messages")
+        || path.starts_with("/ai/v3/responses")
+        || path.starts_with("/ai/v3/openai/");
+    if billable && !spend_allowed(model) {
+        return Some(spend_denied_reason(model));
+    }
+    None
+}
+
 /// Loud refusal reason (mirrors the cutoff allowlist message).
 pub fn spend_denied_reason(model: &str) -> String {
     format!(
@@ -377,6 +393,25 @@ pub fn pick_at(pool: &[ManagedAccount], now: u64) -> Option<&ManagedAccount> {
 #[cfg(test)]
 mod tests {
     static ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn spend_gate_check_covers_all_mouths() {
+        std::env::remove_var("FRAMERIZE_ALLOW_SPEND");
+        // Free paths always pass, even with denied models.
+        assert!(spend_gate_check("/auth/v4/signin", "kimi-k3").is_none());
+        assert!(spend_gate_check("/web/users/me", "anything").is_none());
+        assert!(spend_gate_check("/web/teams/t/ai-credits", "kimi-k3").is_none());
+        assert!(spend_gate_check("/ai/v3/refund/", "kimi-k3").is_none());
+        // Inference routes: allowlisted pass, others refused.
+        assert!(spend_gate_check("/ai/v3/chat/completions", "gpt-4.1-mini").is_none());
+        assert!(spend_gate_check("/ai/v3/messages/", "claude-haiku-4.5").is_none());
+        assert!(spend_gate_check("/ai/v3/responses/", "gpt-6-astra").is_none());
+        assert!(spend_gate_check("/ai/v3/openai/responses/", "gpt-4.1-mini").is_none());
+        assert!(spend_gate_check("/ai/v3/chat/completions", "kimi-k3").is_some());
+        assert!(spend_gate_check("/ai/v3/chat/completions", "gpt-4.1").is_some());
+        assert!(spend_gate_check("/ai/v3/messages/", "gemini-2.5-flash").is_some());
+        assert!(spend_gate_check("/ai/v3/openai/responses/", "gpt-6-sol").is_some());
+    }
 
     #[test]
     fn spend_gate_allows_only_free_models_by_default() {

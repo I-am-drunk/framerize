@@ -360,6 +360,14 @@ impl framer_custom::PageStream for EnvelopePageStream {
         dialect: framer_custom::Dialect,
         stop_after: u32,
     ) -> Result<String, String> {
+        // SPEND GATE at the page-stream mouth (the OPEN path bypasses both
+        // bridge ai_post impls and fires the in-page fetch directly): refuse
+        // before wrap/eval when the model is not zero-proved.
+        if !framer_core::rotation::spend_allowed(&self.model) {
+            let reason = framer_core::rotation::spend_denied_reason(&self.model);
+            eprintln!("[spend-gate] STREAM DENIED model={} -- {reason}", self.model);
+            return Err(reason);
+        }
         let body = self.wrap(payload, stop_after);
         match self.inner.open_stream(&body, dialect, stop_after).await {
             Err(e) if Self::is_unauthorized(&e) => {

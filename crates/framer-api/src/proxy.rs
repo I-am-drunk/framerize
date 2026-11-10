@@ -130,8 +130,7 @@ pub async fn forward(
     // for a non-allowlisted model unless the operator opted into spend.
     {
         let m = payload["model"].as_str().unwrap_or("");
-        if !framer_core::rotation::spend_allowed(m) {
-            let reason = framer_core::rotation::spend_denied_reason(m);
+        if let Some(reason) = framer_core::rotation::spend_gate_check(dialect.path(), m) {
             eprintln!("[spend-gate] DENIED model={m} account={} -- {reason}", account.0.to_string().chars().take(8).collect::<String>());
             return Err(reason);
         }
