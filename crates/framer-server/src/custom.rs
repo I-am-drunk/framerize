@@ -783,9 +783,20 @@ pub(super) async fn chat_via_cutoff(
                     }
                     Ok(Some(Err(e))) => {
                         done = true;
+                        // SSE TERMINAL (2026-11-10): strict chat clients need a
+                        // terminal CHUNK (finish_reason=stop, full chunk shape),
+                        // not just an error blob + [DONE].
+                        let stop_chunk = format!(
+                            "data: {}\n\n",
+                            serde_json::json!({
+                                "id": id, "object": "chat.completion.chunk", "created": created, "model": model,
+                                "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                            })
+                        );
                         let frame = format!(
-                            "data: {}\n\ndata: [DONE]\n\n",
-                            serde_json::json!({"error": {"message": format!("{e:?}"), "type": "api_error"}})
+                            "data: {}\n\n{}data: [DONE]\n\n",
+                            serde_json::json!({"error": {"message": format!("{e:?}"), "type": "api_error"}}),
+                            stop_chunk,
                         );
                         Some((Ok(frame), (rx, done, frames)))
                     }
@@ -844,11 +855,16 @@ pub(super) async fn responses_via_cutoff(
                 Ok(Some(Err(e))) => {
                     // SSE TERMINAL (2026-11-10): an error frame WITHOUT a
                     // terminal hangs SSE clients. Always close with a failed
-                    // response.completed after the error.
+                    // response.completed after the error. The terminal carries
+                    // a full response object INCLUDING id (strict clients
+                    // parse it into a struct with required id -- a bare
+                    // {"status","error"} shape disconnects them with
+                    // "failed to parse ResponseCompleted: missing field id").
+                    let err_id = format!("resp_{}", uuid::Uuid::new_v4().simple());
                     let frame = format!(
                         "data: {}\n\ndata: {}\n\n",
                         serde_json::json!({"type": "error", "error": {"message": format!("{e:?}")}}),
-                        serde_json::json!({"type": "response.completed", "response": {"status": "failed", "error": format!("{e:?}")}}),
+                        serde_json::json!({"type": "response.completed", "response": {"id": err_id, "object": "response", "model": model, "status": "failed", "output": [], "error": format!("{e:?}")}}),
                     );
                     Some((Ok(frame), (rx, true)))
                 }
