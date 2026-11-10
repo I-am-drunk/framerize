@@ -168,8 +168,30 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
                 // deliberately excluded: a multi-item turn has no safe
                 // per-item cut (that is the ADR-003 item-aware work).
                 const ch = j.choices && j.choices[0];
-                if (ch && typeof ch.finish_reason === "string" && ch.finish_reason) fin = ch.finish_reason;
+                if (ch && typeof ch.finish_reason === "string" && ch.finish_reason) {
+                  // Keep this line's content (a finish line can carry both
+                  // content and finish_reason) before the mid-chunk abort.
+                  slot.buf += (d === null || d === "") ? "\u0000" : d;
+                  slot.chunks++;
+                  fin = ch.finish_reason;
+                  // FINISH-CUTOFF RACE FIX (2026-11-10, live-proved): the
+                  // terminal/usage frame rides in the SAME network chunk as
+                  // the finish line (measured: content+finish+terminal in one
+                  // read -> settle before any abort). Abort MID-CHUNK the
+                  // instant the finish parses -- do not finish the line loop.
+                  try { await reader.cancel(); } catch (e) {}
+                  try { ctl.abort(); } catch (e) {}
+                  slot.stopped = true; slot.stopAt = events;
+                  slot.finished = true; slot.finishReason = String(fin);
+                  slot.streamLive = false; slot.done = true;
+                  try { slot.reader = null; } catch (e) {}
+                  try { slot.ctl = null; } catch (e) {}
+                  break;
+                }
               } catch (e) { d = null; }
+              // Mid-chunk finish abort already marked done above: never
+              // touch the reader again -- leave the outer loop at once.
+              if (slot.done) break;
               slot.buf += (d === null || d === "") ? "\u0000" : d;
               slot.chunks++;
               events++;
