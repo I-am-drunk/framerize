@@ -1079,7 +1079,11 @@ async fn custom_real_once(
     // meters settle only on the terminal frame, which the abort beats).
     {
         let slug = model.rsplit('/').next().unwrap_or(&model);
-        let per_token = slug.starts_with("kimi")
+        // gpt-4.1 full-size bills short legs too (-0.08 exact on 2-event
+        // bursts, 6/6 live) while gpt-4.1-mini aborts free on the same
+        // shapes: same model family, different upstream meter behavior.
+        let per_token = slug == "gpt-4.1"
+            || slug.starts_with("kimi")
             || slug.starts_with("deepseek")
             || slug.starts_with("grok")
             || slug.starts_with("glm")
@@ -1087,7 +1091,7 @@ async fn custom_real_once(
         if per_token {
             return Err((
                 ApiError::InvalidRequest(format!(
-                    "model {model} is per-token metered upstream (no abort timing reaches $0; proved live). Free on this route: gpt-4.1, gpt-4.1-mini, claude-haiku-4.5, gemini-2.5-flash."
+                    "model {model} is per-token metered upstream (no abort timing reaches $0; proved live). Free on this route: gpt-4.1-mini, claude-haiku-4.5, gemini-2.5-flash."
                 )),
                 None,
             ));
