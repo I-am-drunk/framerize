@@ -76,7 +76,7 @@ pub fn custom_routes(state: AppState) -> Router {
             "/complete/",
             post(custom_complete_handler).get(hint_handler).put(hint_handler),
         )
-        .route("/complete/status", axum::routing::get(status_handler))
+        .route("/complete/status", axum::routing::get(status_handler).post(status_reset_handler))
         .with_state(state)
 }
 
@@ -94,8 +94,33 @@ async fn hint_handler() -> Response {
 
 /// Liveness for the route behind the handler (the daemon /api/health only
 /// proves the listener; this proves the custom handler is mounted).
+/// Also the spend-lock dashboard: allowlist, breaker state. Operators reset
+/// a latched breaker with POST {"reset_spend_breaker":true} -- only after
+/// re-proving the meter is back to terminal-frame settle.
 async fn status_handler() -> Response {
-    Json(serde_json::json!({"custom_route": "ok"})).into_response()
+    Json(serde_json::json!({
+        "custom_route": "ok",
+        "spend_lock": {
+            "allowlist": ["gpt-4.1-mini", "claude-haiku-4.5"],
+            "breaker_tripped": framer_custom::ledger::spend_breaker_tripped(),
+        },
+    }))
+    .into_response()
+}
+
+async fn status_reset_handler(Json(body): Json<serde_json::Value>) -> Response {
+    if body.get("reset_spend_breaker").and_then(|v| v.as_bool()) == Some(true) {
+        framer_custom::ledger::reset_spend_breaker();
+        return Json(serde_json::json!({"spend_breaker": "reset"})).into_response();
+    }
+    Json(serde_json::json!({
+        "custom_route": "ok",
+        "spend_lock": {
+            "allowlist": ["gpt-4.1-mini", "claude-haiku-4.5"],
+            "breaker_tripped": framer_custom::ledger::spend_breaker_tripped(),
+        },
+    }))
+    .into_response()
 }
 
 #[derive(Deserialize)]
@@ -528,6 +553,38 @@ async fn custom_real_request(
 
 /// Run the cutoff chain with account failover; return the raw parts for
 /// whatever renderer the caller speaks (custom SSE frame or a dialect).
+/// SPEND LOCK (2026-11-10): the ONLY models the cutoff chain may serve.
+/// A model is listed here iff its upstream meter settles EXCLUSIVELY on the
+/// terminal/usage frame, so the in-page abort (which lands before the
+/// terminal by construction) can never be billed -- live-proved over 100+
+/// legs each. Every other model id -> loud InvalidRequest BEFORE any
+/// account lease, browser page, or upstream open, so accidental spend is
+/// structurally impossible on this path (not a matter of abort timing).
+/// Non-exhaustive DENY rationale (each proved live): kimi/deepseek/grok/glm/
+/// muse/gemini ride OpenRouter per-token settle (every delta bills, floor
+/// -0.05 on a 1-event abort); gpt-4.1 full-size settles short bursts (-0.08
+/// exact); direct-route sol kin race the terminal (-1.18).
+pub fn cutoff_free_model(model: &str) -> bool {
+    let slug = model.rsplit('/').next().unwrap_or(model);
+    // gpt-4.1-mini: terminal-frame meter, abort always wins (15/15 rapid $0).
+    if slug == "gpt-4.1-mini" {
+        return true;
+    }
+    // claude-haiku-4.5: terminal-frame meter; intermittent settles are
+    // caught by quarantine-on-first-debit + 402 (never served as free).
+    if slug == "claude-haiku-4.5" {
+        return true;
+    }
+    false
+}
+
+/// Loud refusal for a non-allowlisted model on the cutoff path.
+fn cutoff_model_denied(model: &str) -> ApiError {
+    ApiError::InvalidRequest(format!(
+        "model {model} is not on the zero-spend allowlist (cutoff chain serves ONLY gpt-4.1-mini + claude-haiku-4.5; every other upstream meter bills per-token or per-burst -- proved live). No account was leased, no page opened, nothing spent."
+    ))
+}
+
 pub(super) async fn cutoff_run(
     s: AppState,
     headers: &HeaderMap,
@@ -547,11 +604,35 @@ pub(super) async fn cutoff_run(
     // id). Request- or server-wide failures (gated model, wave pause,
     // saturated gate, a chain that already opened legs) return as-is --
     // retrying those buys nothing.
+    // SPEND LOCK: model gate FIRST -- before pool reads, leases, pages.
+    // No allowlisted model => no upstream open exists downstream, so spend
+    // is impossible regardless of abort timing, retries, or fallbacks.
+    {
+        let m = model_str.trim();
+        let m = if m.is_empty() { "gpt-4.1-mini" } else { m };
+        let m = m.rsplit('/').next().unwrap_or(m);
+        if !cutoff_free_model(m) {
+            return Err(cutoff_model_denied(model_str));
+        }
+    }
+    // SPEND BREAKER: latched => refuse before any pool read/lease/open.
+    if framer_custom::ledger::spend_breaker_tripped() {
+        return Err(ApiError::ServingCapacity(
+            "spend breaker latched (a cutoff leg settled nonzero) -- cutoff serving halted until an operator resets it via POST /api/custom/complete/status {\"reset_spend_breaker\":true}".into(),
+        ));
+    }
     let mut tried: Vec<String> = Vec::new();
     let mut last: Option<ApiError> = None;
     for _ in 0..3 {
         match custom_real_once(s.clone(), headers, request.clone(), model_str, max_legs, stop, &tried).await {
-            Ok(out) => return Ok(out),
+            Ok(out) => {
+                // SPEND BREAKER (here, not in a renderer: every renderer --
+                // custom SSE, chat, responses -- funnels through cutoff_run).
+                if out.assembled.total_debit < -1e-4 {
+                    framer_custom::ledger::trip_spend_breaker(out.assembled.total_debit);
+                }
+                return Ok(out);
+            }
             Err((e, Some(failed))) => {
                 eprintln!(
                     "[custom-route] account-local failure on {} ({}); failing over to a fresh account",
@@ -1064,40 +1145,20 @@ async fn custom_real_once(
     if framer_core::rotation::is_model_gated(&gate_model) {
         return Err((
             ApiError::InvalidRequest(format!(
-                "model {model} is unavailable on your workspaces right now (learned from a live refusal; it retries on its own shortly). Working free models: gpt-4.1, gpt-4.1-mini, kimi-k3, claude-haiku-4.5, gemini-2.5-flash."
+                "model {model} is unavailable on your workspaces right now (learned from a live refusal; it retries on its own shortly). Working free models: gpt-4.1-mini, claude-haiku-4.5."
             )),
             None,
         ));
     }
-    // OPENROUTER-ROUTED MODELS (2026-11-10, live-proved over 40+ legs):
-    // the gateway forwards these to OpenRouter, whose meter settles EACH
-    // generated delta as it streams -- there is no terminal to cut before.
-    // Measured floor is -0.05 on a 1-event micro-abort, -2.67 on long legs;
-    // no abort timing, cap, padding, or retry shape reaches zero (quarantine
-    // retries re-billed every shape tried). Serving them burns workspace
-    // credit per request with zero prospect of $0, so the boundary refuses
-    // them loud -- the same fail-closed posture as the direct-route gate.
-    // Free route serves: gpt-4.1 family, claude-*, gemini-2.5-flash (their
-    // meters settle only on the terminal frame, which the abort beats).
+    // SPEND LOCK: single source of truth is cutoff_free_model() (enforced
+    // again inside cutoff_run for every renderer). This check fires before
+    // any lease/page/open with the same allowlist.
     {
-        let slug = model.rsplit('/').next().unwrap_or(&model);
-        // gpt-4.1 full-size bills short legs too (-0.08 exact on 2-event
-        // bursts, 6/6 live) while gpt-4.1-mini aborts free on the same
-        // shapes: same model family, different upstream meter behavior.
-        let per_token = slug == "gpt-4.1"
-            || slug.starts_with("gemini")
-            || slug.starts_with("kimi")
-            || slug.starts_with("deepseek")
-            || slug.starts_with("grok")
-            || slug.starts_with("glm")
-            || slug.starts_with("muse");
-        if per_token {
-            return Err((
-                ApiError::InvalidRequest(format!(
-                    "model {model} is per-token metered upstream (no abort timing reaches $0; proved live). Free on this route: gpt-4.1-mini, claude-haiku-4.5."
-                )),
-                None,
-            ));
+        let m = model_str.trim();
+        let m = if m.is_empty() { "gpt-4.1-mini" } else { m };
+        let m = m.rsplit('/').next().unwrap_or(m);
+        if !cutoff_free_model(m) {
+            return Err((cutoff_model_denied(model_str), None));
         }
     }
     // Direct-route models (gpt-6-sol & kin) exist only on /ai/v3/openai/
@@ -1771,6 +1832,49 @@ mod tests {
         // Session jar seeded exactly once (mirrors attempt).
         let seeded = ports.seeded.lock().unwrap();
         assert_eq!(seeded.as_slice(), ["session=custom-fixture"]);
+    }
+
+    #[test]
+    fn spend_lock_allowlist_is_mini_plus_haiku_only() {
+        assert!(cutoff_free_model("gpt-4.1-mini"));
+        assert!(cutoff_free_model("claude-haiku-4.5"));
+        assert!(cutoff_free_model("openai/gpt-4.1-mini"));
+        assert!(!cutoff_free_model("gpt-4.1"));
+        assert!(!cutoff_free_model("kimi-k3"));
+        assert!(!cutoff_free_model("moonshotai/kimi-k3"));
+        assert!(!cutoff_free_model("gemini-2.5-flash"));
+        assert!(!cutoff_free_model("deepseek-chat"));
+        assert!(!cutoff_free_model("grok-4"));
+        assert!(!cutoff_free_model("gpt-6-sol"));
+        assert!(!cutoff_free_model(""));
+    }
+
+    #[tokio::test]
+    async fn spend_lock_denies_before_any_io() {
+        // A denied model returns InvalidRequest with ZERO page evals.
+        // Serialized: the breaker trip/reset test mutates the same global.
+        let _env = ENV_LOCK.lock().unwrap();
+        framer_custom::ledger::reset_spend_breaker();
+        let (state, ports) = test_state_with(Vec::new());
+        let resp = custom_complete_handler(
+            State(state),
+            HeaderMap::new(),
+            Json(CompleteBody { prompt: "hi".into(), model: "kimi-k3".into(), max_legs: None, stop: None }),
+        )
+        .await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert!(ports.eval_seen.lock().unwrap().is_empty(), "no page eval on denied model");
+    }
+
+    #[test]
+    fn spend_breaker_trips_refuses_resets() {
+        let _env = ENV_LOCK.lock().unwrap();
+        framer_custom::ledger::reset_spend_breaker();
+        assert!(!framer_custom::ledger::spend_breaker_tripped());
+        framer_custom::ledger::trip_spend_breaker(-0.05);
+        assert!(framer_custom::ledger::spend_breaker_tripped());
+        framer_custom::ledger::reset_spend_breaker();
+        assert!(!framer_custom::ledger::spend_breaker_tripped());
     }
 
     #[tokio::test]

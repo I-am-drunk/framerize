@@ -8,6 +8,43 @@
 /// Ledger epsilon: balance wobble at or under this counts as zero.
 pub const LEDGER_EPS: f64 = 1e-4;
 
+// SPEND CIRCUIT BREAKER (2026-11-10): latched the moment any cutoff chain
+// reports a nonzero settle. While latched, cutoff_run refuses every request
+// BEFORE any upstream open (fail-closed). Cleared only by an explicit
+// operator reset (or daemon restart -- it is intentionally NOT self-healing:
+// a changed meter must be re-proved, not assumed back).
+static CUT_SPENT: std::sync::Mutex<Option<u64>> = std::sync::Mutex::new(None);
+
+/// Latch the breaker (called with the observed debit for the log line).
+pub fn trip_spend_breaker(debit: f64) {
+    if let Ok(mut g) = CUT_SPENT.lock() {
+        if g.is_none() {
+            *g = Some(now_ms());
+            eprintln!("[spend-breaker] TRIPPED on debit {debit:+.6} -- cutoff legs halted until reset");
+        }
+    }
+}
+
+/// True while the breaker is latched.
+pub fn spend_breaker_tripped() -> bool {
+    CUT_SPENT.lock().map(|g| g.is_some()).unwrap_or(false)
+}
+
+/// Operator reset (wired to the status route's POST reset).
+pub fn reset_spend_breaker() {
+    if let Ok(mut g) = CUT_SPENT.lock() {
+        *g = None;
+    }
+    eprintln!("[spend-breaker] RESET by operator");
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 /// True when the ledger did not move: |after - before| <= EPS.
 /// Non-finite inputs (NaN/+inf from a broken oracle read) NEVER count as
 /// settled: a poisoned oracle fails legs instead of passing them.

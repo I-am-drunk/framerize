@@ -192,9 +192,18 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
               // The finish cutoff or the length backstop ends the leg: the
               // abort lands before the terminal frame either way.
               if (fin !== null || events >= stopAfter) {
-                try { ctl.abort(); } catch (e) {}
-                try { await reader.cancel(); } catch (e) {}
+                // CUT-OFF HARDENING (2026-11-10): the terminal must be
+                // UNREACHABLE after the stop, not merely unrequested. Order:
+                // (1) flag stopped first so re-entrant polls see it; (2)
+                // cancel the reader before aborting the controller (abort
+                // alone can still deliver a buffered terminal on some
+                // transports); (3) detach reader+controller so no later
+                // code path can ever pull another chunk from this stream.
                 slot.stopped = true; slot.stopAt = events;
+                try { await reader.cancel(); } catch (e) {}
+                try { ctl.abort(); } catch (e) {}
+                try { slot.reader = null; } catch (e) {}
+                try { slot.ctl = null; } catch (e) {}
                 if (fin !== null) { slot.finished = true; slot.finishReason = String(fin); }
                 slot.streamLive = false; slot.done = true; break;
               }
