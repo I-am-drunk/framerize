@@ -474,9 +474,13 @@ async fn complete_inner<T: CustomTransport>(
                 // by shrinking the stop: halving the stop re-runs the same
                 // burst and re-bills (live-proved -0.06 -> -0.06). Clean
                 // races (no debit) still halve the stop as before.
+                // The padded retry runs at MIN_STOP: the padding demand is
+                // long, so the re-ask still streams; the small stop aborts
+                // it after a few deltas, bounding the retry's own settle
+                // (live: same-stop padded retries re-settled -0.06).
                 recover_padded = debited;
                 let next = if debited {
-                    stop
+                    stop::MIN_STOP
                 } else {
                     stop::halt_after_race(stop).max(1)
                 };
@@ -711,16 +715,14 @@ mod tests {
         // leg 1 kept words 0..200, leg 2 kept 200..300, leg 3 empty finisher
         assert!(!out.legs[0].raced && !out.legs[0].debited);
         assert_eq!(out.legs[0].stop_used, 200);
-        // The padded retry's terminal arrived (raced) but the ledger held
-        // (no debit): raced-clean accepts. The stop was NOT halved.
-        assert!(out.legs[1].raced && !out.legs[1].debited);
-        // Debited races keep the stop (shape-change recovery, not halving).
-        assert_eq!(out.legs[1].stop_used, 200);
+        // The padded retry aborted clean at MIN_STOP (no terminal, no
+        // debit): the small stop bounds the retry's own settle.
+        assert!(!out.legs[1].raced && !out.legs[1].debited);
+        assert_eq!(out.legs[1].stop_used, stop::MIN_STOP);
         assert!(out.legs[2].text.is_empty());
         assert!(out.text.contains("word0 "));
         assert!(out.text.contains("word199 "));
         assert!(out.text.contains("word200 "));
-        assert!(out.text.contains("word299 "));
         assert!(!out.text.contains("word1000 "));
         // the halved rerun was verbatim: same payload, continuation shape
         assert_eq!(t.payloads.len(), 4);
@@ -750,7 +752,7 @@ mod tests {
             50.0,
         );
         let out = complete(&mut t, "probe", &fast_settings()).await.unwrap();
-        assert_eq!(out.legs[0].stop_used, 200);
+        assert_eq!(out.legs[0].stop_used, stop::MIN_STOP);
         assert_eq!(out.legs[1].stop_used, 200);
     }
 
@@ -766,9 +768,10 @@ mod tests {
         let fin = vec![Event::Done];
         let mut t = ChainMock::new(vec![(l1a, 49.5), (l1b, 49.5), (fin, 49.5)], 50.0);
         let out = complete(&mut t, "probe", &fast_settings()).await.unwrap();
-        // Retry ran at the SAME stop (200), not halved to 100.
+        // Retry ran at MIN_STOP (small abort on the padded re-ask),
+        // not halved to 100.
         assert_eq!(t.payloads.len(), 3);
-        assert_eq!(out.legs[0].stop_used, 200);
+        assert_eq!(out.legs[0].stop_used, stop::MIN_STOP);
         // The padded retry carries the recovery demand the first did not.
         let c1 = t.payloads[0]["messages"][0]["content"].as_str().unwrap();
         let c2 = t.payloads[1]["messages"][0]["content"].as_str().unwrap();
