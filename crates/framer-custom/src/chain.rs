@@ -612,15 +612,31 @@ async fn complete_inner<T: CustomTransport>(
         }
     }
 
+    // CHAIN-LEVEL FINALITY (2026-11-10): no chain that moved the ledger
+    // may serve text as a clean answer. A multi-leg run can go 5x$0 then
+    // settle on leg 6 (live: -0.108848 across 6 legs); per-leg quarantine
+    // fires but the assembled text would still serve. Normalize here: any
+    // nonzero total forces Quarantined with EMPTY text (books kept on the
+    // legs; the route 402s; the breaker trips downstream).
+    let (text, outcome) = if total_debit < -crate::ledger::LEDGER_EPS {
+        eprintln!(
+            "[custom-route] CHAIN QUARANTINE: total_debit={:+.6} across {} legs -- text withheld",
+            total_debit,
+            legs.len()
+        );
+        (String::new(), ChainOutcome::Quarantined)
+    } else {
+        (merge::assemble(&kept), outcome)
+    };
     eprintln!(
         "[custom-route] done legs={} kept_chars={} total_debit={:+.6} outcome={:?}",
         legs.len(),
-        accumulated.len(),
+        text.len(),
         total_debit,
         outcome
     );
     Ok(Assembled {
-        text: merge::assemble(&kept),
+        text,
         legs,
         total_debit,
         outcome,
@@ -763,10 +779,8 @@ mod tests {
         assert!(out.legs[1].raced && out.legs[1].debited);
         assert_eq!(out.legs[1].stop_used, 200);
         assert!(out.legs[1].text.is_empty());
-        assert!(out.text.contains("word0 "));
-        assert!(out.text.contains("word199 "));
-        assert!(!out.text.contains("word200 "));
-        assert!(!out.text.contains("word1000 "));
+        // CHAIN FINALITY: the assembled text is withheld (empty) even
+        // though leg 1 kept words -- nonzero total serves nothing.
         // only two payloads ran: leg 1 and the quarantined leg-2 attempt.
         assert_eq!(t.payloads.len(), 2);
         let c1 = t.payloads[0]["messages"][0]["content"].as_str().unwrap();
