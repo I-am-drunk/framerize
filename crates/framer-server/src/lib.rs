@@ -680,8 +680,20 @@ async fn pick_funded_scope(
             skipped.join(", ")
         )));
     }
-    let start = framer_core::rotation::next_scope_idx(&account.id.0.to_string(), funded.len());
-    Ok(funded[start].clone())
+    // FATTEST-SCOPE FIRST (2026-11-10, live-proved): the -0.010182 dust settles
+    // land EXCLUSIVELY on thin scopes (~16.8 balance), never on 300+ ones.
+    // Rank funded scopes by live balance desc; round-robin only among scopes
+    // within 20% of the fattest (spreads load without touching thin ice).
+    let bal = |sc: &framer_core::account::WorkspaceScope| -> f64 {
+        framer_core::rotation::cached_live_balance(&sc.team.0).unwrap_or(f64::MAX)
+    };
+    let mut ranked = funded.clone();
+    ranked.sort_by(|a, b| bal(b).partial_cmp(&bal(a)).unwrap_or(std::cmp::Ordering::Equal));
+    let top = bal(&ranked[0]);
+    let room: Vec<_> = ranked.into_iter().take_while(|sc| bal(sc) >= top * 0.8).collect();
+    let room = if room.is_empty() { funded } else { room };
+    let start = framer_core::rotation::next_scope_idx(&account.id.0.to_string(), room.len());
+    Ok(room[start].clone())
 }
 
 /// Select an account and give it a FUNDED workspace, failing over to fresh
