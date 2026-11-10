@@ -1067,6 +1067,32 @@ async fn custom_real_once(
             None,
         ));
     }
+    // OPENROUTER-ROUTED MODELS (2026-11-10, live-proved over 40+ legs):
+    // the gateway forwards these to OpenRouter, whose meter settles EACH
+    // generated delta as it streams -- there is no terminal to cut before.
+    // Measured floor is -0.05 on a 1-event micro-abort, -2.67 on long legs;
+    // no abort timing, cap, padding, or retry shape reaches zero (quarantine
+    // retries re-billed every shape tried). Serving them burns workspace
+    // credit per request with zero prospect of $0, so the boundary refuses
+    // them loud -- the same fail-closed posture as the direct-route gate.
+    // Free route serves: gpt-4.1 family, claude-*, gemini-2.5-flash (their
+    // meters settle only on the terminal frame, which the abort beats).
+    {
+        let slug = model.rsplit('/').next().unwrap_or(&model);
+        let per_token = slug.starts_with("kimi")
+            || slug.starts_with("deepseek")
+            || slug.starts_with("grok")
+            || slug.starts_with("glm")
+            || slug.starts_with("muse");
+        if per_token {
+            return Err((
+                ApiError::InvalidRequest(format!(
+                    "model {model} is per-token metered upstream (no abort timing reaches $0; proved live). Free on this route: gpt-4.1, gpt-4.1-mini, claude-haiku-4.5, gemini-2.5-flash."
+                )),
+                None,
+            ));
+        }
+    }
     // Direct-route models (gpt-6-sol & kin) exist only on /ai/v3/openai/
     // responses/ -- the OpenRouter passthroughs never carry them. The custom
     // route's cutoff makes them free the same way the chat route does: the
