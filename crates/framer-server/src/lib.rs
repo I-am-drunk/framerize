@@ -1036,6 +1036,11 @@ async fn free_complete(
             | Err(e @ ApiError::ServingCapacity(_)) | Err(e @ ApiError::PoolBusy(_)) => {
                 return Err(e)
             }
+            // SPEND LOCK (2026-11-10): an allowlist denial is deterministic --
+            // the native chain is METERED and would bill. Never fall through.
+            Err(e @ ApiError::InvalidRequest(_)) if format!("{e:?}").contains("zero-spend allowlist") => {
+                return Err(e)
+            }
             Err(e) => {
                 eprintln!("[cutoff] chat chain failed ({e:?}); falling back to the native chain (METERED)");
             }
@@ -1060,6 +1065,11 @@ async fn free_complete(
             Ok(resp) => return Ok(resp),
             Err(e @ ApiError::AccountCooling { .. }) | Err(e @ ApiError::Cooling { .. })
             | Err(e @ ApiError::ServingCapacity(_)) | Err(e @ ApiError::PoolBusy(_)) => {
+                return Err(e)
+            }
+            // SPEND LOCK (2026-11-10): same as chat -- allowlist denials never
+            // fall through to the metered native chain.
+            Err(e @ ApiError::InvalidRequest(_)) if format!("{e:?}").contains("zero-spend allowlist") => {
                 return Err(e)
             }
             Err(e) => {
