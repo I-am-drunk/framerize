@@ -318,6 +318,17 @@ pub async fn complete<T: CustomTransport>(
 /// The ADR-003 entry: serve a ChainRequest (prompt or native chat payload)
 /// through the cutoff chain. Identical engine; the request shape is the only
 /// difference.
+/// Max spend per request (2026-11-10, user directive "lock so you can only spend 0.01"):
+/// any chain whose measured total exceeds this halts + withholds (backstop behind the
+/// per-leg quarantine, covering delayed settles and concurrent-traffic masking).
+/// FRAMERIZE_MAX_SPEND_PER_REQUEST overrides; default 0.01.
+pub fn max_spend_per_request() -> f64 {
+    std::env::var("FRAMERIZE_MAX_SPEND_PER_REQUEST")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0.01)
+}
+
 pub async fn complete_native<T: CustomTransport>(
     transport: &mut T,
     request: ChainRequest,
@@ -357,6 +368,11 @@ async fn complete_inner<T: CustomTransport>(
     let mut stop = base_stop;
     let mut retries_this_leg: u32 = 0;
     let mut leg_debit = 0.0f64;
+    // CHAIN-START ANCHOR (2026-11-10): the first before-read anchors the chain.
+    // Before opening legs 2+ the oracle is re-read and compared to the ANCHOR
+    // (not just the leg start): a delayed settle from an earlier leg posts
+    // AFTER its after-read and would otherwise fund another billed leg.
+    let mut chain_start: Option<f64> = None;
     let mut outcome = ChainOutcome::Capped;
     let mut tool_calls: Vec<serde_json::Value> = Vec::new();
 
@@ -417,6 +433,37 @@ async fn complete_inner<T: CustomTransport>(
         };
 
         let before = read_oracle(transport, cfg.oracle_timeout, "before", leg_index).await?;
+        if chain_start.is_none() {
+            chain_start = Some(before);
+        }
+        // DELAYED-SETTLE GUARD: a prior leg's settle can post after its after-read.
+        // If the chain-level balance moved since the anchor, halt BEFORE opening
+        // another upstream leg (the move is booked, text withheld downstream).
+        if leg_index > 0 {
+            if let Some(anchor_bal) = chain_start {
+                if !ledger::is_settled(anchor_bal, before) {
+                    let drift = ledger::signed_delta(anchor_bal, before);
+                    total_debit += drift;
+                    eprintln!(
+                        "[custom-route] delayed-settle guard leg={}: chain moved {:+.6} since anchor -- halting before open",
+                        leg_index + 1,
+                        drift
+                    );
+                    outcome = ChainOutcome::Quarantined;
+                    break;
+                }
+            }
+        }
+        // SPEND CAP: already over budget from prior legs -> do not open another.
+        if total_debit < -max_spend_per_request() {
+            eprintln!(
+                "[custom-route] spend cap leg={}: total {:+.6} exceeds cap -- halting before open",
+                leg_index + 1,
+                total_debit
+            );
+            outcome = ChainOutcome::Quarantined;
+            break;
+        }
         let rung_out = rung::run_rung(transport, &payload, stop).await.map_err(|e| {
             format!("chain: leg {} failed ({e}); chain aborted, {} legs kept", leg_index + 1, legs.len())
         })?;
