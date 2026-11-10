@@ -573,7 +573,7 @@ async fn custom_real_request(
 /// -0.05 on a 1-event abort); gpt-4.1 full-size settles short bursts (-0.08
 /// exact); direct-route sol kin race the terminal (-1.18).
 pub fn cutoff_free_model(model: &str) -> bool {
-    let slug = model.rsplit('/').next().unwrap_or(model);
+    let slug = framer_core::rotation::normalize_model_slug(model);
     // gpt-4.1-mini: terminal-frame meter, abort always wins (15/15 rapid $0).
     if slug == "gpt-4.1-mini" {
         return true;

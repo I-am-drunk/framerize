@@ -86,18 +86,68 @@ pub const DEFAULT_CREDIT_FLOOR: f64 = 2.0;
 // wall behind each route's own allowlist (defense in depth): even a future
 // route that forgets its own gate cannot spend by accident.
 pub const CUTOFF_FREE_MODELS: &[&str] = &["gpt-4.1-mini", "claude-haiku-4.5", "gpt-6-astra"];
+/// Suffixed variants proven $0 live (2026-11-10): OpenRouter routes :nitro/:floor to
+/// endpoints the workspace blocklist does not cover, and their meters settle zero
+/// (opus-5.5:nitro 2x$0 + floor 3x$0; sonnet-5.5:nitro 1x$0). Matched EXACT on the full
+/// id (suffixes significant -- normalize() would collapse them to the blocked base).
+pub const PROVEN_SUFFIX_MODELS: &[&str] = &[
+    "anthropic/claude-opus-5.5:nitro",
+    "anthropic/claude-opus-5.5:floor",
+    "anthropic/claude-sonnet-5.5:nitro",
+];
+
+/// Canonical model slug for spend decisions: strip provider prefix
+/// ("a/b" -> "b"), strip ":suffix" (nitro/free/batch/online...), and join
+/// trailing dash-separated numerics with dots ("opus-5-5" -> "opus-5.5",
+/// "haiku-4-5" -> "haiku-4.5"). T3 and other clients spell the same model
+/// many ways; the allowlist must see one canonical form (2026-11-10: the
+/// raw-string compare denied claude-haiku-4-5 while allowing claude-haiku-4.5,
+/// wedging T3's compaction in a deny->retry loop).
+pub fn normalize_model_slug(model: &str) -> String {
+    let slug = model.rsplit('/').next().unwrap_or(model);
+    let slug = slug.split(':').next().unwrap_or(slug);
+    let mut slug = slug.trim().to_string();
+    // T3 ultrafast variants: "gpt-6-astra-ultrafast" rides as base astra
+    // with service_tier ultrafast (free path, same meter as the base).
+    if let Some(base) = slug.strip_suffix("-ultrafast") {
+        slug = base.to_string();
+    }
+    let slug = slug;
+    // join trailing numeric dash groups: name-4-5 -> name-4.5, k3.1-pro stays
+    let parts: Vec<&str> = slug.split('-').collect();
+    let mut split_at = parts.len();
+    while split_at > 0
+        && !parts[split_at - 1].is_empty()
+        && parts[split_at - 1].chars().all(|c| c.is_ascii_digit() || c == '.')
+    {
+        split_at -= 1;
+    }
+    if split_at == parts.len() || split_at == 0 {
+        return slug.to_string();
+    }
+    let name = parts[..split_at].join("-");
+    let version = parts[split_at..].join(".");
+    if name.is_empty() {
+        version
+    } else {
+        format!("{name}-{version}")
+    }
+}
 
 /// True when the daemon may open a billable upstream call for this model.
 pub fn spend_allowed(model: &str) -> bool {
     if std::env::var("FRAMERIZE_ALLOW_SPEND").map(|v| v == "1").unwrap_or(false) {
         return true;
     }
-    let slug = model.rsplit('/').next().unwrap_or(model);
-    let slug = slug.trim();
+    // Exact suffixed variants first (suffixes significant).
+    if PROVEN_SUFFIX_MODELS.contains(&model.trim()) {
+        return true;
+    }
+    let slug = normalize_model_slug(model);
     if slug.is_empty() {
         return true; // empty resolves to the free mini downstream
     }
-    CUTOFF_FREE_MODELS.contains(&slug)
+    CUTOFF_FREE_MODELS.contains(&slug.as_str())
 }
 
 /// Bridge-level rule (2026-11-10): Some(reason) when an upstream POST to
@@ -426,6 +476,37 @@ mod tests {
         assert!(!spend_allowed("gemini-2.5-flash"));
         assert!(!spend_allowed("gpt-6-sol"));
         assert!(spend_denied_reason("kimi-k3").contains("nothing spent"));
+    }
+
+    #[test]
+    fn normalize_model_slug_canonicalizes_client_spellings() {
+        let _g = ENV_GUARD.lock().unwrap();
+        std::env::remove_var("FRAMERIZE_ALLOW_SPEND");
+        std::env::remove_var("FRAMERIZE_PROBE_MODELS");
+        assert_eq!(normalize_model_slug("claude-haiku-4-5"), "claude-haiku-4.5");
+        assert_eq!(normalize_model_slug("anthropic/claude-opus-5-5"), "claude-opus-5.5");
+        assert_eq!(normalize_model_slug("moonshotai/kimi-k3"), "kimi-k3");
+        assert_eq!(normalize_model_slug("kimi-k3.1-pro:nitro"), "kimi-k3.1-pro");
+        assert_eq!(normalize_model_slug("gpt-6-astra-ultrafast"), "gpt-6-astra");
+        assert_eq!(normalize_model_slug("openai/gpt-4.1-mini"), "gpt-4.1-mini");
+        // spend_allowed sees through the spellings now
+        assert!(spend_allowed("claude-haiku-4-5"));
+        assert!(spend_allowed("anthropic/claude-haiku-4.5"));
+        assert!(!spend_allowed("claude-opus-5-5"));
+    }
+
+    #[test]
+    fn proven_suffix_variants_are_allowed_exact() {
+        let _g = ENV_GUARD.lock().unwrap();
+        std::env::remove_var("FRAMERIZE_ALLOW_SPEND");
+        // Exact full-id match: suffixes significant.
+        assert!(spend_allowed("anthropic/claude-opus-5.5:nitro"));
+        assert!(spend_allowed("anthropic/claude-opus-5.5:floor"));
+        assert!(spend_allowed("anthropic/claude-sonnet-5.5:nitro"));
+        // Base forms stay denied (blocked/billable upstream).
+        assert!(!spend_allowed("anthropic/claude-opus-5.5"));
+        assert!(!spend_allowed("claude-opus-5-5"));
+        assert!(!spend_allowed("kimi-k3"));
     }
 
     #[test]
