@@ -917,6 +917,18 @@ fn stable_session(account: &AccountId) -> String {
     out
 }
 
+/// Stamp X-Framerize-Nitro-Mapped on responses served via the :nitro bypass
+/// (paid-plan models appended with Nitro by default, user directive 2026-11-10).
+fn with_nitro_header(mut resp: axum::response::Response, mapped: bool) -> axum::response::Response {
+    if mapped {
+        resp.headers_mut().insert(
+            "x-framerize-nitro-mapped",
+            axum::http::HeaderValue::from_static("1"),
+        );
+    }
+    resp
+}
+
 async fn free_complete(
     s: AppState,
     headers: &axum::http::HeaderMap,
@@ -943,6 +955,27 @@ async fn free_complete(
         payload["model"] = serde_json::Value::String(base);
         payload["service_tier"] = serde_json::Value::String(tier.into());
     }
+    let client_model = payload["model"].as_str().unwrap_or_default().to_string();
+    // NITRO-MAP (2026-11-10, user directive "paid-plan models append Nitro by default",
+    // proved live): bare premium claude (opus/sonnet, any version, unsuffixed) 403s
+    // paid_plan_only_model on every route/scope/tier, but the :nitro suffixed endpoint
+    // routes past the workspace blocklist AND settles zero (opus-5.5:nitro 3x$0 incl. a
+    // long-form leg, sonnet-5.5:nitro $0 -- all via the NATIVE path, no cutoff needed).
+    // So the gateway appends :nitro itself: callers ask opus, opus answers, $0. The
+    // served model id keeps the suffix (honest labeling); X-Framerize-Nitro-Mapped: 1
+    // marks mapped responses. Haiku/bare-free models pass through untouched.
+    // Fast-vs-normal: BOTH ride nitro under the hood (nitro IS the fast tier, free).
+    {
+        let slug = framer_core::rotation::normalize_model_slug(&client_model);
+        let premium = (slug.starts_with("claude-opus-") || slug.starts_with("claude-sonnet-"))
+            && !slug.contains(':');
+        if premium {
+            let mapped = format!("{}:nitro", client_model.trim_end_matches(":nitro"));
+            eprintln!("[nitro-map] {client_model} -> {mapped} (paid-plan bypass, proved $0 live)");
+            payload["model"] = serde_json::Value::String(mapped.clone());
+        }
+    }
+    let nitro_mapped = payload["model"].as_str().unwrap_or_default().ends_with(":nitro");
     let client_model = payload["model"].as_str().unwrap_or_default().to_string();
     // Codex "custom" tools (exec, apply_patch, …) ride upstream in an
     // {"input": …} wrapper; the render side unwraps them by name.
@@ -1039,7 +1072,7 @@ async fn free_complete(
         // -> pick_ready -> AccountCooling) with the same error shape and the
         // same one-read I/O budget the endpoint tests pin.
         match custom::chat_via_cutoff(s.clone(), headers, payload.clone(), wants_stream, include_usage).await {
-            Ok(resp) => return Ok(resp),
+            Ok(resp) => return Ok(with_nitro_header(resp, nitro_mapped)),
             // Admission rejections (cooling/wave/pool-exhausted) are
             // deterministic and identical on the native path: return them
             // as-is (the endpoint tests pin the shape AND the one-read I/O
@@ -1074,7 +1107,7 @@ async fn free_complete(
             });
         }
         match custom::responses_via_cutoff(s.clone(), headers, payload.clone(), wants_stream).await {
-            Ok(resp) => return Ok(resp),
+            Ok(resp) => return Ok(with_nitro_header(resp, nitro_mapped)),
             Err(e @ ApiError::AccountCooling { .. }) | Err(e @ ApiError::Cooling { .. })
             | Err(e @ ApiError::ServingCapacity(_)) | Err(e @ ApiError::PoolBusy(_)) => {
                 return Err(e)
@@ -1090,7 +1123,7 @@ async fn free_complete(
         }
     }
     if dialect != ClientDialect::AnthropicMessages && !anthro_family {
-        return native_complete(s, headers, dialect, payload, wants_stream, include_usage, max_tokens).await;
+        return native_complete(s, headers, dialect, payload, wants_stream, include_usage, max_tokens).await.map(|r| with_nitro_header(r, nitro_mapped));
     }
 
     // Client request → faithful Anthropic Messages payload (model normalized).
@@ -1118,7 +1151,9 @@ async fn free_complete(
     // per model; 6 models × 6 = 36/36 clean. Keyed on the normalized upstream
     // id (client spellings collapse to the true bucket) AND the chain's
     // rotated workspace (one account now spans multiple workspace budgets).
-    let gate_model = anthro["model"].as_str().unwrap_or("unknown").to_string();
+    // NITRO-MAP: canonicalize (suffix-insignificant) so :nitro rides the same
+    // bucket as its base family and keys stay stable across client spellings.
+    let gate_model = convert::to_openrouter_id(anthro["model"].as_str().unwrap_or("unknown"));
     let mut gate_key = format!("{}:{gate_model}", scope_team.0);
     let mut first_permit = Some(s.gate.acquire(&gate_key).await);
     current_account(&s, account.id).await?;

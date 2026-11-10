@@ -1485,7 +1485,11 @@ async fn handlers_recheck_account_and_wave_after_waiting_for_the_model_gate() {
                 let model = match route {
                     Route::Free => "claude-opus-5-5", Route::Native => "gpt-6-astra", Route::Compat => "fixture",
                 };
-                let key = format!("team-1:{model}");
+                // NITRO-MAP: opus rides :nitro upstream; gate key is the canonical id.
+                let key = match route {
+                    Route::Free => "team-1:anthropic/claude-opus-5.5".to_string(),
+                    _ => format!("team-1:{model}"),
+                };
                 let permit = state.gate.acquire(&key).await;
                 let mut request = Box::pin(handler_response(&state, route, stream));
                 assert!(futures::poll!(request.as_mut()).is_pending());
@@ -1631,7 +1635,8 @@ async fn account_repicks_wait_on_destination_gate_and_recheck_health_before_invo
                 state.gate = one_slot_gate();
                 ports.fail_first_account.store(true, Ordering::SeqCst);
                 let model = if matches!(route, Route::Free) { "claude-opus-5-5" } else { "gpt-6-astra" };
-                let gate_key = format!("team-2:{model}");
+                // NITRO-MAP: opus rides :nitro upstream; gate key is the canonical id.
+                let gate_key = if matches!(route, Route::Free) { "team-2:anthropic/claude-opus-5.5".to_string() } else { format!("team-2:{model}") };
                 let held = state.gate.acquire(&gate_key).await;
                 let mut request = Box::pin(handler_response(&state, route, stream));
                 let response = if stream { Some(request.as_mut().await.unwrap()) } else {

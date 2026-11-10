@@ -85,7 +85,11 @@ pub fn model_route(model: &str) -> ModelRoute {
 }
 
 pub fn to_openrouter_id(model: &str) -> String {
-    let m = model.strip_suffix(":batch").unwrap_or(model);
+    // Canonicalize FIRST: any :suffix (:batch/:nitro/:floor/:free...) addresses the
+    // same model family for metering/bucketing (the suffix picks the endpoint tier,
+    // not a different model). NITRO-MAP (2026-11-10): without this, :nitro ids
+    // fragment gate buckets and break key-stable tests.
+    let m = model.split(':').next().unwrap_or(model);
     if m.contains('/') {
         return m.to_string();
     }
