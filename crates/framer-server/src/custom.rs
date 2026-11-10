@@ -573,23 +573,8 @@ async fn custom_real_request(
 /// -0.05 on a 1-event abort); gpt-4.1 full-size settles short bursts (-0.08
 /// exact); direct-route sol kin race the terminal (-1.18).
 pub fn cutoff_free_model(model: &str) -> bool {
-    let slug = framer_core::rotation::normalize_model_slug(model);
-    // gpt-4.1-mini: terminal-frame meter, abort always wins (15/15 rapid $0).
-    if slug == "gpt-4.1-mini" {
-        return true;
-    }
-    // claude-haiku-4.5: terminal-frame meter; intermittent settles are
-    // caught by quarantine-on-first-debit + 402 (never served as free).
-    if slug == "claude-haiku-4.5" {
-        return true;
-    }
-    // gpt-6-astra: proven-free OpenRouter passthrough (verified 2026-10-06:
-    // 200 + ledger delta 0.0; the free-tier path, unlike kimi's per-token
-    // settle on the same rails -- metering is per-model, proved live).
-    if slug == "gpt-6-astra" {
-        return true;
-    }
-    false
+    // Single source of truth: model::free_on_cutoff (zero-proved BASE ids only).
+    framer_core::model::free_on_cutoff(model)
 }
 
 /// Loud refusal for a non-allowlisted model on the cutoff path.

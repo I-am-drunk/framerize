@@ -7,6 +7,7 @@ pub mod browser_lifecycle;
 pub mod resident_pool;
 pub mod convert;
 pub mod credits;
+pub mod model;
 pub mod error;
 pub mod gate;
 pub mod ids;

@@ -78,100 +78,13 @@ pub fn is_saturated(team: &str) -> bool {
 /// 402s once and fails over, which is exactly what the failover is for.
 pub const DEFAULT_CREDIT_FLOOR: f64 = 2.0;
 
-// GLOBAL SPEND GATE (2026-11-10): zero-spend is the DEFAULT on this daemon.
-// Every billable upstream open must pass spend_allowed() BEFORE it fires.
-// An operator opts into spend explicitly with FRAMERIZE_ALLOW_SPEND=1;
-// otherwise ONLY the zero-proved models pass and everything else is refused
-// loud with SpendDenied (never silent, never billed). This is the second
-// wall behind each route's own allowlist (defense in depth): even a future
-// route that forgets its own gate cannot spend by accident.
-pub const CUTOFF_FREE_MODELS: &[&str] = &["gpt-4.1-mini", "claude-haiku-4.5", "gpt-6-astra"];
-/// Suffixed variants proven $0 live (2026-11-10): OpenRouter routes :nitro/:floor to
-/// endpoints the workspace blocklist does not cover, and their meters settle zero
-/// (opus-5.5:nitro 2x$0 + floor 3x$0; sonnet-5.5:nitro 1x$0). Matched EXACT on the full
-/// id (suffixes significant -- normalize() would collapse them to the blocked base).
-pub const PROVEN_SUFFIX_MODELS: &[&str] = &[
-    "anthropic/claude-opus-5.5:nitro",
-    "anthropic/claude-opus-5.5:floor",
-    "anthropic/claude-sonnet-5.5:nitro",
-];
-
-/// Canonical model slug for spend decisions: strip provider prefix
-/// ("a/b" -> "b"), strip ":suffix" (nitro/free/batch/online...), and join
-/// trailing dash-separated numerics with dots ("opus-5-5" -> "opus-5.5",
-/// "haiku-4-5" -> "haiku-4.5"). T3 and other clients spell the same model
-/// many ways; the allowlist must see one canonical form (2026-11-10: the
-/// raw-string compare denied claude-haiku-4-5 while allowing claude-haiku-4.5,
-/// wedging T3's compaction in a deny->retry loop).
-pub fn normalize_model_slug(model: &str) -> String {
-    let slug = model.rsplit('/').next().unwrap_or(model);
-    let slug = slug.split(':').next().unwrap_or(slug);
-    let mut slug = slug.trim().to_string();
-    // T3 ultrafast variants: "gpt-6-astra-ultrafast" rides as base astra
-    // with service_tier ultrafast (free path, same meter as the base).
-    if let Some(base) = slug.strip_suffix("-ultrafast") {
-        slug = base.to_string();
-    }
-    let slug = slug;
-    // join trailing numeric dash groups: name-4-5 -> name-4.5, k3.1-pro stays
-    let parts: Vec<&str> = slug.split('-').collect();
-    let mut split_at = parts.len();
-    while split_at > 0
-        && !parts[split_at - 1].is_empty()
-        && parts[split_at - 1].chars().all(|c| c.is_ascii_digit() || c == '.')
-    {
-        split_at -= 1;
-    }
-    if split_at == parts.len() || split_at == 0 {
-        return slug.to_string();
-    }
-    let name = parts[..split_at].join("-");
-    let version = parts[split_at..].join(".");
-    if name.is_empty() {
-        version
-    } else {
-        format!("{name}-{version}")
-    }
-}
-
-/// True when the daemon may open a billable upstream call for this model.
-pub fn spend_allowed(model: &str) -> bool {
-    if std::env::var("FRAMERIZE_ALLOW_SPEND").map(|v| v == "1").unwrap_or(false) {
-        return true;
-    }
-    // Exact suffixed variants first (suffixes significant).
-    if PROVEN_SUFFIX_MODELS.contains(&model.trim()) {
-        return true;
-    }
-    let slug = normalize_model_slug(model);
-    if slug.is_empty() {
-        return true; // empty resolves to the free mini downstream
-    }
-    CUTOFF_FREE_MODELS.contains(&slug.as_str())
-}
-
-/// Bridge-level rule (2026-11-10): Some(reason) when an upstream POST to
-/// `path` carrying `model` must be REFUSED before it fires. Free paths
-/// (auth, users/me, credits, refund) always pass (None); inference routes
-/// pass only via spend_allowed(). The three bridge/stream mouths share this
-/// so the rule cannot drift between them.
-pub fn spend_gate_check(path: &str, model: &str) -> Option<String> {
-    let billable = path.starts_with("/ai/v3/chat")
-        || path.starts_with("/ai/v3/messages")
-        || path.starts_with("/ai/v3/responses")
-        || path.starts_with("/ai/v3/openai/");
-    if billable && !spend_allowed(model) {
-        return Some(spend_denied_reason(model));
-    }
-    None
-}
-
-/// Loud refusal reason (mirrors the cutoff allowlist message).
-pub fn spend_denied_reason(model: &str) -> String {
-    format!(
-        "spend denied for model {model}: zero-spend default is ON (set FRAMERIZE_ALLOW_SPEND=1 to allow spend). Free models: gpt-4.1-mini, claude-haiku-4.5. No upstream call was opened, nothing spent."
-    )
-}
+// Model-class + zero-spend policy. ARCHITECTURE (2026-11-10): the single implementation
+// lives in `model`; these are thin compatibility delegates so pre-existing call sites keep
+// working while the decision lives in exactly one place.
+pub use crate::model::{
+    classify, effective_upstream_model, free_on_cutoff, normalize_model_slug,
+    spend_allowed, spend_denied_reason, spend_gate_check, ModelClass,
+};
 
 pub fn bill_floor() -> f64 {
     std::env::var("FRAMERIZE_CREDIT_FLOOR")

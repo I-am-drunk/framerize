@@ -944,30 +944,14 @@ async fn free_complete(
         payload["service_tier"] = serde_json::Value::String(tier.into());
     }
     let client_model = payload["model"].as_str().unwrap_or_default().to_string();
-    // NITRO-MAP (2026-11-10, user directive "paid-plan models append Nitro by default",
-    // proved live): bare premium claude (opus/sonnet, any version, unsuffixed) 403s
-    // paid_plan_only_model on every route/scope/tier, but the :nitro suffixed endpoint
-    // routes past the workspace blocklist AND settles zero (opus-5.5:nitro 3x$0 incl. a
-    // long-form leg, sonnet-5.5:nitro $0 -- all via the NATIVE path, no cutoff needed).
-    // So the gateway appends :nitro itself: callers ask opus, opus answers, $0. The
-    // served model id keeps the suffix (honest labeling); X-Framerize-Nitro-Mapped: 1
-    // marks mapped responses. Haiku/bare-free models pass through untouched.
-    // Fast-vs-normal: BOTH ride nitro under the hood (nitro IS the fast tier, free).
-    {
-        let slug = framer_core::rotation::normalize_model_slug(&client_model);
-        let premium = (slug.starts_with("claude-opus-") || slug.starts_with("claude-sonnet-"))
-            && !slug.contains(':');
-        if premium {
-            // Map to the provider-prefixed dotted :nitro id (the exact form in
-            // PROVEN_SUFFIX_MODELS): the client's spelling (dashes, no prefix)
-            // would miss the exact-match suffix allowlist and get denied.
-            let base = client_model.trim_end_matches(":nitro");
-            let canonical = convert::to_openrouter_id(base);
-            let mapped = format!("{canonical}:nitro");
-            eprintln!("[nitro-map] {client_model} -> {mapped} (paid-plan bypass, proved $0 live)");
-            payload["model"] = serde_json::Value::String(mapped.clone());
-        }
-    }
+    // NITRO-MAP (2026-11-10, user directive; single source = model::effective_upstream_model).
+    // Bare premium claude (opus/sonnet, unsuffixed) 403s paid_plan_only_model upstream, but the
+    // :nitro endpoint routes past the workspace blocklist and settles $0 (proved live). The
+    // gateway appends :nitro itself -- callers ask opus, get opus, pay nothing. The served id
+    // keeps the suffix (honest labeling); mapping is journal-logged, never a response header.
+    payload["model"] = serde_json::Value::String(
+        framer_core::model::effective_upstream_model(payload["model"].as_str().unwrap_or("")),
+    );
 
     let client_model = payload["model"].as_str().unwrap_or_default().to_string();
     // Codex "custom" tools (exec, apply_patch, …) ride upstream in an
