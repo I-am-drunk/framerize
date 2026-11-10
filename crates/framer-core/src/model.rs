@@ -24,6 +24,9 @@ pub enum ModelClass {
     /// via that mapping (native path only; the cutoff path is denied for these
     /// because there the per-token meter bills before the abort).
     MappedNitro,
+    /// Bare kimi-k3* that the gateway maps to :floor automatically — free
+    /// via that mapping (native path only; same cutoff-path exclusion as nitro).
+    MappedFloor,
     /// Per-token metered upstream — no abort timing reaches $0; refused.
     PerTokenMetered,
     /// Direct OpenAI Responses route, metered — refused unless the operator opts in.
@@ -44,6 +47,12 @@ const SUFFIX_FREE: &[&str] = &[
     "anthropic/claude-opus-5.5:nitro",
     "anthropic/claude-opus-5.5:floor",
     "anthropic/claude-sonnet-5.5:nitro",
+    // Kimi (2026-11-10, measured $0 live): k3:floor end_turn clean, k3:nitro $0,
+    // k3.1-pro :nitro/:floor $0. Bare k3/k3.1-pro bill or 403 -> denied (per-token arm).
+    "moonshotai/kimi-k3:nitro",
+    "moonshotai/kimi-k3:floor",
+    "moonshotai/kimi-k3.1-pro:nitro",
+    "moonshotai/kimi-k3.1-pro:floor",
 ];
 
 /// Per-token-meted families: OpenRouter routes these and settles EACH streamed
@@ -62,6 +71,12 @@ fn is_per_token(slug: &str) -> bool {
 
 /// Bare premium claude (opus/sonnet, any version, UNsuffixed): plan-gated on
 /// the base id, free when mapped to :nitro.
+/// Bare kimi-k3* (unsuffixed, any spelling): billed/blocked on the base id,
+/// free when mapped to :floor (measured $0: k3:floor end_turn clean + sentence).
+fn is_kimi_bare(slug: &str) -> bool {
+    slug.starts_with("kimi-k3") && !slug.contains(':')
+}
+
 fn is_premium_claude(slug: &str) -> bool {
     (slug.starts_with("claude-opus-") || slug.starts_with("claude-sonnet-"))
         && !slug.contains(':')
@@ -115,6 +130,9 @@ pub fn classify(model: &str) -> ModelClass {
     if is_premium_claude(&slug) {
         return ModelClass::MappedNitro;
     }
+    if is_kimi_bare(&slug) {
+        return ModelClass::MappedFloor;
+    }
     if is_per_token(&slug) {
         return ModelClass::PerTokenMetered;
     }
@@ -133,6 +151,13 @@ pub fn effective_upstream_model(model: &str) -> String {
             let base = model.trim().trim_end_matches(":nitro");
             let canonical = crate::convert::to_openrouter_id(base);
             format!("{canonical}:nitro")
+        }
+        ModelClass::MappedFloor => {
+            // Same for kimi: "kimi-k3" -> "moonshotai/kimi-k3:floor" (measured $0,
+            // end_turn clean; :nitro also $0 but :floor has the cleaner shape).
+            let base = model.trim().trim_end_matches(":floor");
+            let canonical = crate::convert::to_openrouter_id(base);
+            format!("{canonical}:floor")
         }
         _ => model.to_string(),
     }
