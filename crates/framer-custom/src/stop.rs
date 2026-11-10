@@ -93,3 +93,13 @@ mod tests {
         assert!(continue_suffix().contains("anything in it"));
     }
 }
+
+/// DEBITED-RACE RECOVERY (2026-11-10, live-proved): when a leg raced the
+/// terminal WITH a ledger move, retrying the same shape re-bills (the race
+/// is structural: the answer fits inside one burst). The recovery instead
+/// re-asks with the padding demand appended -- the model then generates
+/// past the answer, the abort lands mid-stream, and the leg settles zero.
+/// Appended AFTER the topic so the question stays primary.
+pub fn race_recovery_suffix() -> String {
+    "After giving the answer, keep writing extended background analysis on the same topic without stopping.".to_string()
+}

@@ -265,14 +265,38 @@ impl EnvelopePageStream {
         // the chat route takes max_tokens. Either way the cap obeys the
         // RUNWAY RULE (leg_cap_with_runway): never below 3x stop_after, so a
         // fast model cannot reach the terminal before the in-page abort.
+        // OPENROUTER-ROUTED MODELS (2026-11-10, live-proved): the envelope
+        // model id is the gateway form (e.g. kimi-k3), which the gateway
+        // forwards to OpenRouter (wire tap: model "moonshotai/kimi-k3"):
+        // OpenRouter bills per generated token as they stream, so a huge
+        // runway cap lets the leg run hundreds of deltas before the stop
+        // and the meter settles large (measured: -2.67 on a 193-event leg
+        // at cap 4000). For these models the cap IS the spend bound: pin
+        // it tight (stop_after floor 64) so the stream can only ever cost
+        // the floor even if the abort lands late. OpenAI-routed models
+        // (gpt-4.1-mini et al) settle only on the terminal frame, so they
+        // keep the full runway.
+        let openrouter_routed = self.model.starts_with("kimi")
+            || self.model.starts_with("deepseek")
+            || self.model.starts_with("grok")
+            || self.model.starts_with("glm")
+            || self.model.starts_with("muse");
         let cap_key = if self.deps.path.contains("responses") {
             "max_output_tokens"
         } else {
             "max_tokens"
         };
         let caller_cap = native.get(cap_key).and_then(|v| v.as_u64());
-        native[cap_key] =
-            serde_json::Value::Number(serde_json::Number::from(leg_cap_with_runway(caller_cap, stop_after)));
+        let cap = if openrouter_routed {
+            // Tight cap: the meter prices generated tokens, so bound the
+            // worst case to the floor regardless of abort timing. The leg
+            // still carries the full prompt + padding instruction; the cap
+            // only truncates generation length, never the prompt.
+            caller_cap.unwrap_or(16).max(8).min(32)
+        } else {
+            leg_cap_with_runway(caller_cap, stop_after)
+        };
+        native[cap_key] = serde_json::Value::Number(serde_json::Number::from(cap));
         // STREAMING keeps the leg on the metered path the page abort guards:
         // the stop fires mid-stream before the usage/terminal frame, so the
         // leg never settles. stream:false legs bill at dispatch (the meter

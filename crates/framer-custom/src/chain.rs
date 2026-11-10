@@ -185,9 +185,16 @@ fn leg1_payload(prompt: &str) -> Result<serde_json::Value, String> {
             prompt.len()
         ));
     }
+    // PAD-STRUCTURAL (2026-11-10, live-proved): the length guarantee alone
+    // does NOT keep short answers generating -- the model answers briefly
+    // and the terminal settles before any abort can land (measured: every
+    // unpadded short leg bills; every padded one aborts mid-stream at $0).
+    // So the padding directive is structural here, not model-obedience: the
+    // request always demands continued generation past the answer, giving
+    // the marker/finish/stop aborts a live stream to cut every time.
     Ok(serde_json::json!({
         "messages": [
-            {"role": "user", "content": format!("{}\n\n{}", stop::length_guarantee_suffix(1800, 14), prompt)}
+            {"role": "user", "content": format!("{}\n\n{}\n\n{}", stop::length_guarantee_suffix(1800, 14), prompt, stop::end_marker_suffix())}
         ]
     }))
 }
@@ -354,11 +361,43 @@ async fn complete_inner<T: CustomTransport>(
     let mut tool_calls: Vec<serde_json::Value> = Vec::new();
 
     let mut leg_index: u32 = 0;
+    // DEBITED-RACE RECOVERY (2026-11-10, live-proved): set when a leg raced
+    // the terminal WITH a ledger move. The next attempt re-asks with the
+    // padding demand appended so the model generates past the answer and
+    // the abort lands mid-stream (halving the stop re-runs the same burst
+    // and re-bills). Cleared whenever a leg resolves.
+    let mut recover_padded = false;
     while leg_index < max_legs {
         let payload = match (request, leg_index) {
-            (ChainRequest::Prompt(p), 0) => leg1_payload(p)?,
+            (ChainRequest::Prompt(p), 0) => {
+                if recover_padded {
+                    leg1_payload(&format!("{}\n\n{}", p, stop::race_recovery_suffix()))?
+                } else {
+                    leg1_payload(p)?
+                }
+            }
             (ChainRequest::Prompt(_), _) => continue_payload(&accumulated, anchor_chars),
-            (ChainRequest::Chat(v), 0) => leg1_native(v)?,
+            (ChainRequest::Chat(v), 0) => {
+                if recover_padded {
+                    let mut vv = v.clone();
+                    if let Some(ms) = vv["messages"].as_array_mut() {
+                        for m in ms.iter_mut().rev() {
+                            if m["role"] == "user" {
+                                let cur = m["content"].as_str().unwrap_or("").to_string();
+                                m["content"] = serde_json::Value::String(format!(
+                                    "{}\n\n{}",
+                                    cur,
+                                    stop::race_recovery_suffix()
+                                ));
+                                break;
+                            }
+                        }
+                    }
+                    leg1_native(&vv)?
+                } else {
+                    leg1_native(v)?
+                }
+            }
             (ChainRequest::Chat(v), _) => continue_native(v, &accumulated, anchor_chars),
         };
 
@@ -426,11 +465,21 @@ async fn complete_inner<T: CustomTransport>(
                     events: rung_out.events,
                 });
                 outcome = ChainOutcome::Quarantined;
+                recover_padded = false;
                 break;
             }
             ledger::Policy::RetryHalved | ledger::Policy::QuarantineAndReport => {
                 retries_this_leg += 1;
-                let next = stop::halt_after_race(stop).max(1);
+                // Debited races recover by SHAPE CHANGE (pad + re-ask), not
+                // by shrinking the stop: halving the stop re-runs the same
+                // burst and re-bills (live-proved -0.06 -> -0.06). Clean
+                // races (no debit) still halve the stop as before.
+                recover_padded = debited;
+                let next = if debited {
+                    stop
+                } else {
+                    stop::halt_after_race(stop).max(1)
+                };
                 eprintln!(
                     "[custom-route] retry leg={} attempt={} stop {} -> {} (raced={} debited={})",
                     leg_index + 1,
@@ -467,6 +516,7 @@ async fn complete_inner<T: CustomTransport>(
                         events: rung_out.events,
                     });
                     outcome = ChainOutcome::Capped;
+                    recover_padded = false;
                     break;
                 }
                 eprintln!(
@@ -637,7 +687,7 @@ mod tests {
     async fn three_leg_chain_with_retry_then_finish() {
         // Leg 1: long stream, clean abort at stop 200, no debit.
         // Leg 2 attempt 1: short stream racing Done WITH a debit -> RetryHalved.
-        // Leg 2 attempt 2 (verbatim rerun, stop 100): long stream, clean -> Accept.
+        // Leg 2 attempt 2 (same stop 200, padded re-ask): long stream, clean -> Accept.
         // Leg 3: immediate Done -> near-zero -> chain stops Capped.
         let mut leg1 = numbered(0, 250);
         leg1.push(Event::Done);
@@ -661,8 +711,11 @@ mod tests {
         // leg 1 kept words 0..200, leg 2 kept 200..300, leg 3 empty finisher
         assert!(!out.legs[0].raced && !out.legs[0].debited);
         assert_eq!(out.legs[0].stop_used, 200);
-        assert!(!out.legs[1].raced && !out.legs[1].debited);
-        assert_eq!(out.legs[1].stop_used, 100);
+        // The padded retry's terminal arrived (raced) but the ledger held
+        // (no debit): raced-clean accepts. The stop was NOT halved.
+        assert!(out.legs[1].raced && !out.legs[1].debited);
+        // Debited races keep the stop (shape-change recovery, not halving).
+        assert_eq!(out.legs[1].stop_used, 200);
         assert!(out.legs[2].text.is_empty());
         assert!(out.text.contains("word0 "));
         assert!(out.text.contains("word199 "));
@@ -682,7 +735,9 @@ mod tests {
 
     #[tokio::test]
     async fn stop_restores_after_recovery() {
-        // Race on leg 1 halves the stop; leg 2 must run at the base stop again.
+        // Debited race on leg 1 retries padded at the SAME stop; leg 2
+        // must run at the base stop again (recovery never shrinks later
+        // legs). Balances move on the first attempt so the race is debited.
         let mut l1a = numbered(0, 3);
         l1a.push(Event::Done);
         let mut l1b = numbered(0, 150);
@@ -695,8 +750,30 @@ mod tests {
             50.0,
         );
         let out = complete(&mut t, "probe", &fast_settings()).await.unwrap();
-        assert_eq!(out.legs[0].stop_used, 100);
+        assert_eq!(out.legs[0].stop_used, 200);
         assert_eq!(out.legs[1].stop_used, 200);
+    }
+
+    #[tokio::test]
+    async fn debited_race_recovers_padded_at_same_stop() {
+        // DEBITED race on leg 1 (balance moves): the retry keeps the stop
+        // and re-asks with the padding demand appended (shape change, not
+        // halving -- halving re-runs the same burst and re-bills).
+        let mut l1a = numbered(0, 3);
+        l1a.push(Event::Done);
+        let mut l1b = numbered(0, 150);
+        l1b.push(Event::Done);
+        let fin = vec![Event::Done];
+        let mut t = ChainMock::new(vec![(l1a, 49.5), (l1b, 49.5), (fin, 49.5)], 50.0);
+        let out = complete(&mut t, "probe", &fast_settings()).await.unwrap();
+        // Retry ran at the SAME stop (200), not halved to 100.
+        assert_eq!(t.payloads.len(), 3);
+        assert_eq!(out.legs[0].stop_used, 200);
+        // The padded retry carries the recovery demand the first did not.
+        let c1 = t.payloads[0]["messages"][0]["content"].as_str().unwrap();
+        let c2 = t.payloads[1]["messages"][0]["content"].as_str().unwrap();
+        assert!(!c1.contains(&stop::race_recovery_suffix()));
+        assert!(c2.contains(&stop::race_recovery_suffix()));
     }
 
     #[tokio::test]
