@@ -484,6 +484,32 @@ async fn complete_inner<T: CustomTransport>(
                 break;
             }
             ledger::Policy::RetryHalved | ledger::Policy::QuarantineAndReport => {
+                // QUARANTINE-ON-FIRST-DEBIT (2026-11-10, live-proved): every
+                // padded/micro retry shape re-bills on per-token meters
+                // (OpenRouter settles each delta; no abort timing wins).
+                // A moved ledger therefore halts the chain at once with the
+                // honest debit booked -- no retry spends a second time.
+                // Clean (no-debit) races still retry as before.
+                if debited {
+                    total_debit += leg_debit;
+                    eprintln!(
+                        "[custom-route] quarantine leg={} on first debit (raced={} debit={:+.6}) -- no retry, retries re-bill live",
+                        leg_index + 1,
+                        rung_out.raced,
+                        leg_debit
+                    );
+                    legs.push(Leg {
+                        text: String::new(),
+                        raced: rung_out.raced,
+                        debited,
+                        stop_used: stop,
+                        debit: leg_debit,
+                        events: rung_out.events,
+                    });
+                    outcome = ChainOutcome::Quarantined;
+                    recover_padded = false;
+                    break;
+                }
                 retries_this_leg += 1;
                 // Debited races recover by SHAPE CHANGE (pad + re-ask), not
                 // by shrinking the stop: halving the stop re-runs the same
@@ -710,12 +736,13 @@ mod tests {
     #[tokio::test]
     async fn three_leg_chain_with_retry_then_finish() {
         // Leg 1: long stream, clean abort at stop 200, no debit.
-        // Leg 2 attempt 1: short stream racing Done WITH a debit -> RetryHalved.
-        // Leg 2 attempt 2 (same stop 200, padded re-ask): long stream, clean -> Accept.
-        // Leg 3: immediate Done -> near-zero -> chain stops Capped.
+        // Leg 2 attempt 1: debited -> QUARANTINE ON FIRST DEBIT (no retry:
+        // live proves every retry shape re-bills on per-token meters).
+        // Leg 2's honest -0.5 stays on the chain total; the leg text is
+        // empty (quarantined legs are never served as answers).
         let mut leg1 = numbered(0, 250);
         leg1.push(Event::Done);
-        let mut leg2a = numbered(1000, 3);
+        let mut leg2a = numbered(200, 150);
         leg2a.push(Event::Done);
         let mut leg2b = numbered(200, 150);
         leg2b.push(Event::Done);
@@ -726,80 +753,57 @@ mod tests {
         );
         let out = complete(&mut t, "explain ships", &fast_settings()).await.unwrap();
 
-        // Micro-retry contract: the padded 1-delta retry is near-zero
-        // growth, so the chain ends after 2 legs with the honest -0.5 kept.
         assert_eq!(out.legs.len(), 2);
         assert_eq!(out.total_debit, -0.5);
-        // The near-zero micro finisher books 0.0 on the leg; the -0.5
-        // stays on the chain total (honest books, unserved as free).
-        assert_eq!(out.legs[1].debit, 0.0);
-        assert_eq!(out.outcome, ChainOutcome::Capped);
-        // leg 1 kept words 0..200; leg 2 is the near-zero micro finisher.
+        assert_eq!(out.legs[1].debit, -0.5);
+        assert_eq!(out.outcome, ChainOutcome::Quarantined);
+        // leg 1 kept words 0..200; leg 2 is the empty quarantine record.
         assert!(!out.legs[0].raced && !out.legs[0].debited);
         assert_eq!(out.legs[0].stop_used, 200);
-        assert!(!out.legs[1].raced && !out.legs[1].debited);
-        assert_eq!(out.legs[1].stop_used, 1);
+        assert!(out.legs[1].raced && out.legs[1].debited);
+        assert_eq!(out.legs[1].stop_used, 200);
         assert!(out.legs[1].text.is_empty());
         assert!(out.text.contains("word0 "));
         assert!(out.text.contains("word199 "));
         assert!(!out.text.contains("word200 "));
         assert!(!out.text.contains("word1000 "));
-        // the padded retry re-asked leg 2's continuation shape + recovery demand
-        assert_eq!(t.payloads.len(), 3);
+        // only two payloads ran: leg 1 and the quarantined leg-2 attempt.
+        assert_eq!(t.payloads.len(), 2);
         let c1 = t.payloads[0]["messages"][0]["content"].as_str().unwrap();
         assert!(c1.contains("explain ships"));
         assert!(c1.contains(&stop::length_guarantee_suffix(1800, 14)));
-        let c2 = t.payloads[2]["messages"][0]["content"].as_str().unwrap();
-        assert!(c2.contains(&stop::continue_suffix()));
-        assert!(c2.contains(&stop::race_recovery_suffix()));
-        assert!(c2.contains("word199 "));
     }
 
     #[tokio::test]
     async fn stop_restores_after_recovery() {
-        // A debited race on leg 2 micro-retries at stop 1 while leg 1 ran
-        // at the base stop: recovery never shrinks other legs. Leg 1 is a
-        // clean 200-abort; leg 2a races with a debit; the padded micro
-        // retry finishes near-zero.
+        // Leg 1 runs clean at the base stop; a debited leg-2 attempt
+        // quarantines at once without touching any later leg's stop.
+        // (Recovery never shrinks other legs: there is no retry at all.)
         let mut leg1 = numbered(0, 250);
         leg1.push(Event::Done);
         let mut l2a = numbered(0, 3);
         l2a.push(Event::Done);
-        let mut l2b = numbered(500, 150);
-        l2b.push(Event::Done);
-        let mut t = ChainMock::new(
-            vec![(leg1, 100.0), (l2a, 99.5), (l2b, 99.5)],
-            100.0,
-        );
+        let mut t = ChainMock::new(vec![(leg1, 100.0), (l2a, 99.5)], 100.0);
         let out = complete(&mut t, "probe", &fast_settings()).await.unwrap();
         assert_eq!(out.legs[0].stop_used, 200);
-        assert_eq!(out.legs[1].stop_used, 1);
+        assert_eq!(out.legs[1].stop_used, 200);
+        assert_eq!(out.outcome, ChainOutcome::Quarantined);
     }
 
     #[tokio::test]
-    async fn debited_race_recovers_padded_at_same_stop() {
-        // DEBITED race on leg 1 (balance moves): the retry keeps the stop
-        // and re-asks with the padding demand appended (shape change, not
-        // halving -- halving re-runs the same burst and re-bills).
+    async fn debited_race_quarantines_without_retry() {
+        // A debited race quarantines on the FIRST attempt: no padded
+        // retry (live: every retry shape re-bills on per-token meters).
+        // The honest debit stays booked; the leg text is empty.
         let mut l1a = numbered(0, 3);
         l1a.push(Event::Done);
-        let mut l1b = numbered(0, 150);
-        l1b.push(Event::Done);
         let fin = vec![Event::Done];
-        let mut t = ChainMock::new(vec![(l1a, 49.5), (l1b, 49.5), (fin, 49.5)], 50.0);
+        let mut t = ChainMock::new(vec![(l1a, 49.5), (fin, 49.5)], 50.0);
         let out = complete(&mut t, "probe", &fast_settings()).await.unwrap();
-        // Retry ran at micro-stop 1 (abort on the first delta of the
-        // padded re-ask), not halved to 100. The 1-delta stub is
-        // near-zero growth, so the chain ends after 2 payloads with the
-        // honest -0.5 kept on the books.
-        assert_eq!(t.payloads.len(), 2);
-        assert_eq!(out.legs[0].stop_used, 1);
+        assert_eq!(t.payloads.len(), 1);
+        assert_eq!(out.outcome, ChainOutcome::Quarantined);
         assert_eq!(out.total_debit, -0.5);
-        // The padded retry carries the recovery demand the first did not.
-        let c1 = t.payloads[0]["messages"][0]["content"].as_str().unwrap();
-        let c2 = t.payloads[1]["messages"][0]["content"].as_str().unwrap();
-        assert!(!c1.contains(&stop::race_recovery_suffix()));
-        assert!(c2.contains(&stop::race_recovery_suffix()));
+        assert!(out.legs[0].text.is_empty());
     }
 
     #[tokio::test]

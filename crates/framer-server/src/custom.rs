@@ -496,6 +496,26 @@ async fn custom_real_request(
     stop: Option<u32>,
 ) -> Result<Response, ApiError> {
     let out = cutoff_run(s, headers, request, model_str, max_legs, stop).await?;
+    // QUARANTINED legs billed: never serve billed text as a clean 200. The
+    // frame carries the honest debit + Quarantined outcome with empty text
+    // so no caller can mistake a spent leg for a free answer (2026-11-10:
+    // per-token meters settle every delta; retries re-bill; the only safe
+    // shape is fail-loud with books kept).
+    if matches!(
+        out.assembled.outcome,
+        framer_custom::ChainOutcome::Quarantined
+    ) {
+        return Ok((
+            axum::http::StatusCode::PAYMENT_REQUIRED,
+            axum::Json(serde_json::json!({
+                "error": "custom route: leg settled nonzero and was quarantined (no free path this attempt)",
+                "outcome": format!("{:?}", out.assembled.outcome),
+                "total_debit": out.assembled.total_debit,
+                "req_id": out.req_id,
+            })),
+        )
+            .into_response());
+    }
     let mut resp = sse_response(&out.assembled, &out.req_id, out.refunded);
     resp.headers_mut().insert(
         "x-framerize-session",
