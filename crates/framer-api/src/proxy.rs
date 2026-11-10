@@ -125,6 +125,17 @@ pub async fn forward(
     chat_session: &str,
     step_index: u32,
 ) -> Result<framer_core::port::ProxyResponse, String> {
+    // GLOBAL SPEND GATE (2026-11-10): zero-spend default. Refuse BEFORE any
+    // token mint, session seed, or upstream open -- nothing billable fires
+    // for a non-allowlisted model unless the operator opted into spend.
+    {
+        let m = payload["model"].as_str().unwrap_or("");
+        if !framer_core::rotation::spend_allowed(m) {
+            let reason = framer_core::rotation::spend_denied_reason(m);
+            eprintln!("[spend-gate] DENIED model={m} account={} -- {reason}", account.0.to_string().chars().take(8).collect::<String>());
+            return Err(reason);
+        }
+    }
     let t0 = std::time::Instant::now();
     let req_id = uuid::Uuid::new_v4().to_string();
     let token = cached_token(t, token_cache, session, account).await?;

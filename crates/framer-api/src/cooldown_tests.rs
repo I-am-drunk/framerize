@@ -26,7 +26,7 @@ fn check_chain(native: bool) {
                     json!({"model":"gpt-6-astra","input":"fixture"}), &config, "fixture-chat", None).await.map(|_| ())
             } else {
                 freechat::complete_long(&transport, &cache, &session, &browser, &account, &project,
-                    json!({"model":"claude-sonnet-4","messages":[{"role":"user","content":"fixture"}]}),
+                    json!({"model":"claude-haiku-4.5","messages":[{"role":"user","content":"fixture"}]}),
                     &config, "fixture-chat", None).await.map(|_| ())
             };
             assert_eq!(result.unwrap_err(), "account-cooling:584");

@@ -101,7 +101,7 @@ async fn status_handler() -> Response {
     Json(serde_json::json!({
         "custom_route": "ok",
         "spend_lock": {
-            "allowlist": ["gpt-4.1-mini", "claude-haiku-4.5"],
+            "allowlist": ["gpt-4.1-mini", "claude-haiku-4.5", "gpt-6-astra"],
             "breaker_tripped": framer_custom::ledger::spend_breaker_tripped(),
         },
     }))
@@ -116,7 +116,7 @@ async fn status_reset_handler(Json(body): Json<serde_json::Value>) -> Response {
     Json(serde_json::json!({
         "custom_route": "ok",
         "spend_lock": {
-            "allowlist": ["gpt-4.1-mini", "claude-haiku-4.5"],
+            "allowlist": ["gpt-4.1-mini", "claude-haiku-4.5", "gpt-6-astra"],
             "breaker_tripped": framer_custom::ledger::spend_breaker_tripped(),
         },
     }))
@@ -575,6 +575,12 @@ pub fn cutoff_free_model(model: &str) -> bool {
     if slug == "claude-haiku-4.5" {
         return true;
     }
+    // gpt-6-astra: proven-free OpenRouter passthrough (verified 2026-10-06:
+    // 200 + ledger delta 0.0; the free-tier path, unlike kimi's per-token
+    // settle on the same rails -- metering is per-model, proved live).
+    if slug == "gpt-6-astra" {
+        return true;
+    }
     false
 }
 
@@ -828,9 +834,13 @@ pub(super) async fn responses_via_cutoff(
                     Some((Ok::<_, std::convert::Infallible>(body), (rx, true)))
                 }
                 Ok(Some(Err(e))) => {
+                    // SSE TERMINAL (2026-11-10): an error frame WITHOUT a
+                    // terminal hangs SSE clients. Always close with a failed
+                    // response.completed after the error.
                     let frame = format!(
-                        "data: {}\n\n",
-                        serde_json::json!({"type": "error", "error": {"message": format!("{e:?}")}})
+                        "data: {}\n\ndata: {}\n\n",
+                        serde_json::json!({"type": "error", "error": {"message": format!("{e:?}")}}),
+                        serde_json::json!({"type": "response.completed", "response": {"status": "failed", "error": format!("{e:?}")}}),
                     );
                     Some((Ok(frame), (rx, true)))
                 }

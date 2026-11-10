@@ -87,6 +87,16 @@ pub async fn run(
     project: &ProjectId,
     req: &InferenceRequest,
 ) -> Result<InferenceResult, String> {
+    // GLOBAL SPEND GATE (2026-11-10): the direct-responses route is metered.
+    // Refuse BEFORE any token mint or page open unless the operator opted in.
+    {
+        let m = req.model.as_deref().unwrap_or("");
+        if !framer_core::rotation::spend_allowed(m) {
+            let reason = framer_core::rotation::spend_denied_reason(m);
+            eprintln!("[spend-gate] DENIED direct-responses model={m} -- {reason}");
+            return Err(reason);
+        }
+    }
     let token = cached_token(t, token_cache, session, account).await?;
     let chat_session = req.chat_session.clone().unwrap_or_else(mint_id);
 

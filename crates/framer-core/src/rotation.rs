@@ -78,6 +78,35 @@ pub fn is_saturated(team: &str) -> bool {
 /// 402s once and fails over, which is exactly what the failover is for.
 pub const DEFAULT_CREDIT_FLOOR: f64 = 2.0;
 
+// GLOBAL SPEND GATE (2026-11-10): zero-spend is the DEFAULT on this daemon.
+// Every billable upstream open must pass spend_allowed() BEFORE it fires.
+// An operator opts into spend explicitly with FRAMERIZE_ALLOW_SPEND=1;
+// otherwise ONLY the zero-proved models pass and everything else is refused
+// loud with SpendDenied (never silent, never billed). This is the second
+// wall behind each route's own allowlist (defense in depth): even a future
+// route that forgets its own gate cannot spend by accident.
+pub const CUTOFF_FREE_MODELS: &[&str] = &["gpt-4.1-mini", "claude-haiku-4.5", "gpt-6-astra"];
+
+/// True when the daemon may open a billable upstream call for this model.
+pub fn spend_allowed(model: &str) -> bool {
+    if std::env::var("FRAMERIZE_ALLOW_SPEND").map(|v| v == "1").unwrap_or(false) {
+        return true;
+    }
+    let slug = model.rsplit('/').next().unwrap_or(model);
+    let slug = slug.trim();
+    if slug.is_empty() {
+        return true; // empty resolves to the free mini downstream
+    }
+    CUTOFF_FREE_MODELS.contains(&slug)
+}
+
+/// Loud refusal reason (mirrors the cutoff allowlist message).
+pub fn spend_denied_reason(model: &str) -> String {
+    format!(
+        "spend denied for model {model}: zero-spend default is ON (set FRAMERIZE_ALLOW_SPEND=1 to allow spend). Free models: gpt-4.1-mini, claude-haiku-4.5. No upstream call was opened, nothing spent."
+    )
+}
+
 pub fn bill_floor() -> f64 {
     std::env::var("FRAMERIZE_CREDIT_FLOOR")
         .ok()
@@ -347,6 +376,33 @@ pub fn pick_at(pool: &[ManagedAccount], now: u64) -> Option<&ManagedAccount> {
 
 #[cfg(test)]
 mod tests {
+    static ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn spend_gate_allows_only_free_models_by_default() {
+        let _g = ENV_GUARD.lock().unwrap();
+        std::env::remove_var("FRAMERIZE_ALLOW_SPEND");
+        assert!(spend_allowed("gpt-4.1-mini"));
+        assert!(spend_allowed("claude-haiku-4.5"));
+        assert!(spend_allowed("openai/gpt-4.1-mini"));
+        assert!(spend_allowed(""));
+        assert!(!spend_allowed("kimi-k3"));
+        assert!(!spend_allowed("gpt-4.1"));
+        assert!(!spend_allowed("gemini-2.5-flash"));
+        assert!(!spend_allowed("gpt-6-sol"));
+        assert!(spend_denied_reason("kimi-k3").contains("nothing spent"));
+    }
+
+    #[test]
+    fn spend_gate_opt_in_allows_all() {
+        let _g = ENV_GUARD.lock().unwrap();
+        std::env::set_var("FRAMERIZE_ALLOW_SPEND", "1");
+        assert!(spend_allowed("kimi-k3"));
+        assert!(spend_allowed("anything-at-all"));
+        std::env::remove_var("FRAMERIZE_ALLOW_SPEND");
+        assert!(!spend_allowed("kimi-k3"));
+    }
+
     use super::*;
     use crate::account::{AccountState, ManagedAccount};
     use crate::ids::{AccountId, FramerUserId, ProjectId, TeamId};
