@@ -970,7 +970,12 @@ async fn free_complete(
         let premium = (slug.starts_with("claude-opus-") || slug.starts_with("claude-sonnet-"))
             && !slug.contains(':');
         if premium {
-            let mapped = format!("{}:nitro", client_model.trim_end_matches(":nitro"));
+            // Map to the provider-prefixed dotted :nitro id (the exact form in
+            // PROVEN_SUFFIX_MODELS): the client's spelling (dashes, no prefix)
+            // would miss the exact-match suffix allowlist and get denied.
+            let base = client_model.trim_end_matches(":nitro");
+            let canonical = convert::to_openrouter_id(base);
+            let mapped = format!("{canonical}:nitro");
             eprintln!("[nitro-map] {client_model} -> {mapped} (paid-plan bypass, proved $0 live)");
             payload["model"] = serde_json::Value::String(mapped.clone());
         }
