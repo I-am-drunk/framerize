@@ -1051,7 +1051,9 @@ async fn custom_real_once(
     // envelope always carries the gateway form, whatever T3 sends.
     let model = {
         let m = model_str.trim();
-        let m = if m.is_empty() { "gpt-4.1" } else { m };
+        // Empty callers land on the free mini (gpt-4.1 full-size is
+        // per-token metered and guarded above).
+        let m = if m.is_empty() { "gpt-4.1-mini" } else { m };
         m.rsplit('/').next().unwrap_or(m).to_string()
     };
     // Gated/blocked models fail FAST, before any account burn (the cutoff
@@ -1739,7 +1741,7 @@ mod tests {
         let resp = custom_complete_handler(
             State(state.clone()),
             HeaderMap::new(),
-            Json(CompleteBody { prompt: "explain X".into(), model: "".into(), max_legs: None , stop: None}),
+            Json(CompleteBody { prompt: "explain X".into(), model: "gpt-4.1-mini".into(), max_legs: None , stop: None}),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::OK);
@@ -1776,7 +1778,7 @@ mod tests {
         let resp = custom_complete_handler(
             State(state),
             HeaderMap::new(),
-            Json(CompleteBody { prompt: "  ".into(), model: "".into(), max_legs: None , stop: None}),
+            Json(CompleteBody { prompt: "  ".into(), model: "gpt-4.1-mini".into(), max_legs: None , stop: None}),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
@@ -1796,7 +1798,7 @@ mod tests {
         let resp = custom_complete_handler(
             State(state),
             headers,
-            Json(CompleteBody { prompt: "explain X".into(), model: "".into(), max_legs: None , stop: None}),
+            Json(CompleteBody { prompt: "explain X".into(), model: "gpt-4.1-mini".into(), max_legs: None , stop: None}),
         )
         .await;
         // Unknown account pin: no eligible account, no page touched.
