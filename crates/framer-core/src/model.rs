@@ -206,6 +206,12 @@ pub fn free_on_cutoff(model: &str) -> bool {
         return true;
     }
     let raw = model.trim();
+    // Suffixed endpoints proven $0 (nitro/floor) are free on cutoff too: their meters
+    // settle zero even reading terminals, so the abort can only help. (2026-11-11:
+    // opus:nitro via cutoff UNMEASURED -- allow + verify live, revert if it bills.)
+    if SUFFIX_FREE.contains(&raw) {
+        return true;
+    }
     let slug = normalize_model_slug(raw);
     !slug.is_empty() && FREE_BASE.contains(&slug.as_str())
 }

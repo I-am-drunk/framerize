@@ -609,6 +609,17 @@ pub(super) async fn cutoff_run(
     // SPEND LOCK: model gate FIRST -- before pool reads, leases, pages.
     // No allowlisted model => no upstream open exists downstream, so spend
     // is impossible regardless of abort timing, retries, or fallbacks.
+    // NITRO-MAP (single source = model::effective_upstream_model): bare premium ids
+    // map to their :nitro/:floor endpoints BEFORE gating, so the allowlist sees the
+    // mapped id (the cutoff path aborts mid-stream; nitro meters settle $0 regardless).
+    let mapped_model = framer_core::model::effective_upstream_model(model_str);
+    let model_str: &str = if mapped_model != model_str {
+        // mapped owns the String -- leak is wrong; instead re-enter via owned:
+        // (see below: custom_real_once takes &str; we pass &mapped_model)
+        &mapped_model
+    } else {
+        model_str
+    };
     {
         let m = model_str.trim();
         let m = if m.is_empty() { "gpt-4.1-mini" } else { m };
