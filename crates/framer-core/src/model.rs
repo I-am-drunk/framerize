@@ -194,7 +194,10 @@ pub fn effective_upstream_model(model: &str) -> String {
 /// premium id ever reaches a gate unmapped, it must be refused, not silently
 /// billed on the blocked base endpoint.
 pub fn spend_allowed(model: &str) -> bool {
-    if DENIED_SUFFIX_MODELS.contains(&model.trim()) {
+    // Case-insensitive (the case-bypass must never punch through the deny list:
+    // "ANTHROPIC/claude-fable-5.2:floor" is the id that settled -1.77 live).
+    let lowered = model.trim().to_lowercase();
+    if DENIED_SUFFIX_MODELS.iter().any(|d| *d == lowered) {
         return false;
     }
     matches!(classify(model), ModelClass::FreeBase | ModelClass::FreeSuffix)

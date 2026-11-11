@@ -432,6 +432,9 @@ mod tests {
         assert!(free_on_cutoff("ANTHROPIC/claude-fable-5.2"));
         assert_eq!(effective_upstream_model("anthropic/claude-fable-5.2:floor"), "anthropic/claude-fable-5.2:floor");
         assert!(!spend_allowed("anthropic/claude-fable-5.2:floor"));
+        // Bypass must not punch through the deny list (any case).
+        assert!(!spend_allowed("ANTHROPIC/claude-fable-5.2:floor"));
+        assert!(!spend_allowed("Anthropic/Claude-Fable-5.2:Floor"));
     }
 
     fn spend_gate_opt_in_allows_all() {
