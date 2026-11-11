@@ -154,6 +154,50 @@ fn extract_emulated_calls(captured: &str) -> (String, Vec<serde_json::Value>) {
     (clean, calls)
 }
 
+/// Flatten tool content blocks to prose: tool_result/tool_use blocks in history bill
+/// at dispatch/finish even with no tools array posted (call-2 proved -8.23). Both
+/// directions stay text-only; tool semantics live in the fence layer.
+fn flatten_tool_blocks(m: &serde_json::Value) -> serde_json::Value {
+    let content = match m.get("content") {
+        Some(serde_json::Value::Array(blocks)) => {
+            let mut parts: Vec<String> = Vec::new();
+            for b in blocks {
+                match b.get("type").and_then(|t| t.as_str()) {
+                    Some("text") => {
+                        if let Some(t) = b.get("text").and_then(|x| x.as_str()) {
+                            parts.push(t.to_string());
+                        }
+                    }
+                    Some("tool_use") => {
+                        parts.push(format!(
+                            "[I called tool '{}' with arguments: {}]",
+                            b.get("name").and_then(|x| x.as_str()).unwrap_or("?"),
+                            b.get("input").map(|v| v.to_string()).unwrap_or_default()
+                        ));
+                    }
+                    Some("tool_result") => {
+                        let s = match b.get("content") {
+                            Some(serde_json::Value::String(s)) => s.clone(),
+                            Some(v) => v.to_string(),
+                            None => String::new(),
+                        };
+                        parts.push(format!("[Tool '{}' returned: {}]",
+                            b.get("tool_use_id").and_then(|x| x.as_str()).unwrap_or("?"), s));
+                    }
+                    _ => {
+                        parts.push(b.to_string());
+                    }
+                }
+            }
+            serde_json::Value::String(parts.join("\n"))
+        }
+        _ => m.get("content").cloned().unwrap_or(serde_json::Value::Null),
+    };
+    let mut out = m.clone();
+    out["content"] = content;
+    out
+}
+
 /// Terminal state of a chain run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChainOutcome {
@@ -294,7 +338,7 @@ fn leg1_native(payload: &serde_json::Value) -> Result<serde_json::Value, String>
         "role": "system",
         "content": sys_content,
     })];
-    new_msgs.extend(msgs.iter().cloned());
+    new_msgs.extend(msgs.iter().map(flatten_tool_blocks));
     p["messages"] = serde_json::json!(new_msgs);
     // TOOL DIALECT (2026-11-11 -- P8b Azure 400): the leg posts to the chat route, which
     // demands {type:"function",function:{name,description,parameters}}. Anthropic-shaped
@@ -336,7 +380,13 @@ fn continue_native(
     anchor_chars: usize,
 ) -> serde_json::Value {
     let mut p = payload.clone();
-    let msgs = payload["messages"].as_array().cloned().unwrap_or_default();
+    let msgs: Vec<serde_json::Value> = payload["messages"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .map(flatten_tool_blocks)
+        .collect();
     let tail = last_anchor_chars(anchor_chars, accumulated);
     let mut new_msgs = msgs;
     new_msgs.push(serde_json::json!({"role": "assistant", "content": tail}));
@@ -970,6 +1020,27 @@ mod tests {
         let cfg = fast_settings();
         let d = confirm_settle(&mut t, &cfg, 100.0, 0, -0.42).await;
         assert!((d - -0.42).abs() < 1e-9, "outage must book unconfirmed, got {d}");
+    }
+
+    #[test]
+    fn tool_blocks_flatten_to_prose() {
+        let m = serde_json::json!({"role": "user", "content": [
+            {"type": "tool_result", "tool_use_id": "toolu_em0001", "content": "Sunny, 21C"},
+        ]});
+        let f = flatten_tool_blocks(&m);
+        assert!(f["content"].is_string(), "blocks become a string");
+        assert!(f["content"].as_str().unwrap().contains("Sunny, 21C"), "result preserved");
+        assert!(!f["content"].as_str().unwrap().contains("tool_result"), "no block shape leaks");
+        let m2 = serde_json::json!({"role": "assistant", "content": [
+            {"type": "text", "text": "checking"},
+            {"type": "tool_use", "id": "x", "name": "get_weather", "input": {"city": "Paris"}},
+        ]});
+        let f2 = flatten_tool_blocks(&m2);
+        assert!(f2["content"].as_str().unwrap().contains("checking"));
+        assert!(f2["content"].as_str().unwrap().contains("get_weather"));
+        // Plain string content passes through untouched.
+        let m3 = serde_json::json!({"role": "user", "content": "hi"});
+        assert_eq!(flatten_tool_blocks(&m3)["content"], "hi");
     }
 
     #[test]
