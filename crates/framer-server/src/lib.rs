@@ -1190,6 +1190,48 @@ async fn free_complete(
             }
         }
     }
+    // CUTOFF ROUTE for anthropic dialect (2026-11-11): text-only anthro requests run the
+    // abort-guarded cutoff engine (leg1_native) instead of the native bundled path that
+    // reads the terminal BY CONSTRUCTION and bills terminal-settling meters (proved live:
+    // fable native bundled -0.24 confirmed persistent). Tool-carrying requests stay native.
+    // FRAMERIZE_ENGINE_ANTHRO=native is the escape hatch. DIRECT_NITRO does NOT skip this:
+    // nitro-free endpoints are OpenAI-route facts; anthro bundled still bills.
+    {
+        let cutoff_anthro = std::env::var("FRAMERIZE_ENGINE_ANTHRO").map(|v| v != "native").unwrap_or(true);
+        let text_only = payload.get("tools").and_then(|t| t.as_array()).map(|a| a.is_empty()).unwrap_or(true);
+        if dialect == ClientDialect::AnthropicMessages
+            && cutoff_anthro
+            && text_only
+            && hdr(headers, "x-framerize-account").is_none()
+        {
+            if let Some(remaining) = s.wave.check() {
+                return Err(ApiError::Cooling {
+                    retry_after_secs: remaining.as_secs().saturating_add(1),
+                });
+            }
+            // The cutoff needs the anthro-shaped payload (model + messages).
+            let mut acap = convert::to_anthropic_request(dialect, &payload).map_err(ApiError::Internal)?;
+            // Preserve the client model id for the allowlist + envelope.
+            if acap.get("model").is_none() {
+                if let Some(m) = payload.get("model").cloned() {
+                    acap["model"] = m;
+                }
+            }
+            match custom::anthro_via_cutoff(s.clone(), headers, acap, wants_stream).await {
+                Ok(resp) => return Ok(resp),
+                Err(e @ ApiError::AccountCooling { .. }) | Err(e @ ApiError::Cooling { .. })
+                | Err(e @ ApiError::ServingCapacity(_)) | Err(e @ ApiError::PoolBusy(_)) => {
+                    return Err(e)
+                }
+                Err(e @ ApiError::InvalidRequest(_)) if format!("{e:?}").contains("zero-spend allowlist") => {
+                    return Err(e)
+                }
+                Err(e) => {
+                    eprintln!("[cutoff] anthro chain failed ({e:?}); falling back to the native chain (METERED)");
+                }
+            }
+        }
+    }
     if dialect != ClientDialect::AnthropicMessages && !anthro_family {
         return native_complete(s, headers, dialect, payload, wants_stream, include_usage, max_tokens).await;
     }

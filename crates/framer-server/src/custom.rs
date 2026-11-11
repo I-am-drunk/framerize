@@ -869,6 +869,118 @@ pub(super) async fn responses_via_cutoff(
 /// Render a cutoff outcome as a responses-API answer: the assembled text
 /// becomes one completed message item; each tool call becomes a completed
 /// function_call item.
+/// Anthropic-dialect cutoff (2026-11-11): anthro-family requests WITHOUT tools run the
+/// abort-guarded cutoff engine (leg1_native carries the marker as a system message) and
+/// render back in anthro shape. The native bundled path reads the terminal BY CONSTRUCTION
+/// and bills real money on terminal-settling meters (proved live: fable native -0.24) --
+/// the cutoff abort is the only $0 path. Tool-carrying requests stay native (a tool call
+/// cannot split across legs). Same admission contract as chat/responses cutoff paths.
+pub(super) async fn anthro_via_cutoff(
+    s: AppState,
+    headers: &HeaderMap,
+    anthro: serde_json::Value,
+    wants_stream: bool,
+) -> Result<Response, ApiError> {
+    let model = anthro["model"].as_str().unwrap_or("claude-haiku-4.5").to_string();
+    if !wants_stream {
+        let out = cutoff_run(
+            s,
+            headers,
+            framer_custom::ChainRequest::Chat(anthro.clone()),
+            &model,
+            None,
+            None,
+        )
+        .await?;
+        let r = framer_core::convert::AssembledResponse {
+            id: format!("msg_{}", uuid::Uuid::new_v4().simple()),
+            content: vec![serde_json::json!({"type": "text", "text": out.assembled.text})],
+            stop_reason: "end_turn".to_string(),
+            stop_sequence: None,
+            usage: serde_json::json!({}),
+            input_tokens: 0,
+            output_tokens: (out.assembled.text.chars().count() / 4).max(1) as u64,
+            chunks: out.assembled.legs.len() as u32,
+            metered_chunks: 0,
+        };
+        let body = framer_core::convert::render_json(
+            framer_core::convert::ClientDialect::AnthropicMessages,
+            &r,
+            &model,
+        );
+        let mut resp = axum::response::Response::new(axum::body::Body::from(
+            serde_json::to_string(&body).map_err(|e| ApiError::Internal(e.to_string()))?,
+        ));
+        resp.headers_mut().insert(
+            axum::http::header::CONTENT_TYPE,
+            axum::http::HeaderValue::from_static("application/json"),
+        );
+        return Ok(resp);
+    }
+    cutoff_admit(&s).await?;
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<CutoffOutcome, ApiError>>(1);
+    let model2 = model.clone();
+    let headers2 = headers.clone();
+    tokio::spawn(async move {
+        let out = cutoff_run(
+            s,
+            &headers2,
+            framer_custom::ChainRequest::Chat(anthro),
+            &model2,
+            None,
+            None,
+        )
+        .await;
+        let _ = tx.send(out).await;
+    });
+    let stream = futures::stream::unfold((rx, false), move |(mut rx, done)| {
+        let model = model.clone();
+        async move {
+            if done {
+                return None;
+            }
+            match tokio::time::timeout(std::time::Duration::from_secs(8), rx.recv()).await {
+                Ok(Some(Ok(out))) => {
+                    let r = framer_core::convert::AssembledResponse {
+                        id: format!("msg_{}", uuid::Uuid::new_v4().simple()),
+                        content: vec![serde_json::json!({"type": "text", "text": out.assembled.text})],
+                        stop_reason: "end_turn".to_string(),
+                        stop_sequence: None,
+                        usage: serde_json::json!({}),
+                        input_tokens: 0,
+                        output_tokens: (out.assembled.text.chars().count() / 4).max(1) as u64,
+                        chunks: out.assembled.legs.len() as u32,
+                        metered_chunks: 0,
+                    };
+                    let frames = framer_core::convert::render_sse(
+                        framer_core::convert::ClientDialect::AnthropicMessages,
+                        &r,
+                        &model,
+                        false,
+                    );
+                    let body = frames.join("") + "data: [DONE]\n\n";
+                    Some((Ok::<_, std::convert::Infallible>(body), (rx, true)))
+                }
+                Ok(Some(Err(e))) => {
+                    let frame = format!(
+                        "data: {}\n\ndata: [DONE]\n\n",
+                        serde_json::json!({"error": {"message": format!("{e:?}"), "type": "api_error"}})
+                    );
+                    Some((Ok(frame), (rx, true)))
+                }
+                Ok(None) => None,
+                Err(_) => Some((Ok(": ping\n\n".to_string()), (rx, false))),
+            }
+        }
+    });
+    let mut resp = axum::response::Response::new(axum::body::Body::from_stream(stream));
+    resp.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("text/event-stream"),
+    );
+    Ok(resp)
+}
+
 fn render_responses(out: &CutoffOutcome, model: &str, stream: bool) -> Response {
     let resp_id = format!("resp_{}", uuid::Uuid::new_v4().simple());
     let created = framer_core::rotation::now_ms() / 1000;
