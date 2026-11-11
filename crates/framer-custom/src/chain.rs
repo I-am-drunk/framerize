@@ -173,6 +173,22 @@ fn emulated_schemas_prose(tools: &[serde_json::Value]) -> String {
     )
 }
 
+/// Bank fresh emulated calls (dedupe vs already-served by name+input); returns count added.
+fn bank_fresh_calls(tool_calls: &mut Vec<serde_json::Value>, calls: Vec<serde_json::Value>) -> usize {
+    let seen: std::collections::HashSet<String> = tool_calls
+        .iter()
+        .map(|c| format!("{}|{}", c.get("name").and_then(|x| x.as_str()).unwrap_or(""), c.get("input").map(|v| v.to_string()).unwrap_or_default()))
+        .collect();
+    let before = tool_calls.len();
+    for c in calls {
+        let k = format!("{}|{}", c.get("name").and_then(|x| x.as_str()).unwrap_or(""), c.get("input").map(|v| v.to_string()).unwrap_or_default());
+        if !seen.contains(&k) {
+            tool_calls.push(c);
+        }
+    }
+    tool_calls.len() - before
+}
+
 fn extract_emulated_calls(captured: &str) -> (String, Vec<serde_json::Value>) {
     let mut calls = Vec::new();
     let mut clean = captured.to_string();
@@ -796,9 +812,12 @@ async fn complete_inner<T: CustomTransport>(
                 debit: leg_debit,
                 events: rung_out.events,
             });
-            // Pump calls first, THEN fresh emulated (the clone would otherwise wipe them).
+            // Pump calls first, THEN fresh emulated (the clone would otherwise wipe them --
+            // including calls banked on earlier accepted legs: re-bank those too).
+            let banked = std::mem::take(&mut tool_calls);
             tool_calls = rung_out.tool_calls.clone();
             tool_calls.extend(fresh);
+            bank_fresh_calls(&mut tool_calls, banked);
             outcome = ChainOutcome::Finished;
             break;
         }
@@ -961,6 +980,14 @@ async fn complete_inner<T: CustomTransport>(
                     rung_out.raced,
                     debited
                 );
+                // Strip emulated fences on EVERY accepted leg (not just finish): raw
+                // fences must never serve in kept text nor ride continuation anchors.
+                let (growth, emulated) = extract_emulated_calls(&growth);
+                if !emulated.is_empty() {
+                    // Note: pump calls merge at finish; mid-chain legs bank emulated only.
+                    let added = bank_fresh_calls(&mut tool_calls, emulated);
+                    eprintln!("[custom-route] accept leg={}: banked {added} emulated call(s)", leg_index + 1);
+                }
                 accumulated.push_str(&growth);
                 kept.push(growth.clone());
                 legs.push(Leg {
