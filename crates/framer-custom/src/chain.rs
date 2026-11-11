@@ -622,7 +622,6 @@ async fn complete_inner<T: CustomTransport>(
             let (growth, emulated) = extract_emulated_calls(&raw_growth);
             if !emulated.is_empty() {
                 eprintln!("[custom-route] finish leg={}: emulated {} tool call(s) from text fences ($0, no tools array posted)", leg_index + 1, emulated.len());
-                tool_calls.extend(emulated);
             }
             let growth = growth;
             eprintln!(
@@ -643,7 +642,9 @@ async fn complete_inner<T: CustomTransport>(
                 debit: leg_debit,
                 events: rung_out.events,
             });
+            // Pump calls first, THEN emulated (the clone would otherwise wipe them).
             tool_calls = rung_out.tool_calls.clone();
+            tool_calls.extend(emulated);
             outcome = ChainOutcome::Finished;
             break;
         }
