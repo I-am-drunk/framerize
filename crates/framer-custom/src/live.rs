@@ -206,6 +206,13 @@ impl<P: PageStream> CustomTransport for BridgeStreamTransport<P> {
         self.tool_calls = Vec::new();
         self.failed = None;
         self.empty_streak = 0;
+        // Fail-closed default: an UNSET stop (u32::MAX) means "run to terminal" = bill.
+        // Every legit caller sets it via set_stop_after (rung path); an unset stop here
+        // is a caller bug, and billing is the wrong way to learn about it.
+        if self.stop_after == u32::MAX {
+            eprintln!("[custom-route] stream_reply with unset stop_after -- clamping to DEFAULT_STOP (caller bug, fail-closed)");
+            self.stop_after = crate::stop::DEFAULT_STOP;
+        }
         let id = self
             .page
             .open_stream(payload, self.dialect, self.stop_after)
