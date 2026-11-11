@@ -129,6 +129,27 @@ pub struct Assembled {
 /// TOOL EMULATION: parse fenced ```toolcall {"name","input"} blocks out of captured
 /// text into real Anthropic tool_use blocks (minted toolu_ ids). Returns (clean text,
 /// calls). Unparseable fences stay as prose (never break an answer on a bad fence).
+/// One gate for tool legs (was: two env vars read in five places, states interacting
+/// confusingly; tests mutating process env raced under parallel threads).
+/// - Refuse (default): pre-dispatch 402, zero opens, $0.
+/// - Emulate (FRAMERIZE_EMULATE_TOOLS=1): schemas-as-prose + text fences, experiment-only.
+/// - NativeAttempt (FRAMERIZE_ALLOW_TOOL_LEGS=1): tools post natively (spend risk).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToolMode {
+    Refuse,
+    Emulate,
+    NativeAttempt,
+}
+fn tool_mode() -> ToolMode {
+    if std::env::var("FRAMERIZE_ALLOW_TOOL_LEGS").map(|v| v == "1").unwrap_or(false) {
+        ToolMode::NativeAttempt
+    } else if std::env::var("FRAMERIZE_EMULATE_TOOLS").map(|v| v == "1").unwrap_or(false) {
+        ToolMode::Emulate
+    } else {
+        ToolMode::Refuse
+    }
+}
+
 /// Cap: a runaway model emitting hundreds of fences must not build unbounded calls
 /// (O(n^2) memmoves + a giant tool_use array to the client).
 const MAX_EMULATED_CALLS: usize = 8;
@@ -160,7 +181,18 @@ fn extract_emulated_calls(captured: &str) -> (String, Vec<serde_json::Value>) {
         if calls.len() >= MAX_EMULATED_CALLS {
             break;
         }
-        let Some(start) = clean.find("```toolcall") else { break };
+        // Line-anchored: the contract emits fences line-initially. A mid-line
+        // ```toolcall mention (prose example, code sample) is not a call.
+        let mut search_from = 0usize;
+        let start = loop {
+            let Some(i) = clean[search_from..].find("```toolcall") else { break None };
+            let abs = search_from + i;
+            if abs == 0 || clean[..abs].ends_with('\n') {
+                break Some(abs);
+            }
+            search_from = abs + 1;
+        };
+        let Some(start) = start else { break };
         let body_start = start + "```toolcall".len();
         let Some(rel_end) = clean[body_start..].find("```") else { break };
         let body = clean[body_start..body_start + rel_end].trim().to_string();
@@ -216,8 +248,13 @@ fn flatten_tool_blocks(m: &serde_json::Value) -> serde_json::Value {
                         parts.push(format!("[Tool '{}' returned: {}]",
                             b.get("tool_use_id").and_then(|x| x.as_str()).unwrap_or("?"), s));
                     }
+                    // Media blocks (image/document/etc.): raw JSON as prose is garbage
+                    // the model tries to interpret. Honest placeholder instead.
                     _ => {
-                        parts.push(b.to_string());
+                        parts.push(format!(
+                            "[Non-text content of type '{}' omitted from this leg]",
+                            b.get("type").and_then(|t| t.as_str()).unwrap_or("unknown")
+                        ));
                     }
                 }
             }
@@ -329,12 +366,9 @@ fn leg1_native(payload: &serde_json::Value) -> Result<serde_json::Value, String>
     // chain parses the fence into real tool_use blocks.
     let mut p = payload.clone();
     let mut emulated_tools: Vec<serde_json::Value> = Vec::new();
-    // Emulation is experiment-only (FRAMERIZE_EMULATE_TOOLS=1): tool legs bill
-    // intermittently at ANY prompt size (-8.24 strip, -2.38 ride, -0.73 small-contract
-    // with ZERO captured chars). Default refuses pre-dispatch at 402 (P8f: zero opens,
-    // flat pool). Text path untouched.
-    if std::env::var("FRAMERIZE_EMULATE_TOOLS").map(|v| v == "1").unwrap_or(false) == false
-    {
+    // Tool legs bill intermittently at ANY prompt size (-8.24/-2.38/-0.73, once with
+    // zero captured chars). Default refuses pre-dispatch (P8f: zero opens, $0).
+    if tool_mode() == ToolMode::Refuse {
         if let Some(tools) = payload.get("tools").and_then(|t| t.as_array()) {
             if !tools.is_empty() {
                 return Err("chain: tool-carrying legs bill intermittently at any prompt size (-8.24/-2.38/-0.73 measured, once with zero captured chars); refusing before open. Text requests serve free; retry without tools, or set FRAMERIZE_EMULATE_TOOLS=1 to experiment (spend risk) or FRAMERIZE_ALLOW_TOOL_LEGS=1 for a native attempt. No upstream call was opened, nothing spent.".to_string());
@@ -345,19 +379,15 @@ fn leg1_native(payload: &serde_json::Value) -> Result<serde_json::Value, String>
     // whole stop capturing nothing and monster inputs settle at finish (-280 proved).
     const MAX_EMULATED_TOOLS: usize = 12;
     if let Some(tools) = p.get("tools").and_then(|t| t.as_array()).map(|a| a.to_vec()) {
-        if tools.len() > MAX_EMULATED_TOOLS
-            && std::env::var("FRAMERIZE_ALLOW_TOOL_LEGS").map(|v| v == "1").unwrap_or(false) == false
-        {
+        if tools.len() > MAX_EMULATED_TOOLS && tool_mode() == ToolMode::Emulate {
             return Err(format!(
                 "chain: {} tools exceeds the {}-tool emulation cap (schemas-as-prose stalls the model and monster inputs settle: -280 proved). Narrow the request to the tools this turn needs, or set FRAMERIZE_ALLOW_TOOL_LEGS=1 to attempt natively (spend risk). No upstream call was opened, nothing spent.",
                 tools.len(),
                 MAX_EMULATED_TOOLS
             ));
         }
-        if !tools.is_empty()
-            && std::env::var("FRAMERIZE_ALLOW_TOOL_LEGS").map(|v| v == "1").unwrap_or(false) == false
-        {
-            eprintln!("[custom-route] leg1 emulating {} tool(s) as prose (no tools array posts; ALLOW_TOOL_LEGS=1 for native attempt)", tools.len());
+        if !tools.is_empty() && tool_mode() == ToolMode::Emulate {
+            eprintln!("[custom-route] leg1 emulating {} tool(s) as prose (no tools array posts)", tools.len());
             emulated_tools = tools;
             p["tools"] = serde_json::Value::Array(vec![]);
         }
@@ -435,11 +465,11 @@ fn continue_native(
     let mut new_msgs = msgs;
     new_msgs.push(serde_json::json!({"role": "assistant", "content": tail}));
     let mut cont_nudge = format!("{}\n\n{}", stop::continue_suffix(), stop::continue_cut_reminder());
-    if let Some(tools) = payload.get("tools").and_then(|t| t.as_array()) {
-        if !tools.is_empty()
-            && std::env::var("FRAMERIZE_ALLOW_TOOL_LEGS").map(|v| v == "1").unwrap_or(false) == false
-        {
-            cont_nudge.push_str(&emulated_schemas_prose(&tools.to_vec()));
+    if tool_mode() == ToolMode::Emulate {
+        if let Some(tools) = payload.get("tools").and_then(|t| t.as_array()) {
+            if !tools.is_empty() {
+                cont_nudge.push_str(&emulated_schemas_prose(&tools.to_vec()));
+            }
         }
     }
     new_msgs.push(serde_json::json!({"role": "user", "content": cont_nudge}));
@@ -1002,6 +1032,9 @@ mod tests {
     use crate::transport::Event;
     use async_trait::async_trait;
     use std::collections::VecDeque;
+    // Process env is global: tests that flip tool-mode vars hold this across the
+    // mutation, or parallel threads observe each other's opt-ins (flaky).
+    static ENV_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     /// Leg-aware script transport: each stream_reply pops the next queued
     /// (events, credit-after) pair. The staged balance applies when the
@@ -1115,6 +1148,18 @@ mod tests {
         // Plain string content passes through untouched.
         let m3 = serde_json::json!({"role": "user", "content": "hi"});
         assert_eq!(flatten_tool_blocks(&m3)["content"], "hi");
+    }
+
+    #[test]
+    fn emulated_fences_require_line_start() {
+        // Mid-line mention is prose, not a call.
+        let (t, c) = extract_emulated_calls("see ```toolcall {\"name\": \"x\", \"input\": {}} ``` here");
+        assert!(c.is_empty(), "mid-line fence must not parse");
+        assert!(t.contains("toolcall"));
+        // Line-initial fence parses.
+        let (t2, c2) = extract_emulated_calls("ok\n```toolcall\n{\"name\": \"x\", \"input\": {}}\n```\ndone");
+        assert_eq!(c2.len(), 1);
+        assert!(!t2.contains("toolcall"));
     }
 
     #[test]
@@ -1270,6 +1315,7 @@ mod tests {
         // emulation runs only under FRAMERIZE_EMULATE_TOOLS=1.
         let err = leg1_native(&payload).unwrap_err();
         assert!(err.contains("bill intermittently"), "refusal must name the measurement: {err}");
+        let _env = ENV_GUARD.lock().unwrap();
         std::env::set_var("FRAMERIZE_EMULATE_TOOLS", "1");
         let leg1t = leg1_native(&payload).unwrap();
         std::env::remove_var("FRAMERIZE_EMULATE_TOOLS");
@@ -1307,6 +1353,7 @@ mod tests {
         });
         // Refused by default; emulation under opt-in only.
         assert!(leg1_native(&payload).is_err(), "refusal default");
+        let _env = ENV_GUARD.lock().unwrap();
         std::env::set_var("FRAMERIZE_EMULATE_TOOLS", "1");
         let leg1 = leg1_native(&payload).unwrap();
         std::env::remove_var("FRAMERIZE_EMULATE_TOOLS");
