@@ -370,23 +370,19 @@ fn continue_payload(accumulated: &str, anchor_chars: usize) -> serde_json::Value
 /// Native leg 1: the client's payload verbatim, with the length directive
 /// prepended as a system message (instruction-first; the client's own
 /// messages are never rewritten).
-fn leg1_native(payload: &serde_json::Value) -> Result<serde_json::Value, String> {
-    // TOOLS RIDE THE CUT (2026-11-11, user directive -- refusal was wrong engineering):
-    // a tool call is output before the marker like any text. The contract orders tool
-    // calls first, then marker, then the endless count; the pump cuts mid-count at $0.
-    // (P8c/P9b billed on the NATIVE bundled path, which reads the terminal by
-    // construction -- cutoff legs never do. The refusal confused the two paths.)
-    // TOOL EMULATION (user directive -- two unmetered text calls): tools-in-body bills
-    // at dispatch (P8c -0.0395, T-leg -2.38, BOTH paths), so the leg NEVER posts a tools
-    // array. Schemas ride as PROSE; the model emits calls as fenced toolcall JSON; the
-    // chain parses the fence into real tool_use blocks.
-    let mut p = payload.clone();
-    let mut emulated_tools: Vec<serde_json::Value> = Vec::new();
-    // Tool legs bill intermittently at ANY prompt size (-8.24/-2.38/-0.73, once with
-    // zero captured chars). Default refuses pre-dispatch (P8f: zero opens, $0).
+/// Single sanitize point for every leg payload (was: three scattered blocks + a dead
+/// dialect normalizer that ran on an already-emptied array while native-attempt legs
+/// posted raw Anthropic tools into the Azure 400). Returns (sanitized payload,
+/// emulated tools for prose schemas). Refusals happen here, pre-dispatch, always.
+/// Dialect normalization runs on whatever tools array SURVIVES (native-attempt only).
+fn sanitize_leg_payload(
+    payload: &serde_json::Value,
+) -> Result<(serde_json::Value, Vec<serde_json::Value>), String> {
+    // Refuse gate (default): tool legs bill intermittently at ANY prompt size.
     if tool_mode() == ToolMode::Refuse {
-        // tool_choice alone posts tool-mode: refuse it like a tools array.
-        if payload.get("tool_choice").is_some() && !payload.get("tool_choice").map(|v| v.is_null()).unwrap_or(true) {
+        if payload.get("tool_choice").is_some()
+            && !payload.get("tool_choice").map(|v| v.is_null()).unwrap_or(true)
+        {
             return Err("chain: tool_choice posts tool-mode billing like a tools array (bill intermittently at dispatch); refusing before open. Retry without tools or tool_choice.".to_string());
         }
         if let Some(tools) = payload.get("tools").and_then(|t| t.as_array()) {
@@ -395,8 +391,8 @@ fn leg1_native(payload: &serde_json::Value) -> Result<serde_json::Value, String>
             }
         }
     }
-    // Cap: schemas-as-prose scales input per tool; past the cap the model stalls the
-    // whole stop capturing nothing and monster inputs settle at finish (-280 proved).
+    let mut p = payload.clone();
+    let mut emulated_tools: Vec<serde_json::Value> = Vec::new();
     const MAX_EMULATED_TOOLS: usize = 12;
     if let Some(tools) = p.get("tools").and_then(|t| t.as_array()).map(|a| a.to_vec()) {
         if tools.len() > MAX_EMULATED_TOOLS && tool_mode() == ToolMode::Emulate {
@@ -407,39 +403,18 @@ fn leg1_native(payload: &serde_json::Value) -> Result<serde_json::Value, String>
             ));
         }
         if !tools.is_empty() && tool_mode() == ToolMode::Emulate {
-            eprintln!("[custom-route] leg1 emulating {} tool(s) as prose (no tools array posts)", tools.len());
+            eprintln!(
+                "[custom-route] leg1 emulating {} tool(s) as prose (no tools array posts)",
+                tools.len()
+            );
             emulated_tools = tools;
             p["tools"] = serde_json::Value::Array(vec![]);
-            // tool_choice without tools still posts tool-mode: strip it too.
             p.as_object_mut().map(|o| o.remove("tool_choice"));
         }
     }
-    let msgs = payload["messages"]
-        .as_array()
-        .ok_or("chain: native chat payload has no messages array")?;
-    // Native payloads carry a whole conversation (codex: 76K tokens of
-    // context) -- far over the prompt-string cap. The native cap is 2MB:
-    // the real bound is the upstream request limit, not the prompt rule.
-    const MAX_NATIVE_PAYLOAD: usize = 2_000_000;
-    if serde_json::to_string(&p).map(|s| s.len()).unwrap_or(0) > MAX_NATIVE_PAYLOAD {
-        return Err(format!(
-            "chain: native payload over the {MAX_NATIVE_PAYLOAD}-byte cap"
-        ));
-    }
-    let mut sys_content = stop::end_marker_suffix();
-    if !emulated_tools.is_empty() {
-        sys_content.push_str(&emulated_schemas_prose(&emulated_tools));
-    }
-    let mut new_msgs = vec![serde_json::json!({
-        "role": "system",
-        "content": sys_content,
-    })];
-    new_msgs.extend(msgs.iter().map(flatten_tool_blocks));
-    p["messages"] = serde_json::json!(new_msgs);
-    // TOOL DIALECT (2026-11-11 -- P8b Azure 400): the leg posts to the chat route, which
-    // demands {type:"function",function:{name,description,parameters}}. Anthropic-shaped
-    // tools ({name,input_schema}, no type/function) 400 there. Normalize the tools array
-    // only; text-only payloads (no tools key) are byte-identical to before.
+    // Dialect normalize on SURVIVING tools (native-attempt only -- emulate/refuse leave
+    // an empty array; previously this ran on the emptied array = dead code, while
+    // native-attempt legs posted raw Anthropic tools into the Azure 400).
     if let Some(tools) = p.get("tools").and_then(|t| t.as_array()).map(|a| a.to_vec()) {
         if !tools.is_empty()
             && tools.iter().any(|t| t.get("type").and_then(|v| v.as_str()) != Some("function"))
@@ -464,6 +439,34 @@ fn leg1_native(payload: &serde_json::Value) -> Result<serde_json::Value, String>
             p["tools"] = serde_json::Value::Array(mapped);
         }
     }
+    Ok((p, emulated_tools))
+}
+
+fn leg1_native(payload: &serde_json::Value) -> Result<serde_json::Value, String> {
+    // All tool billing-shape handling lives in sanitize_leg_payload (single point).
+    let (mut p, emulated_tools) = sanitize_leg_payload(payload)?;
+    let msgs = payload["messages"]
+        .as_array()
+        .ok_or("chain: native chat payload has no messages array")?;
+    // Native payloads carry a whole conversation (codex: 76K tokens of
+    // context) -- far over the prompt-string cap. The native cap is 2MB:
+    // the real bound is the upstream request limit, not the prompt rule.
+    const MAX_NATIVE_PAYLOAD: usize = 2_000_000;
+    if serde_json::to_string(&p).map(|s| s.len()).unwrap_or(0) > MAX_NATIVE_PAYLOAD {
+        return Err(format!(
+            "chain: native payload over the {MAX_NATIVE_PAYLOAD}-byte cap"
+        ));
+    }
+    let mut sys_content = stop::end_marker_suffix();
+    if !emulated_tools.is_empty() {
+        sys_content.push_str(&emulated_schemas_prose(&emulated_tools));
+    }
+    let mut new_msgs = vec![serde_json::json!({
+        "role": "system",
+        "content": sys_content,
+    })];
+    new_msgs.extend(msgs.iter().map(flatten_tool_blocks));
+    p["messages"] = serde_json::json!(new_msgs);
     Ok(p)
 }
 
