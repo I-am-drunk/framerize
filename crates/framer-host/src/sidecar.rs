@@ -471,6 +471,9 @@ impl BrowserBridge for SidecarBridge {
         if status == -1 {
             return Err(format!("in-page fetch failed: {text}"));
         }
+        if status == -2 {
+            return Err("retryable superseded: a newer request took over this page".into());
+        }
         Ok((status as u16, usage, text))
     }
 

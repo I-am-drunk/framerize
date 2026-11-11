@@ -235,10 +235,22 @@ if (!window.castlePublishableAPIKey) {
   if (!tok) return { status: 0, usage: null, body: "castle-v3-unavailable" };
   const body = %BODY%;
   body.castleToken = tok;
+  // ORPHAN-SUPERSEDE (2026-11-11): every post bumps a page generation counter and
+  // carries an AbortController registered under it. A post whose generation is stale
+  // (a newer request superseded it -- e.g. the client disconnected and retried)
+  // aborts ITSELF instead of running to terminal and settling. A future server-side
+  // drop-hook can supersede generations explicitly; until then, retries self-heal.
+  // No behavior change for the current generation (checked synchronously post-fetch).
+  window.__fzGen = (window.__fzGen || 0) + 1;
+  const myGen = window.__fzGen;
+  window.__fzCtl = window.__fzCtl || {};
+  const ctl = new AbortController();
+  window.__fzCtl[myGen] = ctl;
   try {
     const r = await fetch("%API%%PATH%", {
       method: "POST",
       credentials: "include",
+      signal: ctl.signal,
       headers: {
         "content-type": "application/json; charset=utf-8",
         "x-requested-by": "Framer",
@@ -246,7 +258,14 @@ if (!window.castlePublishableAPIKey) {
       },
       body: JSON.stringify(body),
     });
-    return { status: r.status, usage: r.headers.get("x-framer-ai-usage"), body: await r.text() };
+    if (window.__fzGen !== myGen) {
+      try { await r.body.cancel(); } catch (e) {}
+      try { delete window.__fzCtl[myGen]; } catch (e) {}
+      return { status: -2, usage: null, body: "superseded" };
+    }
+    const text = await r.text();
+    try { delete window.__fzCtl[myGen]; } catch (e) {}
+    return { status: r.status, usage: r.headers.get("x-framer-ai-usage"), body: text };
   } catch (e) {
     return { status: -1, usage: null, body: String(e) };
   }
@@ -747,6 +766,12 @@ impl BrowserBridge for CdpBridge {
         }
         if status == -1 {
             return Err(format!("in-page fetch failed: {text}"));
+        }
+        if status == -2 {
+            // ORPHAN-SUPERSEDE (2026-11-11): a newer request on the same page
+            // superseded this post; it aborted itself before the terminal.
+            // Retryable (a fresh post gets a fresh generation), never billed.
+            return Err("retryable superseded: a newer request took over this page".into());
         }
         if status == 403 {
             // The body NAMES the refusal (velocity / verification / policy /

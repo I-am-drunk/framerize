@@ -1211,7 +1211,11 @@ async fn free_complete(
     let mk_cfg = |team: &framer_core::ids::TeamId| framer_core::port::ChainConfig {
         max_total_tokens: Some(max_tokens),
         // Metered rungs are credit spend: off unless the operator opts in.
-        metered_fallback: std::env::var("FRAMERIZE_ALLOW_METERED").map(|v| v == "1").unwrap_or(false),
+        // TWO-KEY SPEND (2026-11-11): the metered fallback bills per chunk. It takes
+        // BOTH FRAMERIZE_ALLOW_METERED=1 AND FRAMERIZE_ALLOW_SPEND=1 -- no single env flip,
+        // stray drop-in, or misread default can ever enable billing alone.
+        metered_fallback: std::env::var("FRAMERIZE_ALLOW_METERED").map(|v| v == "1").unwrap_or(false)
+            && std::env::var("FRAMERIZE_ALLOW_SPEND").map(|v| v == "1").unwrap_or(false),
         on_429: {
             let team = Some(team.0.clone());
             Some(std::sync::Arc::new(move || {
@@ -1806,7 +1810,11 @@ async fn native_complete(
 
     let mk_cfg = |team: &framer_core::ids::TeamId| framer_core::port::ChainConfig {
         max_total_tokens: Some(max_tokens),
-        metered_fallback: std::env::var("FRAMERIZE_ALLOW_METERED").map(|v| v == "1").unwrap_or(false),
+        // TWO-KEY SPEND (2026-11-11): the metered fallback bills per chunk. It takes
+        // BOTH FRAMERIZE_ALLOW_METERED=1 AND FRAMERIZE_ALLOW_SPEND=1 -- no single env flip,
+        // stray drop-in, or misread default can ever enable billing alone.
+        metered_fallback: std::env::var("FRAMERIZE_ALLOW_METERED").map(|v| v == "1").unwrap_or(false)
+            && std::env::var("FRAMERIZE_ALLOW_SPEND").map(|v| v == "1").unwrap_or(false),
         on_429: {
             let team = Some(team.0.clone());
             Some(std::sync::Arc::new(move || {

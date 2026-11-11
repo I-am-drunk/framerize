@@ -239,6 +239,32 @@ async fn attempt(
             .field("status", status)
             .outcome("ok")
             .emit();
+        // USAGE-HEADER ORACLE (2026-11-11 -- the 105.9 hole): the header is a free
+        // per-post ledger read. A big consecutive drop on one account means a leg
+        // settled BETWEEN our route-level oracle reads (bundled native posts settle
+        // whole completions at once -- e.g. a 2965-token leg). Fail the chunk LOUD
+        // instead of returning Ok: the chain dies, the breaker trips downstream.
+        // Threshold 1.0: dust (<=0.05, caught by route guards) never trips; only
+        // catastrophe-class moves halt here. First sighting per account only arms.
+        static LAST_REMAINING: std::sync::Mutex<Option<std::collections::HashMap<String, f64>>> =
+            std::sync::Mutex::new(None);
+        if let Ok(mut g) = LAST_REMAINING.lock() {
+            let m = g.get_or_insert_with(std::collections::HashMap::new);
+            let key = account.0.to_string();
+            if let Some(prev) = m.get(&key).copied() {
+                let drop = prev - remaining;
+                if drop > 1.0 {
+                    eprintln!(
+                        "[usage-oracle] account {} LEDGER MOVED {drop:+.2} within consecutive posts ({prev:.2} -> {remaining:.2}) -- failing chunk",
+                        &key[..8.min(key.len())]
+                    );
+                    return Err(format!(
+                        "ledger-moved: usage header dropped {drop:.2} ({prev:.2} -> {remaining:.2}) on this account"
+                    ));
+                }
+            }
+            m.insert(key, remaining);
+        }
     }
     let elapsed = sent_at.elapsed();
     let streaming = payload["stream"].as_bool() == Some(true);
