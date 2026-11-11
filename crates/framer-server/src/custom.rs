@@ -621,9 +621,11 @@ pub(super) async fn cutoff_run(
         model_str
     };
     {
+        // Pass the FULL (possibly mapped) id: SUFFIX_FREE matches exact provider-prefixed
+        // ids; stripping first would miss ("claude-opus-5.5:nitro" != allowlisted
+        // "anthropic/claude-opus-5.5:nitro") and wrongly deny mapped traffic.
         let m = model_str.trim();
         let m = if m.is_empty() { "gpt-4.1-mini" } else { m };
-        let m = m.rsplit('/').next().unwrap_or(m);
         if !cutoff_free_model(m) {
             return Err(cutoff_model_denied(model_str));
         }
