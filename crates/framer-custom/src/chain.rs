@@ -214,6 +214,18 @@ fn continue_payload(accumulated: &str, anchor_chars: usize) -> serde_json::Value
 /// prepended as a system message (instruction-first; the client's own
 /// messages are never rewritten).
 fn leg1_native(payload: &serde_json::Value) -> Result<serde_json::Value, String> {
+    // TOOLS FAIL CLOSED (2026-11-11 -- P8c billed -0.0395 at dispatch, P8d identical
+    // prompt without tools $0): a tool-carrying open bills at dispatch even streamed
+    // with the stop baked in, and refunds deny ~261:1 historically. Refuse before
+    // dispatch unless the operator opts into the risk. Text legs unaffected.
+    if std::env::var("FRAMERIZE_ALLOW_TOOL_LEGS").map(|v| v == "1").unwrap_or(false) == false
+    {
+        if let Some(tools) = payload.get("tools").and_then(|t| t.as_array()) {
+            if !tools.is_empty() {
+                return Err("chain: tool-carrying legs bill at dispatch on metered routes (proved -0.0395 live); refusing before open. Text requests serve free; retry without tools or set FRAMERIZE_ALLOW_TOOL_LEGS=1 to attempt (spend risk).".to_string());
+            }
+        }
+    }
     let mut p = payload.clone();
     let msgs = payload["messages"]
         .as_array()
@@ -279,6 +291,18 @@ fn continue_native(
     new_msgs.push(serde_json::json!({"role": "assistant", "content": tail}));
     new_msgs.push(serde_json::json!({"role": "user", "content": stop::continue_suffix()}));
     p["messages"] = serde_json::json!(new_msgs);
+    // TOOLS FAIL CLOSED (continuations): strip any tools array so a continuation leg can
+    // never open billed (leg-1 refusal normally prevents reaching here; direct callers
+    // of complete_inner bypass it). Opt-in restores.
+    if std::env::var("FRAMERIZE_ALLOW_TOOL_LEGS").map(|v| v == "1").unwrap_or(false) == false
+    {
+        if let Some(tools) = p.get("tools").and_then(|t| t.as_array()) {
+            if !tools.is_empty() {
+                eprintln!("[custom-route] continuation stripped tool-carrying payload (fail-closed; FRAMERIZE_ALLOW_TOOL_LEGS=1 to attempt)");
+                p["tools"] = serde_json::Value::Array(vec![]);
+            }
+        }
+    }
     p
 }
 
@@ -1016,14 +1040,19 @@ mod tests {
             ],
             "tools": [{"type": "function", "name": "noop"}]
         });
-        let leg1 = leg1_native(&payload).unwrap();
+        // TOOLS FAIL CLOSED (2026-11-11 -- P8c -0.0395, P9b -0.50 at dispatch; refunds
+        // deny ~261:1): tool-carrying legs refuse BEFORE dispatch. Text serves free.
+        let err = leg1_native(&payload).unwrap_err();
+        assert!(err.contains("bill at dispatch"), "refusal must name the reason: {err}");
+        // Text-only twin rides through with the pad system message prepended.
+        let text_only = serde_json::json!({"messages": [{"role": "user", "content": "write a poem"}]});
+        let leg1 = leg1_native(&text_only).unwrap();
         let msgs = leg1["messages"].as_array().unwrap();
         assert_eq!(msgs.len(), 2);
         assert_eq!(msgs[0]["role"], "system");
         assert!(msgs[0]["content"].as_str().unwrap().contains("words"));
         assert_eq!(msgs[1]["role"], "user");
         assert_eq!(msgs[1]["content"], "write a poem");
-        assert_eq!(leg1["tools"][0]["name"], "noop");
 
         let cont = continue_native(&payload, "roses are red\n", 350);
         let msgs = cont["messages"].as_array().unwrap();
@@ -1044,17 +1073,27 @@ mod tests {
             "tools": [{"name": "get_weather", "description": "Get weather",
                        "input_schema": {"type": "object", "properties": {"city": {"type": "string"}}}}]
         });
+        // Refused before any dialect normalization can matter.
+        let err = leg1_native(&payload).unwrap_err();
+        assert!(err.contains("bill at dispatch"), "refusal must name the reason: {err}");
+        // Opt-in restores attempt (operator accepts spend risk).
+        std::env::set_var("FRAMERIZE_ALLOW_TOOL_LEGS", "1");
         let leg1 = leg1_native(&payload).unwrap();
+        std::env::remove_var("FRAMERIZE_ALLOW_TOOL_LEGS");
         let t = &leg1["tools"][0];
         assert_eq!(t["type"], "function");
         assert_eq!(t["function"]["name"], "get_weather");
         assert_eq!(t["function"]["parameters"]["type"], "object");
-        // Chat-shaped tools pass through untouched.
+        // Chat-shaped tools are refused identically (the meter bills tools-in-body
+        // regardless of dialect); opt-in passes them through untouched.
         let payload2 = serde_json::json!({
             "messages": [{"role": "user", "content": "hi"}],
             "tools": [{"type": "function", "function": {"name": "f", "parameters": {"type": "object"}}}]
         });
+        assert!(leg1_native(&payload2).is_err(), "refusal is shape-blind");
+        std::env::set_var("FRAMERIZE_ALLOW_TOOL_LEGS", "1");
         let leg1b = leg1_native(&payload2).unwrap();
+        std::env::remove_var("FRAMERIZE_ALLOW_TOOL_LEGS");
         assert_eq!(leg1b["tools"], payload2["tools"]);
     }
 
