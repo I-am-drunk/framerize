@@ -987,7 +987,10 @@ async fn native_ledger_check(
                         return None;
                     }
                     Err(e) => {
-                        eprintln!("[native-guard] {ctx}: confirm-read failed ({e}) -- serving (gate open on oracle failure)");
+                        // UNKNOWN debit: steer around this team for 45s (existing
+                        // backpressure pattern) instead of serving blind or wedging.
+                        eprintln!("[native-guard] {ctx}: confirm-read failed ({e}) -- steering around team for 45s");
+                        framer_core::rotation::mark_saturated(&team.0, 45_000);
                         return None;
                     }
                 }
@@ -995,7 +998,8 @@ async fn native_ledger_check(
             None
         }
         Err(e) => {
-            eprintln!("[native-guard] {ctx}: after-read failed (cannot verify $0): {e}");
+            eprintln!("[native-guard] {ctx}: after-read failed (cannot verify $0): {e} -- steering around team for 45s");
+            framer_core::rotation::mark_saturated(&team.0, 45_000);
             None
         }
     }
