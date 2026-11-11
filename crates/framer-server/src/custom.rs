@@ -1585,6 +1585,16 @@ async fn custom_real_once(
                                 "[custom-route] req={req_short} refund turn {} GRANTED (settle reversed)",
                                 &turn_id[..8.min(turn_id.len())]
                             );
+                            // Stop when whole: quota is ~2/window, so a recovered balance
+                            // must not burn remaining posts (each extra is quota spent).
+                            if let Ok(snap) = s.client.usage(&refund_session, &scope_team).await {
+                                if snap.available >= before {
+                                    eprintln!(
+                                        "[custom-route] req={req_short} balance whole after {refunded} grant(s); stopping refund loop"
+                                    );
+                                    break;
+                                }
+                            }
                         }
                         Ok((status, _, text)) => eprintln!(
                             "[custom-route] req={req_short} refund turn {} denied/HTTP {status}: {}",
