@@ -27,7 +27,12 @@ fn overlap_len(new_text: &str, anchor_tail: &str) -> usize {
         return 0;
     }
     for k in (MIN_OVERLAP..=max).rev() {
-        if ab[ab.len() - k..] == nb[..k] && new_text.is_char_boundary(k) {
+        // Both slice ends must sit on char boundaries (model text carries multi-byte
+        // ⟦⟧ markers; slicing mid-char panics the chain -> 500 -> client retry storm).
+        if !new_text.is_char_boundary(k) || !anchor_tail.is_char_boundary(ab.len() - k) {
+            continue;
+        }
+        if ab[ab.len() - k..] == nb[..k] {
             return k;
         }
     }
@@ -79,6 +84,16 @@ pub fn assemble(legs: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn overlap_never_splits_multibyte_markers() {
+        // ⟦ is 3 bytes in UTF-8; every k in the scan must not panic.
+        let anchor = "answer text here ⟦FRZ-END⟧ plus padding words following along";
+        let new = "text here ⟦FRZ-END⟧ plus padding words following along and more";
+        let _ = trim_overlap(new, anchor);
+        let _ = trim_overlap("⟦PAD-0001⟧ x", "y ⟦PAD-0001⟧ x");
+        let _ = assemble(&["a⟦b".to_string(), "b⟧c".to_string()]);
+    }
+
     #[test]
     fn exact_echo_trimmed() {
         let anchor = "the quick brown fox jumps over the lazy dog ship hull";
