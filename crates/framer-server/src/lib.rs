@@ -702,7 +702,7 @@ async fn pick_funded_scope(
 /// 503 to the client ("account X has no funded workspace") instead of just
 /// routing around it. Now the dead account is logged + skipped, and the
 /// request lands on a funded one. Max 3 account attempts per request.
-async fn select_funded_account(
+pub(crate) async fn select_funded_account(
     s: &AppState,
     account_hdr: Option<String>,
 ) -> Result<(ManagedAccount, RequestResidency, framer_core::port::Session, framer_core::account::WorkspaceScope), ApiError> {

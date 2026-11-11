@@ -78,6 +78,7 @@ pub fn custom_routes(state: AppState) -> Router {
             post(custom_complete_handler).get(hint_handler).put(hint_handler),
         )
         .route("/complete/status", axum::routing::get(status_handler).post(status_reset_handler))
+        .route("/refund_lab", axum::routing::post(refund_lab_handler))
         .with_state(state)
 }
 
@@ -107,6 +108,101 @@ async fn status_handler() -> Response {
         },
     }))
     .into_response()
+}
+
+/// REFUND LAB (FRAMERIZE_REFUND_LAB=1 only; default: loud refusal, zero surface):
+/// refund ONE arbitrary settled turn with overrideable tuple fields, to reverse-engineer
+/// quota/idempotency semantics. Every post is unmetered by route design; the lab changes
+/// nothing about what the server counts.
+async fn refund_lab_handler(
+    State(s): State<AppState>,
+    Json(body): Json<serde_json::Value>,
+) -> Response {
+    if std::env::var("FRAMERIZE_REFUND_LAB").map(|v| v == "1").unwrap_or(false) == false {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "refund lab disabled (FRAMERIZE_REFUND_LAB=1 to enable)"})),
+        )
+            .into_response();
+    }
+    let turn_id = body.get("turn_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    if turn_id.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "turn_id required"})),
+        )
+            .into_response();
+    }
+    // Reuse the funded-account path (same account the turn settled on, by operator choice).
+    let account_hdr = body.get("account").and_then(|v| v.as_str()).map(|x| x.to_string());
+    let sel = crate::select_funded_account(&s, account_hdr).await;
+    let (account, _residency, session, scope) = match sel {
+        Ok(t) => t,
+        Err(e) => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({"error": format!("no funded account: {e:?}")})),
+            )
+                .into_response();
+        }
+    };
+    let bearer = match s.client.custom_bearer(&session, &account.id).await {
+        Ok(b) => b,
+        Err(e) => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({"error": format!("bearer mint failed: {e}")})),
+            )
+                .into_response();
+        }
+    };
+    if s.browser.seed_session(&account.id, &session.cookie_header).await.is_err() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "session seed failed"})),
+        )
+            .into_response();
+    }
+    let project = scope.project.clone();
+    let category = body.get("category").and_then(|v| v.as_str()).unwrap_or("translation").to_string();
+    let feature = body.get("feature").and_then(|v| v.as_str()).unwrap_or("translation").to_string();
+    let fname = body.get("feature_name").and_then(|v| v.as_str()).unwrap_or(&feature).to_string();
+    let step = body.get("step").and_then(|v| v.as_str()).map(|x| x.to_string()).unwrap_or_else(|| chain_step(&category).to_string());
+    let session_id = body.get("session_id").and_then(|v| v.as_str()).unwrap_or("lab").to_string();
+    let step_index = body.get("step_index").and_then(|v| v.as_u64()).unwrap_or(0);
+    let rbody = serde_json::json!({
+        "projectId": project.0.as_str(),
+        "featureCategory": category.as_str(),
+        "featureName": fname.as_str(),
+        "step": step.as_str(),
+        "sessionId": session_id.as_str(),
+        "stepIndex": step_index,
+        "turnId": turn_id.as_str(),
+        "userPrompt": "",
+        "castleToken": "garbage",
+    });
+    match s.browser.ai_post(&account.id, "/ai/v3/refund/", &bearer, &rbody).await {
+        Ok((status, _, text)) => {
+            let granted = text.contains("\"granted\":true") || text.contains("\"granted\": true");
+            eprintln!("[refund-lab] turn {} session={} step={} feature={} -> HTTP {} granted={} body={}",
+                &turn_id[..8.min(turn_id.len())], session_id, step, fname, status, granted,
+                &text[..text.len().min(200)]);
+            Json(serde_json::json!({
+                "turn": &turn_id[..8.min(turn_id.len())],
+                "status": status,
+                "granted": granted,
+                "session_id": session_id,
+                "step": step,
+                "body": &text[..text.len().min(500)],
+            }))
+            .into_response()
+        }
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({"error": format!("transport: {e}")})),
+        )
+            .into_response(),
+    }
 }
 
 async fn status_reset_handler(Json(body): Json<serde_json::Value>) -> Response {
