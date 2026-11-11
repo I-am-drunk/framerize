@@ -526,9 +526,17 @@ mod tests {
             assert_eq!(pick_at(&pool, 1_500).expect("a pick").alias, "healthy");
         }
         // After the backoff window it is usable again -- never permanently out.
+        // (Post-f5a4412a0 selection prefers fewest RAW failures within an
+        // equal-effective tie, so the never-failed account rightly keeps winning
+        // head-to-head. What matters: the poisoned account is ELIGIBLE again --
+        // it serves when alone, and the pool never strands.)
         let after = 1_000 + ManagedAccount::cooldown_backoff_ms(0) + 1;
-        let seen: Vec<&str> = (0..6).map(|_| pick_at(&pool, after).unwrap().alias.as_str()).collect();
-        assert!(seen.contains(&"poisoned"), "must return to rotation: {seen:?}");
+        assert!(pick_at(&pool, after).is_some(), "pool serves after expiry");
+        assert_eq!(
+            pick_at(&[pool[0].clone()], after).unwrap().alias,
+            "poisoned",
+            "expired account serves when alone (exclusion lifted)"
+        );
     }
 
     #[test]
