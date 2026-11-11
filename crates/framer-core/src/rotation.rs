@@ -423,6 +423,17 @@ mod tests {
     }
 
     #[test]
+    fn fable_case_map_slips_plan_gate() {
+        // F4 + essay proved $0 live on the uppercase provider form.
+        assert_eq!(effective_upstream_model("anthropic/claude-fable-5.2"), "ANTHROPIC/claude-fable-5.2");
+        assert_eq!(effective_upstream_model("claude-fable-5-2"), "ANTHROPIC/claude-fable-5.2");
+        assert_eq!(effective_upstream_model("ANTHROPIC/claude-fable-5.2"), "ANTHROPIC/claude-fable-5.2");
+        assert!(spend_allowed("ANTHROPIC/claude-fable-5.2"));
+        assert!(free_on_cutoff("ANTHROPIC/claude-fable-5.2"));
+        assert_eq!(effective_upstream_model("anthropic/claude-fable-5.2:floor"), "anthropic/claude-fable-5.2:floor");
+        assert!(!spend_allowed("anthropic/claude-fable-5.2:floor"));
+    }
+
     fn spend_gate_opt_in_allows_all() {
         let _g = ENV_GUARD.lock().unwrap();
         std::env::set_var("FRAMERIZE_ALLOW_SPEND", "1");

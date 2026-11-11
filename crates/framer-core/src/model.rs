@@ -77,6 +77,19 @@ fn is_kimi_bare(slug: &str) -> bool {
     slug.starts_with("kimi-k3") && !slug.contains(':')
 }
 
+/// Fable ids to case-map: lowercase provider form plan-gates on this workspace
+/// (paid_plan_only_model), uppercase serves $0. Suffix-free only (suffixed forms keep
+/// their own classification: :floor is deny-listed, others route normally).
+fn is_fable_case_map(model: &str) -> bool {
+    let m = model.trim();
+    if m.contains(':') {
+        return false;
+    }
+    let lower = m.to_lowercase();
+    let slug = lower.rsplit('/').next().unwrap_or(&lower);
+    slug == "claude-fable-5.2" || slug == "claude-fable-5-2"
+}
+
 fn is_premium_claude(slug: &str) -> bool {
     (slug.starts_with("claude-opus-") || slug.starts_with("claude-sonnet-"))
         && !slug.contains(':')
@@ -144,6 +157,16 @@ pub fn classify(model: &str) -> ModelClass {
 
 /// The id to send upstream: applies the :nitro mapping for premium claude.
 pub fn effective_upstream_model(model: &str) -> String {
+    // Fable case-bypass FIRST: classify() reports FreeBase for bare fable (correct for
+    // gating posture), but the wire id must be the uppercase form or the workspace
+    // plan-gates it. (F4 + essay proved $0.)
+    if is_fable_case_map(model) {
+        let base = crate::convert::to_openrouter_id(model.trim());
+        return match base.split_once('/') {
+            Some((prov, rest)) => format!("{}/{}", prov.to_uppercase(), rest),
+            None => base.to_uppercase(),
+        };
+    }
     match classify(model) {
         ModelClass::MappedNitro => {
             // Map to the provider-prefixed, dotted, :nitro form (the exact id in
