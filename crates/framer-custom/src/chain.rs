@@ -329,6 +329,18 @@ fn leg1_native(payload: &serde_json::Value) -> Result<serde_json::Value, String>
     // chain parses the fence into real tool_use blocks.
     let mut p = payload.clone();
     let mut emulated_tools: Vec<serde_json::Value> = Vec::new();
+    // Emulation is experiment-only (FRAMERIZE_EMULATE_TOOLS=1): tool legs bill
+    // intermittently at ANY prompt size (-8.24 strip, -2.38 ride, -0.73 small-contract
+    // with ZERO captured chars). Default refuses pre-dispatch at 402 (P8f: zero opens,
+    // flat pool). Text path untouched.
+    if std::env::var("FRAMERIZE_EMULATE_TOOLS").map(|v| v == "1").unwrap_or(false) == false
+    {
+        if let Some(tools) = payload.get("tools").and_then(|t| t.as_array()) {
+            if !tools.is_empty() {
+                return Err("chain: tool-carrying legs bill intermittently at any prompt size (-8.24/-2.38/-0.73 measured, once with zero captured chars); refusing before open. Text requests serve free; retry without tools, or set FRAMERIZE_EMULATE_TOOLS=1 to experiment (spend risk) or FRAMERIZE_ALLOW_TOOL_LEGS=1 for a native attempt. No upstream call was opened, nothing spent.".to_string());
+            }
+        }
+    }
     // Cap: schemas-as-prose scales input per tool; past the cap the model stalls the
     // whole stop capturing nothing and monster inputs settle at finish (-280 proved).
     const MAX_EMULATED_TOOLS: usize = 12;
@@ -1254,9 +1266,13 @@ mod tests {
             ],
             "tools": [{"type": "function", "name": "noop"}]
         });
-        // TOOL EMULATION: no tools array posts (dispatch bills tools-in-body, both
-        // paths proved); schemas ride as prose, calls come back as text fences.
+        // REFUSAL BY DEFAULT (tool legs bill intermittently at any prompt size):
+        // emulation runs only under FRAMERIZE_EMULATE_TOOLS=1.
+        let err = leg1_native(&payload).unwrap_err();
+        assert!(err.contains("bill intermittently"), "refusal must name the measurement: {err}");
+        std::env::set_var("FRAMERIZE_EMULATE_TOOLS", "1");
         let leg1t = leg1_native(&payload).unwrap();
+        std::env::remove_var("FRAMERIZE_EMULATE_TOOLS");
         assert!(leg1t["tools"].as_array().map(|a| a.is_empty()).unwrap_or(false), "no tools array posts");
         assert!(leg1t["messages"][0]["content"].as_str().unwrap().contains("noop"), "schema rides as prose");
         assert!(leg1t["messages"][0]["content"].as_str().unwrap().contains("toolcall"), "fence contract present");
@@ -1289,17 +1305,19 @@ mod tests {
             "tools": [{"name": "get_weather", "description": "Get weather",
                        "input_schema": {"type": "object", "properties": {"city": {"type": "string"}}}}]
         });
-        // Anthropic schemas ride as prose; nothing posts.
+        // Refused by default; emulation under opt-in only.
+        assert!(leg1_native(&payload).is_err(), "refusal default");
+        std::env::set_var("FRAMERIZE_EMULATE_TOOLS", "1");
         let leg1 = leg1_native(&payload).unwrap();
+        std::env::remove_var("FRAMERIZE_EMULATE_TOOLS");
         assert!(leg1["tools"].as_array().map(|a| a.is_empty()).unwrap_or(false));
         assert!(leg1["messages"][0]["content"].as_str().unwrap().contains("get_weather"), "schema as prose");
-        // Chat-shaped tools strip identically.
+        // Chat-shaped tools refuse identically.
         let payload2 = serde_json::json!({
             "messages": [{"role": "user", "content": "hi"}],
             "tools": [{"type": "function", "function": {"name": "f", "parameters": {"type": "object"}}}]
         });
-        let leg1b = leg1_native(&payload2).unwrap();
-        assert!(leg1b["tools"].as_array().map(|a| a.is_empty()).unwrap_or(false));
+        assert!(leg1_native(&payload2).is_err(), "refusal is shape-blind");
     }
 
     #[tokio::test]
