@@ -584,7 +584,7 @@ pub fn cutoff_free_model(model: &str) -> bool {
 /// Loud refusal for a non-allowlisted model on the cutoff path.
 fn cutoff_model_denied(model: &str) -> ApiError {
     ApiError::InvalidRequest(format!(
-        "model {model} is not on the zero-spend allowlist (cutoff chain serves ONLY gpt-4.1-mini + claude-haiku-4.5 + gpt-6-astra; every other upstream meter bills per-token or per-burst -- proved live). No account was leased, no page opened, nothing spent."
+        "model {model} is not on the zero-spend allowlist (cutoff chain serves ONLY gpt-4.1-mini + claude-haiku-4.5 + gpt-6-astra + claude-fable-5.2 (case-bypassed past the workspace plan-gate, proved $0); every other upstream meter bills per-token or per-burst -- proved live). No account was leased, no page opened, nothing spent."
     ))
 }
 
@@ -1317,7 +1317,7 @@ async fn custom_real_once(
     if framer_core::rotation::is_model_gated(&gate_model) {
         return Err((
             ApiError::InvalidRequest(format!(
-                "model {model} is unavailable on your workspaces right now (learned from a live refusal; it retries on its own shortly). Working free models: gpt-4.1-mini, claude-haiku-4.5."
+                "model {model} is unavailable on your workspaces right now (learned from a live refusal; it retries on its own shortly). Working free models: gpt-4.1-mini, claude-haiku-4.5, claude-fable-5.2."
             )),
             None,
         ));

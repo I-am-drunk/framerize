@@ -219,7 +219,7 @@ pub fn spend_gate_check(path: &str, model: &str) -> Option<String> {
 /// Loud refusal reason (mirrors the cutoff allowlist message).
 pub fn spend_denied_reason(model: &str) -> String {
     format!(
-        "spend denied for model {model}: zero-spend default is ON (set FRAMERIZE_ALLOW_SPEND=1 to allow spend). Free: gpt-4.1-mini, claude-haiku-4.5, gpt-6-astra, + :nitro/:floor claude variants. No upstream call was opened, nothing spent."
+        "spend denied for model {model}: zero-spend default is ON (set FRAMERIZE_ALLOW_SPEND=1 to allow spend). Free: gpt-4.1-mini, claude-haiku-4.5, gpt-6-astra, claude-fable-5.2 (case-bypass), + :nitro/:floor claude variants. No upstream call was opened, nothing spent."
     )
 }
 
