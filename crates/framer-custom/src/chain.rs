@@ -322,6 +322,43 @@ pub async fn complete<T: CustomTransport>(
 /// any chain whose measured total exceeds this halts + withholds (backstop behind the
 /// per-leg quarantine, covering delayed settles and concurrent-traffic masking).
 /// FRAMERIZE_MAX_SPEND_PER_REQUEST overrides; default 0.01.
+/// Confirm a measured move before quarantining (2026-11-11): the meter places
+/// auth-HOLDS at open that release seconds later (proved live: per-request oracle dips
+/// that vanish before the next pool read). Returns the CONFIRMED debit, or 0.0 when the
+/// hold released (caller then treats the leg as clean). Costs +20s only on the rare
+/// moved path; clean legs never wait.
+pub async fn confirm_settle<T: CustomTransport>(
+    transport: &mut T,
+    cfg: &ChainSettings,
+    before: f64,
+    leg_index: u32,
+) -> f64 {
+    tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+    match read_oracle(transport, cfg.oracle_timeout, "confirm", leg_index).await {
+        Ok(recheck) => {
+            let d = ledger::signed_delta(before, recheck);
+            if d < -crate::ledger::LEDGER_EPS {
+                eprintln!(
+                    "[custom-route] confirm leg={}: CONFIRMED settle {:+.6} -- quarantining",
+                    leg_index + 1,
+                    d
+                );
+                return d;
+            }
+            eprintln!(
+                "[custom-route] confirm leg={}: hold released ({:.2} recovered) -- treating as clean",
+                leg_index + 1,
+                recheck
+            );
+            0.0
+        }
+        Err(e) => {
+            eprintln!("[custom-route] confirm leg={}: re-read failed ({e}) -- treating as clean (gate open on oracle failure)", leg_index + 1);
+            0.0
+        }
+    }
+}
+
 pub fn max_spend_per_request() -> f64 {
     std::env::var("FRAMERIZE_MAX_SPEND_PER_REQUEST")
         .ok()
@@ -509,6 +546,35 @@ async fn complete_inner<T: CustomTransport>(
             ledger::Policy::RetryHalved | ledger::Policy::QuarantineAndReport
                 if retries_this_leg >= retry_budget =>
             {
+                // HOLD-vs-SETTLE: confirm the chain-level move before booking quarantine.
+                let anchor_bal = chain_start.unwrap_or(before);
+                let confirmed = confirm_settle(transport, cfg, anchor_bal, leg_index).await;
+                if confirmed >= -crate::ledger::LEDGER_EPS {
+                    eprintln!(
+                        "[custom-route] budget-exhausted leg={}: hold released on confirm -- treating as clean",
+                        leg_index + 1
+                    );
+                    leg_debit = 0.0;
+                    // fall through to accept path below with zeroed debit
+                    total_debit += 0.0;
+                    let growth = merge::trim_overlap(&rung_out.captured, &accumulated).to_string();
+                    accumulated.push_str(&growth);
+                    kept.push(growth.clone());
+                    legs.push(Leg {
+                        text: growth,
+                        raced: rung_out.raced,
+                        debited: false,
+                        stop_used: stop,
+                        debit: 0.0,
+                        events: rung_out.events,
+                    });
+                    stop = base_stop;
+                    retries_this_leg = 0;
+                    leg_debit = 0.0;
+                    leg_index += 1;
+                    recover_padded = false;
+                    continue;
+                }
                 total_debit += leg_debit;
                 eprintln!(
                     "[custom-route] quarantine leg={} after {} retries (raced={} debited={} debit={:+.6})",
@@ -538,24 +604,30 @@ async fn complete_inner<T: CustomTransport>(
                 // honest debit booked -- no retry spends a second time.
                 // Clean (no-debit) races still retry as before.
                 if debited {
-                    total_debit += leg_debit;
-                    eprintln!(
-                        "[custom-route] quarantine leg={} on first debit (raced={} debit={:+.6}) -- no retry, retries re-bill live",
-                        leg_index + 1,
-                        rung_out.raced,
-                        leg_debit
-                    );
-                    legs.push(Leg {
-                        text: String::new(),
-                        raced: rung_out.raced,
-                        debited,
-                        stop_used: stop,
-                        debit: leg_debit,
-                        events: rung_out.events,
-                    });
-                    outcome = ChainOutcome::Quarantined;
-                    recover_padded = false;
-                    break;
+                    // HOLD-vs-SETTLE: confirm before quarantining (holds release in ~seconds).
+                    let confirmed = confirm_settle(transport, cfg, before, leg_index).await;
+                    if confirmed < -crate::ledger::LEDGER_EPS {
+                        total_debit += confirmed;
+                        eprintln!(
+                            "[custom-route] quarantine leg={} on confirmed debit (raced={} debit={:+.6}) -- no retry, retries re-bill live",
+                            leg_index + 1,
+                            rung_out.raced,
+                            confirmed
+                        );
+                        legs.push(Leg {
+                            text: String::new(),
+                            raced: rung_out.raced,
+                            debited: true,
+                            stop_used: stop,
+                            debit: confirmed,
+                            events: rung_out.events,
+                        });
+                        outcome = ChainOutcome::Quarantined;
+                        recover_padded = false;
+                        break;
+                    }
+                    // Hold released: fall through to the clean-race recovery below.
+                    leg_debit = 0.0;
                 }
                 retries_this_leg += 1;
                 // Debited races recover by SHAPE CHANGE (pad + re-ask), not

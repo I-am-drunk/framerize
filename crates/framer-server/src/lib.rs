@@ -951,9 +951,29 @@ async fn native_ledger_check(
         Ok(snap) => {
             let d = snap.available - b;
             if d < -1e-4 {
-                eprintln!("[native-guard] {ctx}: LEDGER MOVED {d:+.6} (before {b:.2} -> after {:.2}) -- withholding + tripping", snap.available);
-                framer_custom::ledger::trip_spend_breaker(d);
-                return Some(d);
+                // HOLD-vs-SETTLE (2026-11-11): the meter places auth-HOLDS at open that
+                // release seconds later (proved live: guard summed -4.89 while the pool
+                // moved -1.08; balances frozen between requests). Withholding + tripping
+                // on a hold wedges serving on ghosts. Confirm persistence: re-read after
+                // 20s; serve normally if recovered, withhold+trip only if confirmed.
+                eprintln!("[native-guard] {ctx}: tentative move {d:+.6} (before {b:.2} -> after {:.2}) -- confirming in 20s", snap.available);
+                tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+                match s.client.usage(session, team).await {
+                    Ok(snap2) => {
+                        let d2 = snap2.available - b;
+                        if d2 < -1e-4 {
+                            eprintln!("[native-guard] {ctx}: CONFIRMED settle {d2:+.6} -- withholding + tripping");
+                            framer_custom::ledger::trip_spend_breaker(d2);
+                            return Some(d2);
+                        }
+                        eprintln!("[native-guard] {ctx}: hold released ({:.2} recovered) -- serving normally", snap2.available);
+                        return None;
+                    }
+                    Err(e) => {
+                        eprintln!("[native-guard] {ctx}: confirm-read failed ({e}) -- serving (gate open on oracle failure)");
+                        return None;
+                    }
+                }
             }
             None
         }
