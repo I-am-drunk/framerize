@@ -211,8 +211,10 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
                 // fresh abort chance (the one-shot marker above fires only once). Truncate
                 // at whichever lands first; the pad stream itself is discarded. The regex
                 // tolerates digit-width drift (0001 vs 42) but the ⟦PAD- prefix keeps it
+                // LINE-ANCHORED (#11): prompt says one tag per line, so only a line-start
+                // tag cuts (a mid-line echo is a contract break, not a cut signal).
                 // distinctive so real answers never trip it. Zero-padded to 4 in the prompt.
-                const pm = /⟦PAD-\d{1,6}⟧/.exec(slot.buf);
+                const pm = /^⟦PAD-\d{1,6}⟧/m.exec(slot.buf);
                 const pi = pm ? pm.index : -1;
                 let cut = -1, why = null;
                 if (mi >= 0) { cut = mi; why = "marker"; }
@@ -745,6 +747,8 @@ mod tests {
         // in the snippet or legs fall back to the one-shot marker only.
         assert!(OPEN_SNIPPET.contains("PAD-"));
         assert!(OPEN_SNIPPET.contains("pad-pattern"));
+        assert!(OPEN_SNIPPET.contains("/^") && OPEN_SNIPPET.contains("/m"),
+            "pad detector must stay line-anchored (#11)");
         // Fire-and-poll open: the pump (fetch + reader + decoder) runs
         // detached; the eval itself only starts it and returns instantly.
         assert!(OPEN_SNIPPET.contains("getReader()"));

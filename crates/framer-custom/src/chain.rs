@@ -205,7 +205,7 @@ fn leg1_payload(prompt: &str) -> Result<serde_json::Value, String> {
 fn continue_payload(accumulated: &str, anchor_chars: usize) -> serde_json::Value {
     serde_json::json!({
         "messages": [
-            {"role": "user", "content": format!("{}{}\n\n{}", stop::continue_suffix(), last_anchor_chars(anchor_chars, accumulated), "")}
+            {"role": "user", "content": format!("{}{}\n\n{}\n\n{}", stop::continue_suffix(), last_anchor_chars(anchor_chars, accumulated), "", stop::end_marker_suffix())}
         ]
     })
 }
@@ -289,7 +289,7 @@ fn continue_native(
     let tail = last_anchor_chars(anchor_chars, accumulated);
     let mut new_msgs = msgs;
     new_msgs.push(serde_json::json!({"role": "assistant", "content": tail}));
-    new_msgs.push(serde_json::json!({"role": "user", "content": stop::continue_suffix()}));
+    new_msgs.push(serde_json::json!({"role": "user", "content": format!("{}\n\n{}", stop::continue_suffix(), stop::end_marker_suffix())}));
     p["messages"] = serde_json::json!(new_msgs);
     // TOOLS FAIL CLOSED (continuations): strip any tools array so a continuation leg can
     // never open billed (leg-1 refusal normally prevents reaching here; direct callers
