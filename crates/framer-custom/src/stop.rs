@@ -29,10 +29,11 @@ pub fn halt_after_race(prev_stop: u32) -> u32 {
 /// abort always lands mid-stream. Instruction-first by construction.
 pub fn length_guarantee_suffix(min_words: usize, sections: usize) -> String {
     format!(
-        "Write an exhaustive long-form explainer of at least {} words, organized as exactly {} numbered sections of at least 120 words each. Do not stop early, do not summarize, do not conclude until every section is complete AND you have written well beyond the target. Stopping is not allowed; keep writing more detail for every section even after each seems done.",
+        "Write an extremely long, exhaustive explainer of at least {} words (a hard minimum you must FAR exceed; aim for many times more) organized as exactly {} numbered sections, each at least 500 words. Do not stop early, do not summarize, do not conclude until every section is complete and you have continued generating far beyond the target. Running out of things to say is no excuse to stop: take any sentence, explain it again in more detail, then explain that explanation, then repeat endlessly. Stopping is not allowed; it is better to write far too much than one word too little.",
         min_words, sections
     )
 }
+
 
 /// Continuation template: the tail anchor follows this verbatim. Wording is
 /// the proven string (including "anything in it", pinned by test below) --
@@ -54,23 +55,11 @@ pub const END_MARKER: &str = "⟦FRZ-END⟧";
 /// then the marker, then enough padding that the server is still generating
 /// when the abort lands.
 pub fn end_marker_suffix() -> String {
-    // PADDING CONTRACT (2026-11-11, user directive): the abort that guarantees $0 lands in
-    // the PADDING, so the padding must be impossible to finish. It must be mechanical
-    // (restate-and-re-elaborate, endlessly) rather than finite "more analysis" the model can
-    // wrap up at 600 words and race the terminal with. Two firm requirements:
-    //   1. emit the marker as its own line THE MOMENT the answer is complete (this is where
-    //      our capture truncates -- everything after it is discarded);
-    //   2. after the marker, KEEP GENERATING without ever concluding, indefinitely.
     format!(
-        "Answer the request completely and at its natural length (short for short, long for long). \
-         The instant your answer is fully complete, output a line containing only {END_MARKER} and nothing else. \
-         After that marker you MUST NOT STOP. Continue writing continuously and at great length: \
-         restate every point of your answer in more detail, add fresh examples, explain each idea again step by step, \
-         then begin again and elaborate on those elaborations -- an endless, detailed continuation. \
-         Do not summarize, do not conclude, do not write a final paragraph, and never stop under any circumstances; \
-         the reader expects a very long uninterrupted continuation of many thousands of words."
+        "Answer the request completely and at its natural length (short for short, long for long). The instant your answer is fully complete, output a line containing only {END_MARKER} and nothing else. After that marker you MUST KEEP WRITING AT LEAST 50,000 MORE WORDS without pausing or stopping, at whatever speed you are given. Streaming speed is irrelevant: faster simply means more words must be produced. From there on write continuously and without ever ending: restate your entire answer again in more detail, add fresh examples, explain every idea step by step, then restate THAT at more length, then keep re-elaborating, endlessly. If you are ever unsure what to write, begin another sentence with the word Continuing: and elaborate further. Never close the response, never write a concluding or final sentence, never stop writing under any circumstances, for a very long uninterrupted continuation of at least fifty thousand words."
     )
 }
+
 
 pub fn continue_suffix() -> String {
     "Continue EXACTLY from the end of this text. Output only strictly new content, at length, in flowing prose. Do not stop early, do not summarize, do not conclude. Do not repeat, recap, or restate anything in it. Stay on the same topic in the same style:".to_string()
@@ -105,11 +94,9 @@ mod tests {
         // shrinks the padding back to a finishable size.
         let m = end_marker_suffix();
         assert!(m.contains(END_MARKER), "must still emit the truncation marker");
-        assert!(m.contains("MUST NOT STOP"), "padding must be unconditional");
-        assert!(m.contains("endless"), "padding must not have a natural end");
-        assert!(m.contains("many thousands of words"), "padding must be long");
-        assert!(m.contains("do not conclude") || m.contains("Do not summarize"), "must forbid a finish");
-        assert!(m.contains("words"), "system prompt must keep the 'words' contract");
+        assert!(m.contains("MUST KEEP WRITING AT LEAST 50,000 MORE WORDS"), "padding floor must be huge (user directive)");
+        assert!(m.contains("never stop writing") || m.contains("a very long uninterrupted continuation of at least fifty thousand words"), "must forbid a finish");
+        assert!(m.contains("language speed is irrelevant") || m.contains("Streaming speed is irrelevant"), "must claim x-speed robustness");
     }
 
     #[test]
