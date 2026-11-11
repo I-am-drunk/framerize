@@ -167,6 +167,20 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
                 // COMPLETE answer at zero settle. Responses dialect
                 // deliberately excluded: a multi-item turn has no safe
                 // per-item cut (that is the ADR-003 item-aware work).
+                // RESPONSES FIN (#5): a completed response object ends the turn the way
+                // finish_reason ends a chat turn -- same mid-chunk abort, same $0 shape.
+                // Only the top-level completed object (never per-item deltas) sets fin.
+                if (fin === null && j && j.type === "response.completed" && j.response && j.response.status === "completed") {
+                  fin = "response.completed";
+                  try { await reader.cancel(); } catch (e) {}
+                  try { ctl.abort(); } catch (e) {}
+                  slot.stopped = true; slot.stopAt = events;
+                  slot.finished = true; slot.finishReason = String(fin);
+                  slot.streamLive = false; slot.done = true;
+                  try { slot.reader = null; } catch (e) {}
+                  try { slot.ctl = null; } catch (e) {}
+                  break;
+                }
                 const ch = j.choices && j.choices[0];
                 if (ch && typeof ch.finish_reason === "string" && ch.finish_reason) {
                   // Keep this line's content (a finish line can carry both
@@ -743,6 +757,8 @@ mod tests {
         // before the terminal/usage frame the meter settles on.
         assert!(OPEN_SNIPPET.contains("finish_reason"));
         assert!(OPEN_SNIPPET.contains("reader.cancel()"));
+        // #5 Responses fin must ship in the snippet.
+        assert!(OPEN_SNIPPET.contains("response.completed"));
         // PAD-PATTERN CUTOFF (2026-11-11): the repeating count detector must ship
         // in the snippet or legs fall back to the one-shot marker only.
         assert!(OPEN_SNIPPET.contains("PAD-"));
