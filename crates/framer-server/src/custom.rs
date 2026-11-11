@@ -558,6 +558,65 @@ async fn mock_complete(body: &CompleteBody) -> Response {
     sse_response(&assembled, "mock", 0)
 }
 
+/// REFUND SWEEPER: unrecovered debits persist to a JSONL journal; every later refund
+/// cycle also retries aged entries (refund posts are unmetered, so retries are free).
+/// Grants arrive in bursts (~2/window); the sweeper captures the next burst automatically
+/// instead of losing denied turns forever.
+fn sweeper_path() -> Option<std::path::PathBuf> {
+    if let Ok(p) = std::env::var("FRAMERIZE_REFUND_JOURNAL") {
+        if !p.is_empty() {
+            return Some(std::path::PathBuf::from(p));
+        }
+    }
+    std::env::var("HOME").ok().map(|h| std::path::PathBuf::from(h).join(".framerize/refund_queue.jsonl"))
+}
+fn sweeper_append(account: &str, turn_id: &str, debit: f64) {
+    let Some(path) = sweeper_path() else { return };
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let line = serde_json::json!({"ts": framer_core::rotation::now_ms(), "account": account, "turn_id": turn_id, "debit": debit}).to_string();
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        use std::io::Write;
+        let _ = writeln!(f, "{line}");
+    }
+}
+fn sweeper_take(max_age_ms: u64) -> Vec<(String, String, f64)> {
+    // Read + keep entries younger than max_age; drop the rest. Returns (account, turn, debit).
+    let Some(path) = sweeper_path() else { return Vec::new() };
+    let Ok(text) = std::fs::read_to_string(&path) else { return Vec::new() };
+    let now = framer_core::rotation::now_ms();
+    let mut keep = Vec::new();
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else { continue };
+        let age = now.saturating_sub(v.get("ts").and_then(|x| x.as_u64()).unwrap_or(0));
+        let acc = v.get("account").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let turn = v.get("turn_id").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let debit = v.get("debit").and_then(|x| x.as_f64()).unwrap_or(0.0);
+        if age > max_age_ms || acc.is_empty() || turn.is_empty() {
+            continue;
+        }
+        keep.push(line.to_string());
+        out.push((acc, turn, debit));
+    }
+    let _ = std::fs::write(&path, keep.join("\n") + if keep.is_empty() { "" } else { "\n" });
+    out
+}
+fn sweeper_drop(account: &str, turn_id: &str) {
+    let Some(path) = sweeper_path() else { return };
+    let Ok(text) = std::fs::read_to_string(&path) else { return };
+    let kept: Vec<&str> = text
+        .lines()
+        .filter(|line| {
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else { return true };
+            !(v.get("account").and_then(|x| x.as_str()) == Some(account)
+                && v.get("turn_id").and_then(|x| x.as_str()) == Some(turn_id))
+        })
+        .collect();
+    let _ = std::fs::write(&path, kept.join("\n") + if kept.is_empty() { "" } else { "\n" });
+}
+
 fn sse_response(assembled: &framer_custom::Assembled, req_id: &str, refunded: u32) -> Response {
     // Frame contract: text+legs are the stable fields every client reads.
     // outcome/total_debit/legs-detail/req_id are additive diagnostics so a
@@ -1720,6 +1779,47 @@ async fn custom_real_once(
                                 assembled.total_debit
                             );
                         }
+                    }
+                }
+                // SWEEPER: journal this chain's turns if debit remains; retry aged entries
+                // (free posts) so the next quota burst recovers old settles automatically.
+                // Aged 7 days: older turns are presumed unrefundable; journal stays small.
+                if assembled.total_debit < -1e-6 {
+                    for turn_id in turns.iter() {
+                        sweeper_append(&account.id.0.to_string(), turn_id, assembled.total_debit);
+                    }
+                    let aged = sweeper_take(7 * 24 * 3600 * 1000);
+                    for (acc, turn, _debit) in aged.iter().take(2) {
+                        if acc != &account.id.0.to_string() {
+                            continue; // this cycle refunds on its own account only
+                        }
+                        let body = serde_json::json!({
+                            "projectId": refund_project.0.as_str(),
+                            "featureCategory": refund_category.as_str(),
+                            "featureName": if refund_category == "translation" { "translation" } else { "agents" },
+                            "step": refund_step.as_str(),
+                            "sessionId": chat_session.as_str(),
+                            "stepIndex": 0,
+                            "turnId": turn.as_str(),
+                            "userPrompt": "",
+                            "castleToken": "garbage",
+                        });
+                        match s.browser.ai_post(&account.id, "/ai/v3/refund/", &refund_bearer, &body).await {
+                            Ok((200, _, text))
+                                if text.contains("\"granted\":true")
+                                    || text.contains("\"granted\": true") =>
+                            {
+                                eprintln!("[sweeper] aged turn {} GRANTED (burst captured)", &turn[..8.min(turn.len())]);
+                                sweeper_drop(&account.id.0.to_string(), turn);
+                                refunded += 1;
+                            }
+                            _ => {}
+                        }
+                    }
+                } else {
+                    // Whole: drop this chain's turns if previously journaled (e.g. re-run).
+                    for turn_id in turns.iter() {
+                        sweeper_drop(&account.id.0.to_string(), turn_id);
                     }
                 }
             }
