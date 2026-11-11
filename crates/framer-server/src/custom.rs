@@ -281,9 +281,12 @@ impl EnvelopePageStream {
         // at the boundary, so no caller shape can silently downgrade a leg
         // to the bill-at-dispatch path (proven by the instant-402s: the
         // debit arrives WITH the open, and no abort can un-bill it).
-        // Gateway form is UNPREFIXED (see custom_real model rule above).
-        let model = self.model.clone();
-        let model = model.rsplit('/').next().unwrap_or(&model).to_string();
+        // Model id rule (2026-11-11 -- the bare-id bug): the envelope must carry the
+        // OpenRouter CATALOG form (anthropic/claude-haiku-4.5, moonshotai/kimi-k3,
+        // openai/gpt-4.1). Bare ids 400 ("not a valid model ID") or route to a different
+        // meter than the freechat legs that settle $0. convert::to_openrouter_id is the
+        // single mapping (same one the native paths use).
+        let model = framer_core::convert::to_openrouter_id(&self.model);
         native["model"] = serde_json::Value::String(model);
         // Token cap name per route: the direct Responses route takes
         // max_output_tokens (and 400s "Unknown parameter: 'max_tokens'");
@@ -1955,7 +1958,7 @@ mod tests {
         assert!(open.contains("/ai/v3/chat/"), "chat route: {open}");
         assert!(open.contains("translation"), "category: {open}");
         assert!(open.contains("gpt-4.1"), "gateway model: {open}");
-        assert!(!open.contains("openai/gpt-4.1"), "gateway form unprefixed: {open}");
+        assert!(open.contains("openai/gpt-4.1"), "catalog id (OpenRouter form, same as native legs): {open}");
         assert!(open.contains("explain X"), "leg prompt inside request: {open}");
         assert!(open.contains("request"), "native payload nested under request: {open}");
         assert!(open.contains(", 200)"), "rung stop baked into page open: {open}");
