@@ -206,9 +206,20 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
               // finish cutoff stay as backstops.
               if (fin === null) {
                 const mi = slot.buf.indexOf("⟦FRZ-END⟧");
-                if (mi >= 0) {
-                  slot.buf = slot.buf.slice(0, mi);
-                  fin = "marker";
+                // PAD-PATTERN CUTOFF (2026-11-11, user directive): after the answer the
+                // model counts ⟦PAD-0001⟧, ⟦PAD-0002⟧, ... forever. Every repetition is a
+                // fresh abort chance (the one-shot marker above fires only once). Truncate
+                // at whichever lands first; the pad stream itself is discarded. The regex
+                // tolerates digit-width drift (0001 vs 42) but the ⟦PAD- prefix keeps it
+                // distinctive so real answers never trip it. Zero-padded to 4 in the prompt.
+                const pm = /⟦PAD-\d{1,6}⟧/.exec(slot.buf);
+                const pi = pm ? pm.index : -1;
+                let cut = -1, why = null;
+                if (mi >= 0) { cut = mi; why = "marker"; }
+                if (pi >= 0 && (cut < 0 || pi < cut)) { cut = pi; why = "pad-pattern"; }
+                if (cut >= 0) {
+                  slot.buf = slot.buf.slice(0, cut);
+                  fin = why;
                 }
               }
               // The finish cutoff or the length backstop ends the leg: the
@@ -730,6 +741,10 @@ mod tests {
         // before the terminal/usage frame the meter settles on.
         assert!(OPEN_SNIPPET.contains("finish_reason"));
         assert!(OPEN_SNIPPET.contains("reader.cancel()"));
+        // PAD-PATTERN CUTOFF (2026-11-11): the repeating count detector must ship
+        // in the snippet or legs fall back to the one-shot marker only.
+        assert!(OPEN_SNIPPET.contains("PAD-"));
+        assert!(OPEN_SNIPPET.contains("pad-pattern"));
         // Fire-and-poll open: the pump (fetch + reader + decoder) runs
         // detached; the eval itself only starts it and returns instantly.
         assert!(OPEN_SNIPPET.contains("getReader()"));

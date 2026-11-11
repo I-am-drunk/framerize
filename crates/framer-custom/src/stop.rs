@@ -50,16 +50,23 @@ pub fn length_guarantee_suffix(min_words: usize, sections: usize) -> String {
 /// short answers AND long ones, 100% of the time the model honors the
 /// marker; the stop_after leg-cut and the refund remain the backstops.
 pub const END_MARKER: &str = "⟦FRZ-END⟧";
+/// Pad-pattern tag: the deterministic repeating counter the model emits after the answer.
+/// Bracketed + zero-padded so a real answer never contains it by accident, yet trivial for
+/// the model to emit perfectly. The page cut fires on EVERY repetition (not just once),
+/// so one missed window can never strand the stream. Format, e.g. `⟦PAD-0042⟧`.
+pub const PAD_TAG_PREFIX: &str = "⟦PAD-";
+pub const PAD_TAG_SUFFIX: &str = "⟧";
+/// How many digits the model zero-pads to (0001..9999, then continues unpadded).
+pub const PAD_TAG_DIGITS: usize = 4;
 
 /// The marker instruction prepended to native payloads: complete answer,
 /// then the marker, then enough padding that the server is still generating
 /// when the abort lands.
 pub fn end_marker_suffix() -> String {
     format!(
-        "Answer the request completely and at its natural length (short for short, long for long). The instant your answer is fully complete, output a line containing only {END_MARKER} and nothing else. After that marker you MUST KEEP WRITING AT LEAST 50,000 MORE WORDS without pausing or stopping, at whatever speed you are given. Streaming speed is irrelevant: faster simply means more words must be produced. From there on write continuously and without ever ending: restate your entire answer again in more detail, add fresh examples, explain every idea step by step, then restate THAT at more length, then keep re-elaborating, endlessly. If you are ever unsure what to write, begin another sentence with the word Continuing: and elaborate further. Never close the response, never write a concluding or final sentence, never stop writing under any circumstances, for a very long uninterrupted continuation of at least fifty thousand words."
+        "Answer the request completely and at its natural length (short for short, long for long). The instant your answer is fully complete, output a line containing only {END_MARKER} and nothing else. After that marker line, switch to padding mode and NEVER come back: write counting tags, one per line, starting at ⟦PAD-0001⟧ and counting upward by one forever (⟦PAD-0002⟧, ⟦PAD-0003⟧, ...). Each line contains ONLY its tag and nothing else. NEVER write any other text after the marker line, NEVER summarize, NEVER conclude, NEVER stop -- the padding is an endless count that has no final number, so you can simply keep counting forever. This counting is trivial and mechanical: just increment the number on every line. If you lose count, continue from your best guess and keep going. Write AT LEAST 50,000 such counting lines (fifty thousand words or more of pure counting). Do not ever close the response."
     )
 }
-
 
 pub fn continue_suffix() -> String {
     "Continue EXACTLY from the end of this text. Output only strictly new content, at length, in flowing prose. Do not stop early, do not summarize, do not conclude. Do not repeat, recap, or restate anything in it. Stay on the same topic in the same style:".to_string()
@@ -94,9 +101,10 @@ mod tests {
         // shrinks the padding back to a finishable size.
         let m = end_marker_suffix();
         assert!(m.contains(END_MARKER), "must still emit the truncation marker");
-        assert!(m.contains("MUST KEEP WRITING AT LEAST 50,000 MORE WORDS"), "padding floor must be huge (user directive)");
-        assert!(m.contains("never stop writing") || m.contains("a very long uninterrupted continuation of at least fifty thousand words"), "must forbid a finish");
-        assert!(m.contains("language speed is irrelevant") || m.contains("Streaming speed is irrelevant"), "must claim x-speed robustness");
+        assert!(m.contains(PAD_TAG_PREFIX), "must instruct the repeating pad pattern");
+        assert!(m.contains("50,000"), "pad count floor must be huge (user directive)");
+        assert!(m.contains("Each line contains ONLY its tag"), "pad lines must be pure (clean detection)");
+        assert!(m.contains("NEVER stop") || m.contains("Do not ever close"), "must forbid a finish");
     }
 
     #[test]
