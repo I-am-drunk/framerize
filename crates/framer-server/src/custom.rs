@@ -1549,7 +1549,12 @@ async fn custom_real_once(
                     .unwrap_or(f64::NAN);
                 let turns: Vec<String> =
                     opened_turns.lock().map(|g| g.clone()).unwrap_or_default();
-                for turn_id in turns.iter().take(4) {
+                // NEWEST-FIRST (#9: turns push oldest-first, but the settler is usually the
+                // latest leg; take(4) was refunding the 4 oldest. Same 4-post quota bound,
+                // aimed at the actual settler. Refunds deny ~261:2 historically -- this is
+                // last-resort hygiene, never the plan.)
+                let rev: Vec<String> = turns.iter().rev().cloned().collect();
+                for turn_id in rev.iter().take(4) {
                     let feature_name = if refund_category == "translation" {
                         "translation"
                     } else {
