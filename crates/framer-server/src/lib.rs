@@ -1211,15 +1211,18 @@ async fn free_complete(
     // CUTOFF ROUTE for anthropic dialect (2026-11-11): text-only anthro requests run the
     // abort-guarded cutoff engine (leg1_native) instead of the native bundled path that
     // reads the terminal BY CONSTRUCTION and bills terminal-settling meters (proved live:
-    // fable native bundled -0.24 confirmed persistent). Tool-carrying requests stay native.
+    // fable native bundled -0.24 confirmed persistent).
+    // TOOLS RIDE CUTOFF (2026-11-11 -- Probe 8 billed -0.0225 native-bundled): the old
+    // text_only gate forced tool-carrying requests native, and the bundled post bills
+    // input-side at dispatch before any abort can land. The cutoff engine already handles
+    // tool_use (per-leg accumulation, finished-leg complete calls only, free split-retry
+    // on mid-tool cuts; renderer passes blocks verbatim) -- so tools ride cutoff too.
     // FRAMERIZE_ENGINE_ANTHRO=native is the escape hatch. DIRECT_NITRO does NOT skip this:
     // nitro-free endpoints are OpenAI-route facts; anthro bundled still bills.
     {
         let cutoff_anthro = std::env::var("FRAMERIZE_ENGINE_ANTHRO").map(|v| v != "native").unwrap_or(true);
-        let text_only = payload.get("tools").and_then(|t| t.as_array()).map(|a| a.is_empty()).unwrap_or(true);
         if dialect == ClientDialect::AnthropicMessages
             && cutoff_anthro
-            && text_only
             && hdr(headers, "x-framerize-account").is_none()
         {
             if let Some(remaining) = s.wave.check() {
