@@ -233,6 +233,34 @@ fn leg1_native(payload: &serde_json::Value) -> Result<serde_json::Value, String>
     })];
     new_msgs.extend(msgs.iter().cloned());
     p["messages"] = serde_json::json!(new_msgs);
+    // TOOL DIALECT (2026-11-11 -- P8b Azure 400): the leg posts to the chat route, which
+    // demands {type:"function",function:{name,description,parameters}}. Anthropic-shaped
+    // tools ({name,input_schema}, no type/function) 400 there. Normalize the tools array
+    // only; text-only payloads (no tools key) are byte-identical to before.
+    if let Some(tools) = p.get("tools").and_then(|t| t.as_array()).map(|a| a.to_vec()) {
+        if !tools.is_empty()
+            && tools.iter().any(|t| t.get("type").and_then(|v| v.as_str()) != Some("function"))
+        {
+            let mapped: Vec<serde_json::Value> = tools
+                .iter()
+                .map(|t| {
+                    if t.get("type").and_then(|v| v.as_str()) == Some("function") {
+                        t.clone()
+                    } else {
+                        serde_json::json!({
+                            "type": "function",
+                            "function": {
+                                "name": t.get("name").cloned().unwrap_or(serde_json::Value::Null),
+                                "description": t.get("description").cloned().unwrap_or(serde_json::Value::Null),
+                                "parameters": t.get("input_schema").cloned().unwrap_or(serde_json::json!({"type":"object"})),
+                            },
+                        })
+                    }
+                })
+                .collect();
+            p["tools"] = serde_json::Value::Array(mapped);
+        }
+    }
     Ok(p)
 }
 
@@ -1006,6 +1034,28 @@ mod tests {
         assert_eq!(msgs[2]["role"], "user");
         assert!(msgs[2]["content"].as_str().unwrap().contains("Continue"));
         assert_eq!(cont["tools"][0]["name"], "noop");
+    }
+
+    #[test]
+    fn leg1_native_normalizes_anthropic_tool_shape() {
+        // P8b regression: Anthropic tools must leave leg1 in chat-route dialect.
+        let payload = serde_json::json!({
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [{"name": "get_weather", "description": "Get weather",
+                       "input_schema": {"type": "object", "properties": {"city": {"type": "string"}}}}]
+        });
+        let leg1 = leg1_native(&payload).unwrap();
+        let t = &leg1["tools"][0];
+        assert_eq!(t["type"], "function");
+        assert_eq!(t["function"]["name"], "get_weather");
+        assert_eq!(t["function"]["parameters"]["type"], "object");
+        // Chat-shaped tools pass through untouched.
+        let payload2 = serde_json::json!({
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [{"type": "function", "function": {"name": "f", "parameters": {"type": "object"}}}]
+        });
+        let leg1b = leg1_native(&payload2).unwrap();
+        assert_eq!(leg1b["tools"], payload2["tools"]);
     }
 
     #[tokio::test]
