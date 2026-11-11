@@ -129,11 +129,37 @@ pub struct Assembled {
 /// TOOL EMULATION: parse fenced ```toolcall {"name","input"} blocks out of captured
 /// text into real Anthropic tool_use blocks (minted toolu_ ids). Returns (clean text,
 /// calls). Unparseable fences stay as prose (never break an answer on a bad fence).
+/// Cap: a runaway model emitting hundreds of fences must not build unbounded calls
+/// (O(n^2) memmoves + a giant tool_use array to the client).
+const MAX_EMULATED_CALLS: usize = 8;
+/// Bounds: garbage names/inputs must not reach a client that executes them.
+const MAX_TOOL_NAME_LEN: usize = 128;
+const MAX_TOOL_INPUT_LEN: usize = 32_000;
+/// Prose schemas block for emulated tools (shared by leg-1 and continuations).
+fn emulated_schemas_prose(tools: &[serde_json::Value]) -> String {
+    let schemas: Vec<String> = tools
+        .iter()
+        .map(|t| {
+            let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+            let desc = t.get("description").and_then(|v| v.as_str()).unwrap_or("");
+            let params = t.get("input_schema").or_else(|| t.get("parameters")).map(|v| v.to_string()).unwrap_or_default();
+            format!("- {name}: {desc} Parameters JSON schema: {params}")
+        })
+        .collect();
+    format!(
+        "\n\nTools available (withheld from the request itself; emit calls as TEXT):\n{}\nEmit each needed call as a fenced block, AFTER your prose answer and BEFORE the marker line, one fence per call:\n```toolcall\n{{\"name\": \"<tool>\", \"input\": {{<args>}}}}\n```\nValid JSON inside fences, no commentary inside fences.",
+        schemas.join("\n")
+    )
+}
+
 fn extract_emulated_calls(captured: &str) -> (String, Vec<serde_json::Value>) {
     let mut calls = Vec::new();
     let mut clean = captured.to_string();
     let mut n = 0u32;
     loop {
+        if calls.len() >= MAX_EMULATED_CALLS {
+            break;
+        }
         let Some(start) = clean.find("```toolcall") else { break };
         let body_start = start + "```toolcall".len();
         let Some(rel_end) = clean[body_start..].find("```") else { break };
@@ -143,7 +169,13 @@ fn extract_emulated_calls(captured: &str) -> (String, Vec<serde_json::Value>) {
         n += 1;
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) else { continue };
         let Some(name) = v.get("name").and_then(|x| x.as_str()) else { continue };
+        if name.is_empty() || name.len() > MAX_TOOL_NAME_LEN {
+            continue;
+        }
         let input = v.get("input").cloned().unwrap_or(serde_json::Value::Null);
+        if input.to_string().len() > MAX_TOOL_INPUT_LEN {
+            continue;
+        }
         calls.push(serde_json::json!({
             "type": "tool_use",
             "id": format!("toolu_em{:04}", n),
@@ -297,7 +329,19 @@ fn leg1_native(payload: &serde_json::Value) -> Result<serde_json::Value, String>
     // chain parses the fence into real tool_use blocks.
     let mut p = payload.clone();
     let mut emulated_tools: Vec<serde_json::Value> = Vec::new();
+    // Cap: schemas-as-prose scales input per tool; past the cap the model stalls the
+    // whole stop capturing nothing and monster inputs settle at finish (-280 proved).
+    const MAX_EMULATED_TOOLS: usize = 12;
     if let Some(tools) = p.get("tools").and_then(|t| t.as_array()).map(|a| a.to_vec()) {
+        if tools.len() > MAX_EMULATED_TOOLS
+            && std::env::var("FRAMERIZE_ALLOW_TOOL_LEGS").map(|v| v == "1").unwrap_or(false) == false
+        {
+            return Err(format!(
+                "chain: {} tools exceeds the {}-tool emulation cap (schemas-as-prose stalls the model and monster inputs settle: -280 proved). Narrow the request to the tools this turn needs, or set FRAMERIZE_ALLOW_TOOL_LEGS=1 to attempt natively (spend risk). No upstream call was opened, nothing spent.",
+                tools.len(),
+                MAX_EMULATED_TOOLS
+            ));
+        }
         if !tools.is_empty()
             && std::env::var("FRAMERIZE_ALLOW_TOOL_LEGS").map(|v| v == "1").unwrap_or(false) == false
         {
@@ -320,19 +364,7 @@ fn leg1_native(payload: &serde_json::Value) -> Result<serde_json::Value, String>
     }
     let mut sys_content = stop::end_marker_suffix();
     if !emulated_tools.is_empty() {
-        let schemas: Vec<String> = emulated_tools
-            .iter()
-            .map(|t| {
-                let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("?");
-                let desc = t.get("description").and_then(|v| v.as_str()).unwrap_or("");
-                let params = t.get("input_schema").or_else(|| t.get("parameters")).map(|v| v.to_string()).unwrap_or_default();
-                format!("- {name}: {desc} Parameters JSON schema: {params}")
-            })
-            .collect();
-        sys_content.push_str(&format!(
-            "\n\nTools available (withheld from the request itself; emit calls as TEXT):\n{}\nEmit each needed call as a fenced block, AFTER your prose answer and BEFORE the marker line, one fence per call:\n```toolcall\n{{\"name\": \"<tool>\", \"input\": {{<args>}}}}\n```\nValid JSON inside fences, no commentary inside fences.",
-            schemas.join("\n")
-        ));
+        sys_content.push_str(&emulated_schemas_prose(&emulated_tools));
     }
     let mut new_msgs = vec![serde_json::json!({
         "role": "system",
@@ -390,7 +422,15 @@ fn continue_native(
     let tail = last_anchor_chars(anchor_chars, accumulated);
     let mut new_msgs = msgs;
     new_msgs.push(serde_json::json!({"role": "assistant", "content": tail}));
-    new_msgs.push(serde_json::json!({"role": "user", "content": format!("{}\n\n{}", stop::continue_suffix(), stop::continue_cut_reminder())}));
+    let mut cont_nudge = format!("{}\n\n{}", stop::continue_suffix(), stop::continue_cut_reminder());
+    if let Some(tools) = payload.get("tools").and_then(|t| t.as_array()) {
+        if !tools.is_empty()
+            && std::env::var("FRAMERIZE_ALLOW_TOOL_LEGS").map(|v| v == "1").unwrap_or(false) == false
+        {
+            cont_nudge.push_str(&emulated_schemas_prose(&tools.to_vec()));
+        }
+    }
+    new_msgs.push(serde_json::json!({"role": "user", "content": cont_nudge}));
     p["messages"] = serde_json::json!(new_msgs);
     // Emulation covers continuations: no tools array posts on any leg (dispatch bills
     // tools-in-body). The leg-1 prose schemas + fence contract govern the whole chain.
@@ -670,9 +710,31 @@ async fn complete_inner<T: CustomTransport>(
             let raw_growth = merge::trim_overlap(&rung_out.captured, &accumulated).to_string();
             // Emulated calls: fences parsed out of the text into real tool_use blocks.
             let (growth, emulated) = extract_emulated_calls(&raw_growth);
-            if !emulated.is_empty() {
+            // Dedupe by (name, input) vs calls already served: a model re-emitting a
+            // served call across legs must not double-execute client-side. Runs here
+            // (pre-clone) so the single post-clone extend below adds only fresh calls.
+            let n_emulated = emulated.len();
+            let fresh: Vec<serde_json::Value> = if n_emulated == 0 {
+                Vec::new()
+            } else {
                 eprintln!("[custom-route] finish leg={}: emulated {} tool call(s) from text fences ($0, no tools array posted)", leg_index + 1, emulated.len());
-            }
+                let seen: std::collections::HashSet<String> = tool_calls
+                    .iter()
+                    .chain(rung_out.tool_calls.iter())
+                    .map(|c| format!("{}|{}", c.get("name").and_then(|x| x.as_str()).unwrap_or(""), c.get("input").map(|v| v.to_string()).unwrap_or_default()))
+                    .collect();
+                let fresh: Vec<serde_json::Value> = emulated
+                    .into_iter()
+                    .filter(|c| {
+                        !seen.contains(&format!("{}|{}", c.get("name").and_then(|x| x.as_str()).unwrap_or(""), c.get("input").map(|v| v.to_string()).unwrap_or_default()))
+                    })
+                    .collect();
+                let dropped = n_emulated - fresh.len();
+                if dropped > 0 {
+                    eprintln!("[custom-route] finish leg={}: dropped {dropped} duplicate call(s)", leg_index + 1);
+                }
+                fresh
+            };
             let growth = growth;
             eprintln!(
                 "[custom-route] finish-cutoff leg={} stop={} events={} captured={} debited={} -- complete answer, chain ends",
@@ -692,9 +754,9 @@ async fn complete_inner<T: CustomTransport>(
                 debit: leg_debit,
                 events: rung_out.events,
             });
-            // Pump calls first, THEN emulated (the clone would otherwise wipe them).
+            // Pump calls first, THEN fresh emulated (the clone would otherwise wipe them).
             tool_calls = rung_out.tool_calls.clone();
-            tool_calls.extend(emulated);
+            tool_calls.extend(fresh);
             outcome = ChainOutcome::Finished;
             break;
         }

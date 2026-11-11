@@ -1623,6 +1623,7 @@ pub fn is_spend_terminal(msg: &str) -> bool {
         || msg.contains("breaker tripped")
         || msg.contains("no funded workspace")
         || msg.contains("bill at dispatch")
+        || (msg.contains("exceeds the") && msg.contains("-tool emulation cap"))
         || msg.ends_with("credits-exhausted")
 }
 
