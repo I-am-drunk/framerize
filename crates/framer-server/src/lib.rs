@@ -3331,6 +3331,16 @@ impl axum::response::IntoResponse for ApiError {
                 Json(serde_json::json!({"error":{"code":"framerize_pool_busy",
                     "message":message,"retry_after_seconds":1}}))).into_response(),
             Self::Internal(message) => (StatusCode::INTERNAL_SERVER_ERROR, message).into_response(),
+            Self::ServingCapacity(message) if framer_core::convert::is_spend_terminal(&message) => {
+                // Spend-terminal serving failure (dry pool / quarantined scope): 402, not
+                // 503. T3 retries 503s (attempts 1..4+ measured); a dry pool fails every
+                // resend identically, and a retry herd would hammer fresh funds on refill.
+                (
+                    StatusCode::PAYMENT_REQUIRED,
+                    Json(serde_json::json!({"error":{"code":"insufficient_credits",
+                        "message": format!("{message} (spend-terminal: retrying re-bills or fails identically; credit a workspace first)")}})),
+                ).into_response()
+            }
             Self::ServingCapacity(message) => (StatusCode::SERVICE_UNAVAILABLE, message).into_response(),
             Self::Cooling { retry_after_secs } | Self::AccountCooling { retry_after_secs } => {
                 // Rechecks can see recovered capacity or an in-flight success.
