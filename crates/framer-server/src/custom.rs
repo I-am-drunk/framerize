@@ -1264,8 +1264,16 @@ async fn custom_real_once(
     // pick_funded_scope skips known-dead/saturated scopes and pairs each
     // team with its own project (the billing pairing bug fix); the preflight
     // below re-verifies the picked scope's live balance before any leg opens.
-    let scope = crate::pick_funded_scope(&s, &account, &session)
+    eprintln!("[custom-route] req={req_short} stage=scope account={}", short_id(&account.id));
+    let scope = tokio::time::timeout(STAGE_TIMEOUT, crate::pick_funded_scope(&s, &account, &session))
         .await
+        .map_err(|_| {
+            eprintln!("[custom-route] req={req_short} stage=scope timed out after 90s");
+            (
+                ApiError::Internal("custom route: scope pick timed out after 90s".into()),
+                local(&account),
+            )
+        })?
         .map_err(|e| (e, local(&account)))?;
     let project = scope.project.clone();
     let scope_team = scope.team.clone();
