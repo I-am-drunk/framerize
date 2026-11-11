@@ -917,6 +917,53 @@ fn stable_session(account: &AccountId) -> String {
     out
 }
 
+/// Native-path ledger guard (2026-11-11 -- the missing wall): snapshot the scope ledger
+/// before a native (non-cutoff) chain runs; re-read after. On any move: log LOUD, trip the
+/// spend breaker, and report the debit. Buffered callers convert to a 402 quarantine error
+/// (billed text withheld); streaming callers trip+log (frames already flowed).
+async fn native_ledger_before(
+    s: &AppState,
+    session: &framer_core::port::Session,
+    team: &framer_core::ids::TeamId,
+) -> Option<f64> {
+    match s.client.usage(session, team).await {
+        Ok(snap) => Some(snap.available),
+        Err(e) => {
+            eprintln!("[native-guard] before-read failed (gate open, serving): {e}");
+            None
+        }
+    }
+}
+
+/// Returns Some(debit) when the ledger moved (caller withholds + trips).
+async fn native_ledger_check(
+    s: &AppState,
+    session: &framer_core::port::Session,
+    team: &framer_core::ids::TeamId,
+    before: Option<f64>,
+    ctx: &str,
+) -> Option<f64> {
+    let b = match before {
+        Some(v) => v,
+        None => return None,
+    };
+    match s.client.usage(session, team).await {
+        Ok(snap) => {
+            let d = snap.available - b;
+            if d < -1e-4 {
+                eprintln!("[native-guard] {ctx}: LEDGER MOVED {d:+.6} (before {b:.2} -> after {:.2}) -- withholding + tripping", snap.available);
+                framer_custom::ledger::trip_spend_breaker(d);
+                return Some(d);
+            }
+            None
+        }
+        Err(e) => {
+            eprintln!("[native-guard] {ctx}: after-read failed (cannot verify $0): {e}");
+            None
+        }
+    }
+}
+
 async fn free_complete(
     s: AppState,
     headers: &axum::http::HeaderMap,
@@ -1148,6 +1195,8 @@ async fn free_complete(
     let mut chat_session =
         hdr(headers, "x-framerize-session").unwrap_or_else(|| stable_session(&account.id));
 
+    // NATIVE LEDGER GUARD (2026-11-11): snapshot BEFORE the native anthro chain runs.
+    let native_before = native_ledger_before(&s, &session, &scope_team).await;
     // Per (workspace × MODEL) concurrency — measured 2026-10-05: ~6 in-flight
     // per model; 6 models × 6 = 36/36 clean. Keyed on the normalized upstream
     // id (client spellings collapse to the true bucket) AND the chain's
@@ -1586,6 +1635,19 @@ async fn free_complete(
         }
     };
 
+    // NATIVE LEDGER GUARD (2026-11-11): re-read AFTER the native anthro chain. On any
+    // move: withhold the billed text (402 quarantine, books kept) + trip the breaker.
+    // (Proved necessary: a 2965-token native fable leg settled ~105 credits with zero
+    // instrumentation watching -- the cutoff-only guards never saw it.)
+    if let Some(debit) = native_ledger_check(&s, &session, &scope_team, native_before, "free-anthro").await {
+        return Ok(axum::response::IntoResponse::into_response(ShapedApiError(
+            StatusCode::PAYMENT_REQUIRED,
+            serde_json::json!({
+                "error": "native route: leg settled nonzero and was quarantined (no free path this attempt)",
+                "total_debit": debit,
+            }),
+        )));
+    }
     let body = convert::render_json_with(dialect, &result, &client_model, &custom_tools);
     let mut resp = axum::response::Response::new(axum::body::Body::from(
         serde_json::to_string(&body).map_err(|e| ApiError::Internal(e.to_string()))?,
@@ -1739,6 +1801,9 @@ async fn native_complete(
     let mut first_permit = Some(s.gate.acquire(&gate_key).await);
     current_account(&s, account.id).await?;
 
+    // NATIVE LEDGER GUARD (2026-11-11): snapshot BEFORE the native chain runs.
+    let native_before_nc = native_ledger_before(&s, &session, &scope_team).await;
+
     let mk_cfg = |team: &framer_core::ids::TeamId| framer_core::port::ChainConfig {
         max_total_tokens: Some(max_tokens),
         metered_fallback: std::env::var("FRAMERIZE_ALLOW_METERED").map(|v| v == "1").unwrap_or(false),
@@ -1759,6 +1824,13 @@ async fn native_complete(
     // sends response.created): chunk ids never surface to the client.
     let logical_id = format!("{:08x}{:08x}", rand_u32(), rand_u32());
 
+    // NATIVE LEDGER GUARD (streaming): snapshot before spawn; the task checks at end.
+    let stream_before = if wants_stream {
+        native_ledger_before(&s, &session, &scope_team).await
+    } else {
+        None
+    };
+    let stream_team0 = scope_team.0.clone();
     if wants_stream {
         let body_residency = residency.clone();
         let (tx, rx) = tokio::sync::mpsc::channel::<convert::ChainEvent>(1024);
@@ -1859,6 +1931,17 @@ async fn native_complete(
             // same model (proved live), so retry there before the client ever
             // sees the gate. Only when no content was emitted (a mid-stream
             // fallback would duplicate blocks).
+            // NATIVE LEDGER GUARD (streaming task end): log + trip on any move.
+            // (Frames already flowed; withholding is impossible -- the books still must move.)
+            {
+                let team_now = account
+                    .current_team
+                    .clone()
+                    .map(|t| t.0)
+                    .unwrap_or_else(|| stream_team0.clone());
+                let team_id = framer_core::ids::TeamId(team_now);
+                native_ledger_check(&s2, &session, &team_id, stream_before, "native-stream").await;
+            }
             let result = match result {
                 Ok(r) => Ok(r),
                 Err(e)
@@ -2068,6 +2151,17 @@ async fn native_complete(
             )));
         }
     };
+    // NATIVE LEDGER GUARD (2026-11-11): re-read AFTER the native chain. On any move:
+    // withhold the billed text (402 quarantine, books kept) + trip the breaker.
+    if let Some(debit) = native_ledger_check(&s, &session, &scope_team, native_before_nc, "native-complete").await {
+        return Ok(axum::response::IntoResponse::into_response(ShapedApiError(
+            StatusCode::PAYMENT_REQUIRED,
+            serde_json::json!({
+                "error": "native route: leg settled nonzero and was quarantined (no free path this attempt)",
+                "total_debit": debit,
+            }),
+        )));
+    }
     let body = if dialect == ClientDialect::OpenAiChat {
         convert::responses_to_chat_completion(&result, &client_model)
     } else {
