@@ -1119,7 +1119,15 @@ async fn free_complete(
     // cutoff-first routing; default ON routes straight to native. The spend gate still
     // guards every native open, so non-nitro billable models can never slip through.
     let direct_nitro = std::env::var("FRAMERIZE_DIRECT_NITRO").map(|v| v != "0").unwrap_or(true);
-    let cutoff_chat = std::env::var("FRAMERIZE_ENGINE_CHAT").map(|v| v != "native").unwrap_or(true) && !direct_nitro;
+    // DIRECT_NITRO skips cutoff ONLY when the effective id is nitro-suffixed (proved $0
+    // even bundled). Base models (mini etc.) bill dust bundled (-0.0024 confirmed) and must
+    // ride the abort-guarded cutoff: skip cutoff iff a nitro mapping actually occurred.
+    let chat_mapped = framer_core::model::effective_upstream_model(
+        payload.get("model").and_then(|v| v.as_str()).unwrap_or(""),
+    );
+    let chat_is_nitro = chat_mapped != payload.get("model").and_then(|v| v.as_str()).unwrap_or("");
+    let cutoff_chat = std::env::var("FRAMERIZE_ENGINE_CHAT").map(|v| v != "native").unwrap_or(true)
+        && !(direct_nitro && chat_is_nitro);
     if dialect == ClientDialect::OpenAiChat
         && !anthro_family
         && cutoff_chat
@@ -1163,7 +1171,8 @@ async fn free_complete(
     // down to the chat shape, run the cutoff chain (the finish cutoff
     // captures text AND tool calls before the settling terminal frame), and
     // render back. FRAMERIZE_ENGINE_RESPONSES=native is the escape hatch.
-    let cutoff_responses = std::env::var("FRAMERIZE_ENGINE_RESPONSES").map(|v| v != "native").unwrap_or(true) && !direct_nitro;
+    let cutoff_responses = std::env::var("FRAMERIZE_ENGINE_RESPONSES").map(|v| v != "native").unwrap_or(true)
+        && !(direct_nitro && chat_is_nitro);
     if dialect == ClientDialect::OpenAiResponses
         && !anthro_family
         && cutoff_responses
