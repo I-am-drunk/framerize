@@ -181,6 +181,18 @@ impl<P: PageStream> BridgeStreamTransport<P> {
     }
 }
 
+impl<P: PageStream> BridgeStreamTransport<P> {
+    /// Best-effort cancel of the CURRENT page stream, fire-and-forget. Called on
+    /// every failure arm inside next_event: a failed leg must not leave its
+    /// server-side stream generating toward the terminal unwatched (settle with
+    /// nobody attributing it). Logs, never fails.
+    async fn cancel_current(&mut self) {
+        if let Some(id) = self.stream_id.clone() {
+            let _ = self.page.cancel(&id).await;
+        }
+    }
+}
+
 #[async_trait]
 impl<P: PageStream> CustomTransport for BridgeStreamTransport<P> {
     fn set_stop_after(&mut self, stop_after: u32) {
@@ -223,11 +235,13 @@ impl<P: PageStream> CustomTransport for BridgeStreamTransport<P> {
                 // Nones and a 16-minute stall mystery.
                 eprintln!("[custom-route] live page drain error: {e}");
                 self.failed = Some(format!("live: page drain failed: {e}"));
+                self.cancel_current().await;
                 return None;
             }
             Err(_) => {
                 eprintln!("[custom-route] live page drain timed out after 120s");
                 self.failed = Some("live: page drain timed out after 120s".into());
+                self.cancel_current().await;
                 return None;
             }
         };
@@ -235,6 +249,7 @@ impl<P: PageStream> CustomTransport for BridgeStreamTransport<P> {
             // Protocol violation by the host impl: fail the leg LOUDLY with
             // the reason preserved, never silently trust the batch.
             self.failed = Some(format!("live: page protocol violation: {e}"));
+            self.cancel_current().await;
             return None;
         }
         // Post-terminal batches are a host-impl bug (terminal_seen is set
@@ -243,6 +258,7 @@ impl<P: PageStream> CustomTransport for BridgeStreamTransport<P> {
         // loudly instead of feeding a second leg's worth of text.
         if self.terminal_seen && !batch.events.is_empty() {
             self.failed = Some("live: page sent events after the terminal Done".into());
+            self.cancel_current().await;
             return None;
         }
         if batch.raced {
@@ -280,6 +296,7 @@ impl<P: PageStream> CustomTransport for BridgeStreamTransport<P> {
                     "live: page stream stalled: {} empty drains with no terminal",
                     self.empty_streak
                 ));
+                self.cancel_current().await;
                 return None;
             }
             // Pace the poll loop (no busy spin) and yield NO event: the
