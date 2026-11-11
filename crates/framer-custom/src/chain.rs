@@ -733,7 +733,9 @@ async fn complete_inner<T: CustomTransport>(
                         raced: rung_out.raced,
                         debited,
                         stop_used: stop,
-                        debit: 0.0,
+                        // RECORD = BOOKS (#12: total_debit += leg_debit ran above with the
+                        // unzeroed value; recording 0.0 disagreed by construction).
+                        debit: leg_total,
                         events: rung_out.events,
                     });
                     outcome = ChainOutcome::Capped;
