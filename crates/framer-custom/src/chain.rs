@@ -189,6 +189,31 @@ fn bank_fresh_calls(tool_calls: &mut Vec<serde_json::Value>, calls: Vec<serde_js
     tool_calls.len() - before
 }
 
+/// Split a trailing UNCLOSED ```toolcall fence for carry to the next leg: a fence split
+/// across a leg boundary parses in neither leg (unclosed in N, opener missing in N+1)
+/// and the call is silently lost. Returns (complete_text, dangling_tail).
+fn split_dangling_fence(text: &str) -> (String, String) {
+    // Find the last fence opener; it dangles iff no closer follows it.
+    let mut last_open: Option<usize> = None;
+    let mut search_from = 0usize;
+    while let Some(i) = text[search_from..].find("```toolcall").map(|r| search_from + r) {
+        // Line-anchor rule (same as the parser): mid-line mentions are prose.
+        if i == 0 || text[..i].ends_with('\n') {
+            last_open = Some(i);
+        }
+        search_from = i + 1;
+    }
+    if let Some(o) = last_open {
+        let tail = &text[o..];
+        // Count closers after the opener: each fence needs exactly one.
+        let closers = tail.matches("```").count() - 1; // minus the opener itself
+        if closers == 0 {
+            return (text[..o].to_string(), tail.to_string());
+        }
+    }
+    (text.to_string(), String::new())
+}
+
 fn extract_emulated_calls(captured: &str) -> (String, Vec<serde_json::Value>) {
     let mut calls = Vec::new();
     let mut clean = captured.to_string();
@@ -658,6 +683,8 @@ async fn complete_inner<T: CustomTransport>(
     let mut legs: Vec<Leg> = Vec::new();
     let mut kept: Vec<String> = Vec::new();
     let mut accumulated = String::new();
+    // Dangling unclosed fence carried across the leg boundary (split-fence fix).
+    let mut fence_carry = String::new();
     let mut total_debit = 0.0f64;
     // Chain-level stop: restored to default after every Accept so one
     // recovered race (halved stop) cannot permanently shrink later legs.
@@ -778,9 +805,14 @@ async fn complete_inner<T: CustomTransport>(
         // chain ENDS: continuation legs would regenerate a finished answer.
         if rung_out.finished {
             total_debit += leg_debit;
-            let raw_growth = merge::trim_overlap(&rung_out.captured, &accumulated).to_string();
+            let mut raw_growth = merge::trim_overlap(&rung_out.captured, &accumulated).to_string();
+            if !fence_carry.is_empty() {
+                raw_growth = std::mem::take(&mut fence_carry) + &raw_growth;
+            }
             // Emulated calls: fences parsed out of the text into real tool_use blocks.
             let (growth, emulated) = extract_emulated_calls(&raw_growth);
+            let (growth, dangling) = split_dangling_fence(&growth);
+            fence_carry = dangling;
             // Dedupe by (name, input) vs calls already served: a model re-emitting a
             // served call across legs must not double-execute client-side. Runs here
             // (pre-clone) so the single post-clone extend below adds only fresh calls.
@@ -955,7 +987,10 @@ async fn complete_inner<T: CustomTransport>(
                 continue;
             }
             ledger::Policy::Accept => {
-                let growth = merge::trim_overlap(&rung_out.captured, &accumulated).to_string();
+                let mut growth = merge::trim_overlap(&rung_out.captured, &accumulated).to_string();
+                if !fence_carry.is_empty() {
+                    growth = std::mem::take(&mut fence_carry) + &growth;
+                }
                 total_debit += leg_debit;
                 let leg_total = leg_debit;
                 leg_debit = 0.0;
@@ -996,6 +1031,8 @@ async fn complete_inner<T: CustomTransport>(
                 // Strip emulated fences on EVERY accepted leg (not just finish): raw
                 // fences must never serve in kept text nor ride continuation anchors.
                 let (growth, emulated) = extract_emulated_calls(&growth);
+                let (growth, dangling) = split_dangling_fence(&growth);
+                fence_carry = dangling;
                 if !emulated.is_empty() {
                     // Note: pump calls merge at finish; mid-chain legs bank emulated only.
                     let added = bank_fresh_calls(&mut tool_calls, emulated);
@@ -1200,6 +1237,27 @@ mod tests {
         // ...and continuations strip it.
         let c = continue_native(&p, "tail", 350);
         assert!(c.get("tool_choice").is_none(), "continuation strips tool_choice");
+    }
+
+    #[test]
+    fn dangling_fence_carries_across_legs() {
+        // Leg N ends mid-fence: text kept, tail carried.
+        let (g, d) = split_dangling_fence("answer text\n```toolcall\n{\"name\": \"x\",");
+        assert!(g.contains("answer text"));
+        assert!(d.contains("```toolcall"));
+        // Closed fence: nothing carried.
+        let (g2, d2) = split_dangling_fence("a\n```toolcall\n{}\n```\nb");
+        assert!(d2.is_empty());
+        assert!(g2.contains("a"));
+        // Joined halves parse as one call.
+        let joined = d + "\"input\": {}}\n```\nrest";
+        let (t, c) = extract_emulated_calls(&joined);
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0]["name"], "x");
+        assert!(!t.contains("toolcall"));
+        // Mid-line mention never carries.
+        let (_, d3) = split_dangling_fence("see ```toolcall here");
+        assert!(d3.is_empty());
     }
 
     #[test]
