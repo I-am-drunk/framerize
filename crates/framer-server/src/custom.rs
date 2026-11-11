@@ -1309,9 +1309,11 @@ async fn custom_real_once(
     // again inside cutoff_run for every renderer). This check fires before
     // any lease/page/open with the same allowlist.
     {
+        // Pass the FULL id (mapped or suffixed): SUFFIX_FREE matches exact
+        // provider-prefixed ids; stripping first wrongly denies mapped traffic.
+        // (The bare-base fast path stays: normalize inside free_on_cutoff.)
         let m = model_str.trim();
         let m = if m.is_empty() { "gpt-4.1-mini" } else { m };
-        let m = m.rsplit('/').next().unwrap_or(m);
         if !cutoff_free_model(m) {
             return Err((cutoff_model_denied(model_str), None));
         }
@@ -2008,13 +2010,15 @@ mod tests {
     async fn spend_lock_denies_before_any_io() {
         // A denied model returns InvalidRequest with ZERO page evals.
         // Serialized: the breaker trip/reset test mutates the same global.
+        // NOTE: bare kimi-k3 is MAPPED (not denied) since the floor-mapping shipped;
+        // use deepseek-chat (per-token, unmapped,_suffix-free) as the denied probe.
         let _env = ENV_LOCK.lock().unwrap();
         framer_custom::ledger::reset_spend_breaker();
         let (state, ports) = test_state_with(Vec::new());
         let resp = custom_complete_handler(
             State(state),
             HeaderMap::new(),
-            Json(CompleteBody { prompt: "hi".into(), model: "kimi-k3".into(), max_legs: None, stop: None }),
+            Json(CompleteBody { prompt: "hi".into(), model: "deepseek-chat".into(), max_legs: None, stop: None }),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
