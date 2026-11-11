@@ -1062,7 +1062,10 @@ mod tests {
         assert!(msgs[1]["content"].as_str().unwrap().contains("roses are red"));
         assert_eq!(msgs[2]["role"], "user");
         assert!(msgs[2]["content"].as_str().unwrap().contains("Continue"));
-        assert_eq!(cont["tools"][0]["name"], "noop");
+        // TOOLS FAIL CLOSED (continuations strip tools; P8c/P9b): no continuation leg
+        // may ever open billed.
+        assert!(cont["tools"].as_array().map(|a| a.is_empty()).unwrap_or(true),
+            "continuation must strip tools");
     }
 
     #[test]
