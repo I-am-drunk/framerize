@@ -98,6 +98,21 @@ mod tests {
         assert_eq!(halt_after_race(u32::MAX), u32::MAX / 2);
     }
     #[test]
+    fn marker_padding_contract_is_unfinishable() {
+        // SPEND-CONTRACT PIN (2026-11-11, user directive): the $0 abort lands in PADDING,
+        // so the padding must be mechanical + endless, never a finite "600 more words" the
+        // model can wrap up and race the terminal with. These pins fail loudly if someone
+        // shrinks the padding back to a finishable size.
+        let m = end_marker_suffix();
+        assert!(m.contains(END_MARKER), "must still emit the truncation marker");
+        assert!(m.contains("MUST NOT STOP"), "padding must be unconditional");
+        assert!(m.contains("endless"), "padding must not have a natural end");
+        assert!(m.contains("many thousands of words"), "padding must be long");
+        assert!(m.contains("do not conclude") || m.contains("Do not summarize"), "must forbid a finish");
+        assert!(m.contains("words"), "system prompt must keep the 'words' contract");
+    }
+
+    #[test]
     fn suffix_contents() {
         let s = length_guarantee_suffix(1800, 14);
         assert!(s.contains("1800") && s.contains("14") && s.contains("Do not stop early"));
