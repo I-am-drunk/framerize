@@ -1171,6 +1171,9 @@ async fn free_complete(
             Err(e @ ApiError::InvalidRequest(_)) if format!("{e:?}").contains("zero-spend allowlist") => {
                 return Err(e)
             }
+            Err(e) if framer_core::convert::is_spend_terminal(&format!("{e:?}")) => {
+                return Err(e);
+            }
             Err(e) => {
                 eprintln!("[cutoff] chat chain failed ({e:?}); falling back to the native chain (METERED)");
             }
@@ -1202,6 +1205,9 @@ async fn free_complete(
             // fall through to the metered native chain.
             Err(e @ ApiError::InvalidRequest(_)) if format!("{e:?}").contains("zero-spend allowlist") => {
                 return Err(e)
+            }
+            Err(e) if framer_core::convert::is_spend_terminal(&format!("{e:?}")) => {
+                return Err(e);
             }
             Err(e) => {
                 eprintln!("[cutoff] responses chain failed ({e:?}); falling back to the native chain (METERED)");
@@ -1246,6 +1252,9 @@ async fn free_complete(
                 }
                 Err(e @ ApiError::InvalidRequest(_)) if format!("{e:?}").contains("zero-spend allowlist") => {
                     return Err(e)
+                }
+                Err(e) if framer_core::convert::is_spend_terminal(&format!("{e:?}")) => {
+                    return Err(e);
                 }
                 Err(e) => {
                     eprintln!("[cutoff] anthro chain failed ({e:?}); falling back to the native chain (METERED)");
