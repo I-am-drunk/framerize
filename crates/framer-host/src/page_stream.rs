@@ -187,6 +187,18 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
                   // content and finish_reason) before the mid-chunk abort.
                   slot.buf += (d === null || d === "") ? "\u0000" : d;
                   slot.chunks++;
+                  // TRUNCATE-ON-FINISH: the final burst often carries answer + marker +
+                  // first pad tags together. Without truncating here, pad text serves
+                  // to the client (the marker path truncates; this path didn't).
+                  {
+                    const fmi = slot.buf.indexOf("⟦FRZ-END⟧");
+                    const fpm = /^⟦PAD-\d{1,6}⟧/m.exec(slot.buf);
+                    const fpi = fpm ? fpm.index : -1;
+                    let fcut = -1;
+                    if (fmi >= 0) { fcut = fmi; }
+                    if (fpi >= 0 && (fcut < 0 || fpi < fcut)) { fcut = fpi; }
+                    if (fcut >= 0) { slot.buf = slot.buf.slice(0, fcut); }
+                  }
                   fin = ch.finish_reason;
                   // FINISH-CUTOFF RACE FIX (2026-11-10, live-proved): the
                   // terminal/usage frame rides in the SAME network chunk as
