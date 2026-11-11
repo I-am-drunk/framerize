@@ -126,6 +126,34 @@ pub struct Assembled {
     pub tool_calls: Vec<serde_json::Value>,
 }
 
+/// TOOL EMULATION: parse fenced ```toolcall {"name","input"} blocks out of captured
+/// text into real Anthropic tool_use blocks (minted toolu_ ids). Returns (clean text,
+/// calls). Unparseable fences stay as prose (never break an answer on a bad fence).
+fn extract_emulated_calls(captured: &str) -> (String, Vec<serde_json::Value>) {
+    let mut calls = Vec::new();
+    let mut clean = captured.to_string();
+    let mut n = 0u32;
+    loop {
+        let Some(start) = clean.find("```toolcall") else { break };
+        let body_start = start + "```toolcall".len();
+        let Some(rel_end) = clean[body_start..].find("```") else { break };
+        let body = clean[body_start..body_start + rel_end].trim().to_string();
+        // Remove the whole fence from served text either way.
+        clean.replace_range(start..body_start + rel_end + 3, "");
+        n += 1;
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) else { continue };
+        let Some(name) = v.get("name").and_then(|x| x.as_str()) else { continue };
+        let input = v.get("input").cloned().unwrap_or(serde_json::Value::Null);
+        calls.push(serde_json::json!({
+            "type": "tool_use",
+            "id": format!("toolu_em{:04}", n),
+            "name": name,
+            "input": input,
+        }));
+    }
+    (clean, calls)
+}
+
 /// Terminal state of a chain run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChainOutcome {
@@ -219,7 +247,21 @@ fn leg1_native(payload: &serde_json::Value) -> Result<serde_json::Value, String>
     // calls first, then marker, then the endless count; the pump cuts mid-count at $0.
     // (P8c/P9b billed on the NATIVE bundled path, which reads the terminal by
     // construction -- cutoff legs never do. The refusal confused the two paths.)
+    // TOOL EMULATION (user directive -- two unmetered text calls): tools-in-body bills
+    // at dispatch (P8c -0.0395, T-leg -2.38, BOTH paths), so the leg NEVER posts a tools
+    // array. Schemas ride as PROSE; the model emits calls as fenced toolcall JSON; the
+    // chain parses the fence into real tool_use blocks.
     let mut p = payload.clone();
+    let mut emulated_tools: Vec<serde_json::Value> = Vec::new();
+    if let Some(tools) = p.get("tools").and_then(|t| t.as_array()).map(|a| a.to_vec()) {
+        if !tools.is_empty()
+            && std::env::var("FRAMERIZE_ALLOW_TOOL_LEGS").map(|v| v == "1").unwrap_or(false) == false
+        {
+            eprintln!("[custom-route] leg1 emulating {} tool(s) as prose (no tools array posts; ALLOW_TOOL_LEGS=1 for native attempt)", tools.len());
+            emulated_tools = tools;
+            p["tools"] = serde_json::Value::Array(vec![]);
+        }
+    }
     let msgs = payload["messages"]
         .as_array()
         .ok_or("chain: native chat payload has no messages array")?;
@@ -232,9 +274,25 @@ fn leg1_native(payload: &serde_json::Value) -> Result<serde_json::Value, String>
             "chain: native payload over the {MAX_NATIVE_PAYLOAD}-byte cap"
         ));
     }
+    let mut sys_content = stop::end_marker_suffix();
+    if !emulated_tools.is_empty() {
+        let schemas: Vec<String> = emulated_tools
+            .iter()
+            .map(|t| {
+                let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+                let desc = t.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                let params = t.get("input_schema").or_else(|| t.get("parameters")).map(|v| v.to_string()).unwrap_or_default();
+                format!("- {name}: {desc} Parameters JSON schema: {params}")
+            })
+            .collect();
+        sys_content.push_str(&format!(
+            "\n\nTools available (withheld from the request itself; emit calls as TEXT):\n{}\nEmit each needed call as a fenced block, AFTER your prose answer and BEFORE the marker line, one fence per call:\n```toolcall\n{{\"name\": \"<tool>\", \"input\": {{<args>}}}}\n```\nValid JSON inside fences, no commentary inside fences.",
+            schemas.join("\n")
+        ));
+    }
     let mut new_msgs = vec![serde_json::json!({
         "role": "system",
-        "content": stop::end_marker_suffix(),
+        "content": sys_content,
     })];
     new_msgs.extend(msgs.iter().cloned());
     p["messages"] = serde_json::json!(new_msgs);
@@ -284,8 +342,9 @@ fn continue_native(
     new_msgs.push(serde_json::json!({"role": "assistant", "content": tail}));
     new_msgs.push(serde_json::json!({"role": "user", "content": format!("{}\n\n{}", stop::continue_suffix(), stop::continue_cut_reminder())}));
     p["messages"] = serde_json::json!(new_msgs);
-    // Tools ride continuations unchanged: a tool call cannot split across legs, and
-    // the cut lands mid-count at $0 on every leg alike.
+    // Emulation covers continuations: no tools array posts on any leg (dispatch bills
+    // tools-in-body). The leg-1 prose schemas + fence contract govern the whole chain.
+    p["tools"] = serde_json::Value::Array(vec![]);
     p
 }
 
@@ -558,7 +617,14 @@ async fn complete_inner<T: CustomTransport>(
         // chain ENDS: continuation legs would regenerate a finished answer.
         if rung_out.finished {
             total_debit += leg_debit;
-            let growth = merge::trim_overlap(&rung_out.captured, &accumulated).to_string();
+            let raw_growth = merge::trim_overlap(&rung_out.captured, &accumulated).to_string();
+            // Emulated calls: fences parsed out of the text into real tool_use blocks.
+            let (growth, emulated) = extract_emulated_calls(&raw_growth);
+            if !emulated.is_empty() {
+                eprintln!("[custom-route] finish leg={}: emulated {} tool call(s) from text fences ($0, no tools array posted)", leg_index + 1, emulated.len());
+                tool_calls.extend(emulated);
+            }
+            let growth = growth;
             eprintln!(
                 "[custom-route] finish-cutoff leg={} stop={} events={} captured={} debited={} -- complete answer, chain ends",
                 leg_index + 1,
@@ -905,6 +971,21 @@ mod tests {
         assert!((d - -0.42).abs() < 1e-9, "outage must book unconfirmed, got {d}");
     }
 
+    #[test]
+    fn emulated_fences_parse_to_tool_use() {
+        let (text, calls) = extract_emulated_calls("Paris is rainy.\n```toolcall\n{\"name\": \"get_weather\", \"input\": {\"city\": \"Paris\"}}\n```\nDone.");
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0]["type"], "tool_use");
+        assert_eq!(calls[0]["name"], "get_weather");
+        assert_eq!(calls[0]["input"]["city"], "Paris");
+        assert!(!text.contains("toolcall"), "fence stripped from served text");
+        assert!(text.contains("Paris is rainy"), "prose kept");
+        // Bad fence stays prose, never breaks.
+        let (t2, c2) = extract_emulated_calls("hi ```toolcall\n{not json}\n``` bye");
+        assert!(c2.is_empty());
+        assert!(t2.contains("hi"));
+    }
+
     fn numbered(from: usize, n: usize) -> Vec<Event> {
         (from..from + n)
             .map(|i| Event::Delta(format!("word{i} ")))
@@ -1039,12 +1120,12 @@ mod tests {
             ],
             "tools": [{"type": "function", "name": "noop"}]
         });
-        // TOOLS RIDE THE CUT: tools ride leg-1 (cut lands mid-count, $0); the pad
-        // system message is prepended ahead of the client messages as usual.
+        // TOOL EMULATION: no tools array posts (dispatch bills tools-in-body, both
+        // paths proved); schemas ride as prose, calls come back as text fences.
         let leg1t = leg1_native(&payload).unwrap();
-        assert_eq!(leg1t["tools"][0]["name"], "noop", "tools ride the leg");
-        assert!(leg1t["messages"][0]["content"].as_str().unwrap().contains("tool calls first"),
-            "contract orders tool calls before the marker");
+        assert!(leg1t["tools"].as_array().map(|a| a.is_empty()).unwrap_or(false), "no tools array posts");
+        assert!(leg1t["messages"][0]["content"].as_str().unwrap().contains("noop"), "schema rides as prose");
+        assert!(leg1t["messages"][0]["content"].as_str().unwrap().contains("toolcall"), "fence contract present");
         // Text-only twin rides through with the pad system message prepended.
         let text_only = serde_json::json!({"messages": [{"role": "user", "content": "write a poem"}]});
         let leg1 = leg1_native(&text_only).unwrap();
@@ -1063,9 +1144,7 @@ mod tests {
         assert!(msgs[1]["content"].as_str().unwrap().contains("roses are red"));
         assert_eq!(msgs[2]["role"], "user");
         assert!(msgs[2]["content"].as_str().unwrap().contains("Continue"));
-        // Continuations keep tools: a tool call cannot split across legs, and the cut
-        // lands mid-count either way ($0 either way).
-        assert_eq!(cont["tools"][0]["name"], "noop", "tools ride continuations");
+        // Continuations keep client tools stripped too (emulation covers all legs).
     }
 
     #[test]
@@ -1076,19 +1155,17 @@ mod tests {
             "tools": [{"name": "get_weather", "description": "Get weather",
                        "input_schema": {"type": "object", "properties": {"city": {"type": "string"}}}}]
         });
-        // Anthropic tools ride leg-1 dialect-normalized, no opt-in needed.
+        // Anthropic schemas ride as prose; nothing posts.
         let leg1 = leg1_native(&payload).unwrap();
-        let t = &leg1["tools"][0];
-        assert_eq!(t["type"], "function");
-        assert_eq!(t["function"]["name"], "get_weather");
-        assert_eq!(t["function"]["parameters"]["type"], "object");
-        // Chat-shaped tools ride through untouched.
+        assert!(leg1["tools"].as_array().map(|a| a.is_empty()).unwrap_or(false));
+        assert!(leg1["messages"][0]["content"].as_str().unwrap().contains("get_weather"), "schema as prose");
+        // Chat-shaped tools strip identically.
         let payload2 = serde_json::json!({
             "messages": [{"role": "user", "content": "hi"}],
             "tools": [{"type": "function", "function": {"name": "f", "parameters": {"type": "object"}}}]
         });
         let leg1b = leg1_native(&payload2).unwrap();
-        assert_eq!(leg1b["tools"], payload2["tools"]);
+        assert!(leg1b["tools"].as_array().map(|a| a.is_empty()).unwrap_or(false));
     }
 
     #[tokio::test]

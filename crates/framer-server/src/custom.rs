@@ -919,8 +919,8 @@ pub(super) async fn anthro_via_cutoff(
         .await?;
         let r = framer_core::convert::AssembledResponse {
             id: format!("msg_{}", uuid::Uuid::new_v4().simple()),
-            content: vec![serde_json::json!({"type": "text", "text": out.assembled.text})],
-            stop_reason: "end_turn".to_string(),
+            content: framer_core::convert::text_plus_calls(&out.assembled.text, &out.assembled.tool_calls),
+            stop_reason: if out.assembled.tool_calls.is_empty() { "end_turn".to_string() } else { "tool_use".to_string() },
             stop_sequence: None,
             usage: serde_json::json!({}),
             input_tokens: 0,
@@ -971,8 +971,8 @@ pub(super) async fn anthro_via_cutoff(
                 Ok(Some(Ok(out))) => {
                     let r = framer_core::convert::AssembledResponse {
                         id: format!("msg_{}", uuid::Uuid::new_v4().simple()),
-                        content: vec![serde_json::json!({"type": "text", "text": out.assembled.text})],
-                        stop_reason: "end_turn".to_string(),
+                        content: framer_core::convert::text_plus_calls(&out.assembled.text, &out.assembled.tool_calls),
+                        stop_reason: if out.assembled.tool_calls.is_empty() { "end_turn".to_string() } else { "tool_use".to_string() },
                         stop_sequence: None,
                         usage: serde_json::json!({}),
                         input_tokens: 0,

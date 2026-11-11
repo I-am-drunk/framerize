@@ -657,6 +657,19 @@ fn assembled_text(r: &AssembledResponse) -> String {
         .join("")
 }
 
+/// Text + emulated/native tool_use blocks for anthropic content: the served text
+/// (fences already stripped by the chain) plus each call as a tool_use block.
+pub fn text_plus_calls(text: &str, calls: &[Value]) -> Vec<Value> {
+    let mut out = Vec::new();
+    if !text.trim().is_empty() {
+        out.push(serde_json::json!({"type": "text", "text": text}));
+    }
+    for c in calls {
+        out.push(c.clone());
+    }
+    out
+}
+
 fn tool_use_blocks(r: &AssembledResponse) -> Vec<&Value> {
     r.content.iter().filter(|b| b["type"].as_str() == Some("tool_use")).collect()
 }
