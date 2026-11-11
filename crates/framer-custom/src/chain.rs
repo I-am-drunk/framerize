@@ -214,19 +214,23 @@ fn continue_payload(accumulated: &str, anchor_chars: usize) -> serde_json::Value
 /// prepended as a system message (instruction-first; the client's own
 /// messages are never rewritten).
 fn leg1_native(payload: &serde_json::Value) -> Result<serde_json::Value, String> {
-    // TOOLS FAIL CLOSED (2026-11-11 -- P8c billed -0.0395 at dispatch, P8d identical
-    // prompt without tools $0): a tool-carrying open bills at dispatch even streamed
-    // with the stop baked in, and refunds deny ~261:1 historically. Refuse before
-    // dispatch unless the operator opts into the risk. Text legs unaffected.
+    let mut p = payload.clone();
+    // TOOLS STRIPPED, TEXT SERVED (2026-11-11 -- T3 fable "server error" fix): a
+    // tool-carrying open bills at dispatch even streamed (P8c -0.0395, refunds deny
+    // ~261:1), so tools are stripped and the TEXT is answered at $0 instead of
+    // refusing (refusal rendered 500 -> T3 retried x9). Honest: the model is told
+    // tools were withheld so it answers in prose. Opt-out via ALLOW_TOOL_LEGS=1.
+    let mut had_tools = false;
     if std::env::var("FRAMERIZE_ALLOW_TOOL_LEGS").map(|v| v == "1").unwrap_or(false) == false
     {
-        if let Some(tools) = payload.get("tools").and_then(|t| t.as_array()) {
-            if !tools.is_empty() {
-                return Err("chain: tool-carrying legs bill at dispatch on metered routes (proved -0.0395 live); refusing before open. Text requests serve free; retry without tools or set FRAMERIZE_ALLOW_TOOL_LEGS=1 to attempt (spend risk).".to_string());
+        if let Some(n) = p.get("tools").and_then(|t| t.as_array()).map(|a| a.len()) {
+            if n > 0 {
+                eprintln!("[custom-route] leg1 stripping {n} tool(s), answering text $0 (tools bill at dispatch; ALLOW_TOOL_LEGS=1 to attempt)");
+                p["tools"] = serde_json::Value::Array(vec![]);
+                had_tools = true;
             }
         }
     }
-    let mut p = payload.clone();
     let msgs = payload["messages"]
         .as_array()
         .ok_or("chain: native chat payload has no messages array")?;
@@ -239,9 +243,13 @@ fn leg1_native(payload: &serde_json::Value) -> Result<serde_json::Value, String>
             "chain: native payload over the {MAX_NATIVE_PAYLOAD}-byte cap"
         ));
     }
+    let mut sys_content = stop::end_marker_suffix();
+    if had_tools {
+        sys_content.push_str("\n\nNote: the client's tool definitions were withheld on this leg (they bill at dispatch); answer fully in prose. If you need an action taken, say exactly what and with what arguments.");
+    }
     let mut new_msgs = vec![serde_json::json!({
         "role": "system",
-        "content": stop::end_marker_suffix(),
+        "content": sys_content,
     })];
     new_msgs.extend(msgs.iter().cloned());
     p["messages"] = serde_json::json!(new_msgs);
@@ -1056,10 +1064,11 @@ mod tests {
             ],
             "tools": [{"type": "function", "name": "noop"}]
         });
-        // TOOLS FAIL CLOSED (2026-11-11 -- P8c -0.0395, P9b -0.50 at dispatch; refunds
-        // deny ~261:1): tool-carrying legs refuse BEFORE dispatch. Text serves free.
-        let err = leg1_native(&payload).unwrap_err();
-        assert!(err.contains("bill at dispatch"), "refusal must name the reason: {err}");
+        // STRIP-AND-SERVE (2026-11-11 -- T3 "server error" fix): tools stripped, text
+        // answered $0 (refusal rendered 500 -> T3 retried x9). System note tells the model.
+        let leg1t = leg1_native(&payload).unwrap();
+        assert!(leg1t["tools"].as_array().map(|a| a.is_empty()).unwrap_or(false), "tools stripped");
+        assert!(leg1t["messages"][0]["content"].as_str().unwrap().contains("withheld"), "honesty note present");
         // Text-only twin rides through with the pad system message prepended.
         let text_only = serde_json::json!({"messages": [{"role": "user", "content": "write a poem"}]});
         let leg1 = leg1_native(&text_only).unwrap();
@@ -1092,10 +1101,10 @@ mod tests {
             "tools": [{"name": "get_weather", "description": "Get weather",
                        "input_schema": {"type": "object", "properties": {"city": {"type": "string"}}}}]
         });
-        // Refused before any dialect normalization can matter.
-        let err = leg1_native(&payload).unwrap_err();
-        assert!(err.contains("bill at dispatch"), "refusal must name the reason: {err}");
-        // Opt-in restores attempt (operator accepts spend risk).
+        // Stripped by default (no billed open); dialect normalization still applies
+        // under opt-in (operator accepts spend risk).
+        let stripped = leg1_native(&payload).unwrap();
+        assert!(stripped["tools"].as_array().map(|a| a.is_empty()).unwrap_or(false));
         std::env::set_var("FRAMERIZE_ALLOW_TOOL_LEGS", "1");
         let leg1 = leg1_native(&payload).unwrap();
         std::env::remove_var("FRAMERIZE_ALLOW_TOOL_LEGS");
@@ -1103,13 +1112,12 @@ mod tests {
         assert_eq!(t["type"], "function");
         assert_eq!(t["function"]["name"], "get_weather");
         assert_eq!(t["function"]["parameters"]["type"], "object");
-        // Chat-shaped tools are refused identically (the meter bills tools-in-body
-        // regardless of dialect); opt-in passes them through untouched.
+        // Chat-shaped tools strip identically (shape-blind); opt-in passes through.
         let payload2 = serde_json::json!({
             "messages": [{"role": "user", "content": "hi"}],
             "tools": [{"type": "function", "function": {"name": "f", "parameters": {"type": "object"}}}]
         });
-        assert!(leg1_native(&payload2).is_err(), "refusal is shape-blind");
+        assert!(leg1_native(&payload2).unwrap()["tools"].as_array().map(|a| a.is_empty()).unwrap_or(false), "strip is shape-blind");
         std::env::set_var("FRAMERIZE_ALLOW_TOOL_LEGS", "1");
         let leg1b = leg1_native(&payload2).unwrap();
         std::env::remove_var("FRAMERIZE_ALLOW_TOOL_LEGS");
