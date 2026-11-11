@@ -15,6 +15,36 @@ pub const LEDGER_EPS: f64 = 1e-4;
 // a changed meter must be re-proved, not assumed back).
 static CUT_SPENT: std::sync::Mutex<Option<u64>> = std::sync::Mutex::new(None);
 
+/// Disk latch path: the in-process latch dies on restart (deploy/crash), silently
+/// un-halting a changed meter. Trip persists a file; tripped() honors it; reset removes
+/// it. Explicit path wins, else $HOME/.framerize.
+fn latch_path() -> Option<std::path::PathBuf> {
+    if let Ok(p) = std::env::var("FRAMERIZE_BREAKER_FILE") {
+        if !p.is_empty() {
+            return Some(std::path::PathBuf::from(p));
+        }
+    }
+    std::env::var("HOME")
+        .ok()
+        .map(|h| std::path::PathBuf::from(h).join(".framerize/spend_breaker.latched"))
+}
+fn latch_write() {
+    if let Some(p) = latch_path() {
+        if let Some(dir) = p.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(&p, now_ms().to_string());
+    }
+}
+fn latch_clear() {
+    if let Some(p) = latch_path() {
+        let _ = std::fs::remove_file(&p);
+    }
+}
+fn latch_present() -> bool {
+    latch_path().map(|p| p.exists()).unwrap_or(false)
+}
+
 /// Floor: only settles bigger than this trip the GLOBAL breaker. Dust (<=0.05,
 /// confirmed-persistent meter behavior on short legs, live-measured) quarantines the
 /// REQUEST (withhold + 402) but must not halt ALL serving -- tripping on dust wedged
@@ -31,14 +61,29 @@ pub fn trip_spend_breaker(debit: f64) {
     if let Ok(mut g) = CUT_SPENT.lock() {
         if g.is_none() {
             *g = Some(now_ms());
+            latch_write();
             eprintln!("[spend-breaker] TRIPPED on debit {debit:+.6} -- cutoff legs halted until reset");
         }
     }
 }
 
-/// True while the breaker is latched.
+/// True while the breaker is latched (memory OR disk: restarts must not silently
+/// un-halt a changed meter).
 pub fn spend_breaker_tripped() -> bool {
-    CUT_SPENT.lock().map(|g| g.is_some()).unwrap_or(false)
+    if CUT_SPENT.lock().map(|g| g.is_some()).unwrap_or(false) {
+        return true;
+    }
+    if latch_present() {
+        // Re-latch memory so the log line below fires once per process, not per check.
+        if let Ok(mut g) = CUT_SPENT.lock() {
+            if g.is_none() {
+                *g = Some(now_ms());
+                eprintln!("[spend-breaker] latched at startup from disk -- cutoff legs halted until operator reset");
+            }
+        }
+        return true;
+    }
+    false
 }
 
 /// Operator reset (wired to the status route's POST reset).
@@ -46,6 +91,7 @@ pub fn reset_spend_breaker() {
     if let Ok(mut g) = CUT_SPENT.lock() {
         *g = None;
     }
+    latch_clear();
     eprintln!("[spend-breaker] RESET by operator");
 }
 
@@ -102,6 +148,27 @@ pub fn after_leg(raced: bool, debited: bool) -> Policy {
         _ => Policy::RetryHalved,
     }
 }
+
+    #[test]
+    fn breaker_survives_process_restart_via_disk() {
+        // Simulate trip -> drop memory latch (restart) -> still tripped via disk.
+        let dir = std::env::temp_dir().join(format!("breaker-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("latched");
+        std::env::set_var("FRAMERIZE_BREAKER_FILE", &f);
+        reset_spend_breaker();
+        assert!(!spend_breaker_tripped());
+        trip_spend_breaker(-1.0);
+        assert!(spend_breaker_tripped());
+        // "Restart": clear memory only (disk file stays).
+        CUT_SPENT.lock().unwrap().take();
+        assert!(spend_breaker_tripped(), "disk latch must re-trip after restart");
+        reset_spend_breaker();
+        assert!(!spend_breaker_tripped());
+        assert!(!f.exists(), "reset removes disk latch");
+        std::env::remove_var("FRAMERIZE_BREAKER_FILE");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
 #[cfg(test)]
 mod tests {
