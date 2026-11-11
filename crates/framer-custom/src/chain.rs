@@ -385,6 +385,10 @@ fn leg1_native(payload: &serde_json::Value) -> Result<serde_json::Value, String>
     // Tool legs bill intermittently at ANY prompt size (-8.24/-2.38/-0.73, once with
     // zero captured chars). Default refuses pre-dispatch (P8f: zero opens, $0).
     if tool_mode() == ToolMode::Refuse {
+        // tool_choice alone posts tool-mode: refuse it like a tools array.
+        if payload.get("tool_choice").is_some() && !payload.get("tool_choice").map(|v| v.is_null()).unwrap_or(true) {
+            return Err("chain: tool_choice posts tool-mode billing like a tools array (bill intermittently at dispatch); refusing before open. Retry without tools or tool_choice.".to_string());
+        }
         if let Some(tools) = payload.get("tools").and_then(|t| t.as_array()) {
             if !tools.is_empty() {
                 return Err("chain: tool-carrying legs bill intermittently at any prompt size (-8.24/-2.38/-0.73 measured, once with zero captured chars); refusing before open. Text requests serve free; retry without tools, or set FRAMERIZE_EMULATE_TOOLS=1 to experiment (spend risk) or FRAMERIZE_ALLOW_TOOL_LEGS=1 for a native attempt. No upstream call was opened, nothing spent.".to_string());
@@ -406,6 +410,8 @@ fn leg1_native(payload: &serde_json::Value) -> Result<serde_json::Value, String>
             eprintln!("[custom-route] leg1 emulating {} tool(s) as prose (no tools array posts)", tools.len());
             emulated_tools = tools;
             p["tools"] = serde_json::Value::Array(vec![]);
+            // tool_choice without tools still posts tool-mode: strip it too.
+            p.as_object_mut().map(|o| o.remove("tool_choice"));
         }
     }
     let msgs = payload["messages"]
@@ -493,6 +499,10 @@ fn continue_native(
     // Emulation covers continuations: no tools array posts on any leg (dispatch bills
     // tools-in-body). The leg-1 prose schemas + fence contract govern the whole chain.
     p["tools"] = serde_json::Value::Array(vec![]);
+    // tool_choice without tools still posts tool-mode: strip it too (same billing shape).
+    if tool_mode() != ToolMode::NativeAttempt {
+        p.as_object_mut().map(|o| o.remove("tool_choice"));
+    }
     p
 }
 
@@ -1175,6 +1185,18 @@ mod tests {
         // Plain string content passes through untouched.
         let m3 = serde_json::json!({"role": "user", "content": "hi"});
         assert_eq!(flatten_tool_blocks(&m3)["content"], "hi");
+    }
+
+    #[test]
+    fn tool_choice_alone_refuses_and_strips() {
+        // tool_choice posts tool-mode like a tools array: refuse pre-dispatch...
+        let p = serde_json::json!({"messages": [{"role": "user", "content": "hi"}],
+            "tool_choice": {"type": "tool", "name": "x"}});
+        let err = leg1_native(&p).unwrap_err();
+        assert!(err.contains("tool_choice"), "refusal names tool_choice: {err}");
+        // ...and continuations strip it.
+        let c = continue_native(&p, "tail", 350);
+        assert!(c.get("tool_choice").is_none(), "continuation strips tool_choice");
     }
 
     #[test]
