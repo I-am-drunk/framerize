@@ -1290,7 +1290,11 @@ async fn custom_real_once(
         // Empty callers land on the free mini (gpt-4.1 full-size is
         // per-token metered and guarded above).
         let m = if m.is_empty() { "gpt-4.1-mini" } else { m };
-        m.rsplit('/').next().unwrap_or(m).to_string()
+        // Do NOT strip provider prefixes here (2026-11-11 -- the opus bug): cutoff_run
+        // already mapped bare ids to their canonical :nitro/:floor forms upstream; stripping
+        // "anthropic/claude-opus-5.5:nitro" to "claude-opus-5.5:nitro" breaks the exact-match
+        // suffix allowlist AND drops the suffix in wrap(), sending the BLOCKED base id.
+        m.to_string()
     };
     // Gated/blocked models fail FAST, before any account burn (the cutoff
     // path learned this from the native one: the gpt-6-astra churn burned a
