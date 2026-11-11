@@ -1639,6 +1639,13 @@ pub fn error_json(d: ClientDialect, msg: &str) -> (u16, serde_json::Value) {
                 "insufficient_credits".to_string(),
             )
         }
+        None if msg.contains("Upgrade your workspace to use this model")
+            || msg.contains("paid_plan_only_model")
+            || msg.contains("Model blocked by guardrail") =>
+        {
+            // Entitlement refusal (FOXTROT1: refused opens can still settle) -- never 500.
+            (402, format!("{msg} (entitlement-terminal: retrying re-bills or fails identically; not retried server-side)"), "permission_denied".to_string())
+        }
         None => {
             let st = if msg.contains("risk-refused") { 403 } else { 500 };
             (st, msg.to_string(), "api_error".to_string())

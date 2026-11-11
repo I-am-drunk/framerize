@@ -804,6 +804,14 @@ fn should_retry_account(error: &str) -> bool {
     if framer_core::convert::is_spend_terminal(error) {
         return false;
     }
+    // PLAN-GATE / GUARDRAIL NEVER REPICKS (2026-11-11 -- FOXTROT1 billed -0.40): an
+    // entitlement refusal is deterministic per model, not per account. A fresh account
+    // re-sends the full input and bills ANOTHER dispatch settle for an identical 403.
+    // (The model allowlist already refuses known-gated ids pre-dispatch; this covers
+    // newly-gated ones the allowlist hasn't learned yet.)
+    if is_plan_gated(error) || is_guardrail_blocked(error) {
+        return false;
+    }
     is_castle_refusal(error) || AccountCooldown::from_error(error).is_some()
         || pool_control::cleanup_unconfirmed(error)
 }
