@@ -106,9 +106,16 @@ pub async fn run_rung<T: CustomTransport>(
     payload: &serde_json::Value,
     stop_steps: u32,
 ) -> Result<RungResult, String> {
-    let mut out = tokio::time::timeout(LEG_TIMEOUT, run_inner(transport, payload, stop_steps))
-        .await
-        .map_err(|_| "rung: leg timed out after 600s with no terminal or stop".to_string())??;
+    let inner = tokio::time::timeout(LEG_TIMEOUT, run_inner(transport, payload, stop_steps)).await;
+    let mut out = match inner {
+        Ok(r) => r?,
+        Err(_) => {
+            // Timeout drops run_inner mid-poll: cancel explicitly or the server-side
+            // stream is orphaned (keeps generating toward the terminal unwatched).
+            cancel_bounded(transport, stop_steps, 0).await;
+            return Err("rung: leg timed out after 600s with no terminal or stop".to_string());
+        }
+    };
     out.finished = transport.last_leg_finished();
     if out.finished {
         out.tool_calls = transport.take_tool_calls();
@@ -145,6 +152,9 @@ async fn run_inner<T: CustomTransport>(
                 silent = 0;
                 events = events.saturating_add(1);
                 if captured.len() + text.len() > MAX_CAPTURE {
+                    // Cancel first: otherwise the abandoned server-side stream keeps
+                    // generating toward the terminal (and its settle) unwatched.
+                    cancel_bounded(transport, stop_steps, deltas).await;
                     return Err(format!(
                         "rung: leg capture exceeded {MAX_CAPTURE} bytes before stop {stop_steps} (deltas={deltas}): runaway stream or misconfigured stop"
                     ));
@@ -182,6 +192,9 @@ async fn run_inner<T: CustomTransport>(
                 }
                 silent += 1;
                 if silent >= MAX_SILENT_POLLS {
+                    // Cancel before failing: a silent page may still complete later --
+                    // without cancel that terminal settles with nobody watching.
+                    cancel_bounded(transport, stop_steps, deltas).await;
                     return Err(format!(
                         "rung: leg stalled: {silent} consecutive empty polls with no terminal (deltas={deltas})"
                     ));
