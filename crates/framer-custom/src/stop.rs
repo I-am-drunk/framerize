@@ -68,6 +68,15 @@ pub fn end_marker_suffix() -> String {
     )
 }
 
+/// One-line cut reminder for continuation legs: the full pad contract lives on leg 1
+/// (it teaches the pattern); continuations only re-anchor it. Keeps per-leg input small
+/// while every leg still carries its own cut signal (#3 without the bloat).
+pub fn continue_cut_reminder() -> String {
+    format!(
+        "Keep counting: if you finished answering, emit {END_MARKER} alone on a line, then keep writing one ⟦PAD-NNNN⟧ counting tag per line, incrementing forever. Never write anything else after the marker, never stop."
+    )
+}
+
 pub fn continue_suffix() -> String {
     "Continue EXACTLY from the end of this text. Output only strictly new content, at length, in flowing prose. Do not stop early, do not summarize, do not conclude. Do not repeat, recap, or restate anything in it. Stay on the same topic in the same style:".to_string()
 }
@@ -105,6 +114,14 @@ mod tests {
         assert!(m.contains("50,000"), "pad count floor must be huge (user directive)");
         assert!(m.contains("Each line contains ONLY its tag"), "pad lines must be pure (clean detection)");
         assert!(m.contains("NEVER stop") || m.contains("Do not ever close"), "must forbid a finish");
+    }
+
+    #[test]
+    fn continuation_reminder_stays_slim_but_complete() {
+        let r = continue_cut_reminder();
+        assert!(r.contains(END_MARKER), "must re-anchor the marker");
+        assert!(r.contains(PAD_TAG_PREFIX), "must re-anchor the pad pattern");
+        assert!(r.len() < end_marker_suffix().len() / 2, "must stay a reminder, not the full contract");
     }
 
     #[test]
