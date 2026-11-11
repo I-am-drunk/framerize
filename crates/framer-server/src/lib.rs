@@ -3354,6 +3354,11 @@ impl axum::response::IntoResponse for ApiError {
                 [(axum::http::header::RETRY_AFTER, "1")],
                 Json(serde_json::json!({"error":{"code":"framerize_pool_busy",
                     "message":message,"retry_after_seconds":1}}))).into_response(),
+            Self::Internal(message) if framer_core::convert::is_spend_terminal(&message) => (
+                StatusCode::PAYMENT_REQUIRED,
+                Json(serde_json::json!({"error":{"code":"insufficient_credits",
+                    "message": format!("{message} (spend-terminal: not retried server-side; retrying re-bills or fails identically)")}})),
+            ).into_response(),
             Self::Internal(message) => (StatusCode::INTERNAL_SERVER_ERROR, message).into_response(),
             Self::ServingCapacity(message) if framer_core::convert::is_spend_terminal(&message) => {
                 // Spend-terminal serving failure (dry pool / quarantined scope): 402, not
