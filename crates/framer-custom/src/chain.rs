@@ -384,6 +384,9 @@ pub async fn confirm_settle<T: CustomTransport>(
     cfg: &ChainSettings,
     before: f64,
     leg_index: u32,
+    // Pre-confirm measured move (the leg's own delta): returned VERBATIM when the
+    // confirm re-read fails, so an oracle outage can never launder a settle to $0.
+    unconfirmed: f64,
 ) -> f64 {
     tokio::time::sleep(std::time::Duration::from_secs(20)).await;
     match read_oracle(transport, cfg.oracle_timeout, "confirm", leg_index).await {
@@ -405,8 +408,10 @@ pub async fn confirm_settle<T: CustomTransport>(
             0.0
         }
         Err(e) => {
-            eprintln!("[custom-route] confirm leg={}: re-read failed ({e}) -- treating as clean (gate open on oracle failure)", leg_index + 1);
-            0.0
+            // FAIL CLOSED: unknown debit is not zero debit. Book the measured move;
+            // text is withheld downstream and refunds can only recover.
+            eprintln!("[custom-route] confirm leg={}: re-read failed ({e}) -- booking unconfirmed {unconfirmed:+.6} (fail-closed)", leg_index + 1);
+            unconfirmed
         }
     }
 }
@@ -600,7 +605,7 @@ async fn complete_inner<T: CustomTransport>(
             {
                 // HOLD-vs-SETTLE: confirm the chain-level move before booking quarantine.
                 let anchor_bal = chain_start.unwrap_or(before);
-                let confirmed = confirm_settle(transport, cfg, anchor_bal, leg_index).await;
+                let confirmed = confirm_settle(transport, cfg, anchor_bal, leg_index, leg_debit).await;
                 if confirmed >= -crate::ledger::LEDGER_EPS {
                     eprintln!(
                         "[custom-route] budget-exhausted leg={}: hold released on confirm -- treating as clean",
@@ -657,7 +662,7 @@ async fn complete_inner<T: CustomTransport>(
                 // Clean (no-debit) races still retry as before.
                 if debited {
                     // HOLD-vs-SETTLE: confirm before quarantining (holds release in ~seconds).
-                    let confirmed = confirm_settle(transport, cfg, before, leg_index).await;
+                    let confirmed = confirm_settle(transport, cfg, before, leg_index, leg_debit).await;
                     if confirmed < -crate::ledger::LEDGER_EPS {
                         total_debit += confirmed;
                         eprintln!(
@@ -906,6 +911,15 @@ mod tests {
         async fn read_credits(&self) -> Result<f64, String> {
             std::future::pending().await
         }
+    }
+
+    #[tokio::test]
+    async fn confirm_oracle_outage_books_unconfirmed() {
+        // FAIL-CLOSED: oracle re-read error must book the measured move, never $0.
+        let mut t = HungOracle;
+        let cfg = fast_settings();
+        let d = confirm_settle(&mut t, &cfg, 100.0, 0, -0.42).await;
+        assert!((d - -0.42).abs() < 1e-9, "outage must book unconfirmed, got {d}");
     }
 
     fn numbered(from: usize, n: usize) -> Vec<Event> {
