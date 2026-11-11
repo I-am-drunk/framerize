@@ -670,6 +670,28 @@ pub fn text_plus_calls(text: &str, calls: &[Value]) -> Vec<Value> {
     out
 }
 
+/// Anthropic tool_use blocks -> OpenAI tool_calls shape (chat renderers). Single source;
+/// previously each chat site hand-rolled (or skipped) the mapping and shipped the wrong shape.
+pub fn tool_calls_openai(calls: &[Value]) -> Value {
+    Value::Array(
+        calls
+            .iter()
+            .enumerate()
+            .map(|(i, b)| {
+                serde_json::json!({
+                    "id": b.get("id").and_then(|v| v.as_str()).unwrap_or(""),
+                    "index": i,
+                    "type": "function",
+                    "function": {
+                        "name": b.get("name").and_then(|v| v.as_str()).unwrap_or(""),
+                        "arguments": b.get("input").map(|v| v.to_string()).unwrap_or_default(),
+                    },
+                })
+            })
+            .collect(),
+    )
+}
+
 fn tool_use_blocks(r: &AssembledResponse) -> Vec<&Value> {
     r.content.iter().filter(|b| b["type"].as_str() == Some("tool_use")).collect()
 }
@@ -946,8 +968,21 @@ fn merge(dst: &mut Value, extra: Value) {
 // tests
 // ---------------------------------------------------------------------------
 
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn tool_calls_openai_shapes_chat_calls() {
+        let calls = vec![serde_json::json!({"type": "tool_use", "id": "toolu_em0001", "name": "get_weather", "input": {"city": "Paris"}})];
+        let out = super::tool_calls_openai(&calls);
+        let c = &out[0];
+        assert_eq!(c["id"], "toolu_em0001");
+        assert_eq!(c["type"], "function");
+        assert_eq!(c["function"]["name"], "get_weather");
+        assert!(c["function"]["arguments"].as_str().unwrap().contains("Paris"));
+        assert!(super::tool_calls_openai(&[]).as_array().unwrap().is_empty());
+    }
+
     #[test]
     fn spend_terminal_maps_to_402_not_500() {
         for msg in [

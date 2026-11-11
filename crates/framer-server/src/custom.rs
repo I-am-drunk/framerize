@@ -761,7 +761,7 @@ pub(super) async fn chat_via_cutoff(
                         let prompt_tokens = prompt_chars / 4;
                         frames.push_back(chat_chunk(&id, created, &model, serde_json::json!({"role": "assistant"})));
                         if !out.assembled.tool_calls.is_empty() {
-                            frames.push_back(chat_chunk(&id, created, &model, serde_json::json!({"tool_calls": out.assembled.tool_calls})));
+                            frames.push_back(chat_chunk(&id, created, &model, serde_json::json!({"tool_calls": framer_core::convert::tool_calls_openai(&out.assembled.tool_calls)})));
                         }
                         let chars: Vec<char> = answer.chars().collect();
                         for piece in chars.chunks(400) {
@@ -1144,7 +1144,7 @@ fn chat_completion_json(
     let prompt_tokens = prompt_chars / 4;
     let has_tools = !out.assembled.tool_calls.is_empty();
     let message = if has_tools {
-        serde_json::json!({"role": "assistant", "content": if text.is_empty() { serde_json::Value::Null } else { serde_json::json!(text) }, "tool_calls": out.assembled.tool_calls})
+        serde_json::json!({"role": "assistant", "content": if text.is_empty() { serde_json::Value::Null } else { serde_json::json!(text) }, "tool_calls": framer_core::convert::tool_calls_openai(&out.assembled.tool_calls)})
     } else {
         serde_json::json!({"role": "assistant", "content": text})
     };
