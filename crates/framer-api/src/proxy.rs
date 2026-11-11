@@ -250,7 +250,13 @@ async fn attempt(
             std::sync::Mutex::new(None);
         if let Ok(mut g) = LAST_REMAINING.lock() {
             let m = g.get_or_insert_with(std::collections::HashMap::new);
-            let key = account.0.to_string();
+            // Per-(account,session) baseline (2026-11-11 -- the 493->3 audit): the old
+            // GLOBAL per-account baseline was shared by every concurrent chain, so each
+            // chain's first post compared against ANOTHER chain's pre-spend value and
+            // tripped on spend it did not cause -- every error read "ledger-moved" and
+            // every chain died the same death. Scoping the baseline to the session keeps
+            // attribution: a chain trips only on drops WITHIN its own posts.
+            let key = format!("{}:{}", account.0, chat_session);
             if let Some(prev) = m.get(&key).copied() {
                 let drop = prev - remaining;
                 if drop > 1.0 {

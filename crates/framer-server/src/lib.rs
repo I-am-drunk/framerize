@@ -794,9 +794,18 @@ fn should_retry_account(error: &str) -> bool {
     // the ledger cache dead-marks the drained scope on its next read, so the
     // re-pick routes around it. Without this, one drained workspace failed
     // the whole request in front of six funded accounts.
+    // SPEND-TERMINAL NEVER REPICKS (2026-11-11 -- the 493->3 bleed): ledger-moved /
+    // quarantined / spend-denied / breaker-tripped / credits-exhausted mean THIS request
+    // already billed somewhere. A fresh account re-sends the full input and bills AGAIN
+    // (input-side settlement at dispatch). Fail loud on the current account instead.
+    // (credits-exhausted moves here from the old arm: same reason -- the scope that died
+    // billed before dying, and the 2026-11-09 multi-workspace case is now covered by the
+    // funded-scope picker routing around dead scopes on the NEXT request, not this one.)
+    if framer_core::convert::is_spend_terminal(error) {
+        return false;
+    }
     is_castle_refusal(error) || AccountCooldown::from_error(error).is_some()
         || pool_control::cleanup_unconfirmed(error)
-        || error.ends_with("credits-exhausted")
 }
 
 /// Pick a serving account excluding the ones already tried for this request.

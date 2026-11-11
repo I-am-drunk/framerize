@@ -935,6 +935,25 @@ fn merge(dst: &mut Value, extra: Value) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn spend_terminal_maps_to_402_not_500() {
+        for msg in [
+            "ledger-moved: usage header dropped 374.00 (493.00 -> 119.00) on this account",
+            "native route: leg settled nonzero and was quarantined (no free path this attempt)",
+            "spend denied for model kimi-k3: zero-spend default is ON",
+            "breaker tripped: spend halted",
+            "no funded workspace on the selected account; pick another or credit one",
+            "chunk 0 died: credits-exhausted",
+        ] {
+            assert!(super::is_spend_terminal(msg), "must be terminal: {msg}");
+            let (st, _) = super::error_json(super::ClientDialect::AnthropicMessages, msg);
+            assert_eq!(st, 402, "spend-terminal must be 402: {msg}");
+        }
+        assert!(!super::is_spend_terminal("upstream 403 policy refusal"));
+        let (st, _) = super::error_json(super::ClientDialect::AnthropicMessages, "transport reset by peer");
+        assert_eq!(st, 500);
+    }
+
     use super::*;
 
     #[test]
@@ -1575,6 +1594,24 @@ pub fn is_context_overflow(msg: &str) -> bool {
     m.contains("maximum context length") || m.contains("context_length_exceeded") || m.contains("prompt is too long")
 }
 
+/// Spend-terminal errors: the ledger moved under this request, a leg settled nonzero
+/// and was quarantined, spend was denied, or the breaker tripped. Retrying (client OR
+/// server side) re-bills: every retry re-sends the full input and the meter settles
+/// input-side at dispatch, before any post-hoc guard can trip (proved 2026-11-11: five
+/// resumed fable chains drained 493->3 in 81s, each billed BEFORE the oracle saw it).
+/// These map to HTTP 402 (error_json below) and are excluded from account repick.
+pub fn is_spend_terminal(msg: &str) -> bool {
+    msg.starts_with("ledger-moved:")
+        || msg.contains("leg settled nonzero")
+        || msg.contains("quarantined")
+        || msg.contains("spend denied for model")
+        || msg.contains("zero-spend allowlist")
+        || msg.contains("breaker is tripped")
+        || msg.contains("breaker tripped")
+        || msg.contains("no funded workspace")
+        || msg.ends_with("credits-exhausted")
+}
+
 /// Dialect-shaped error JSON with the CORRECT status and error type — so the
 /// client sees the real upstream cause (e.g. context overflow → compact) instead
 /// of a generic 500 it retries forever ("gave up after repeated API errors").
@@ -1588,6 +1625,18 @@ pub fn error_json(d: ClientDialect, msg: &str) -> (u16, serde_json::Value) {
         None if crate::error::AccountCooldown::from_error(msg).is_some() => {
             let cooldown = crate::error::AccountCooldown::from_error(msg).expect("matched local cooldown");
             (503, format!("This account is temporarily cooling down. Retry in {} seconds.", cooldown.retry_after_secs), "overloaded_error".to_string())
+        }
+        None if is_spend_terminal(msg) => {
+            // SPEND-TERMINAL (2026-11-11 -- the 493->3 bleed): the ledger moved, a leg
+            // settled nonzero and was quarantined, spend was denied, or the breaker is
+            // tripped. This MUST NOT be a 500: a 500 tells the client (T3, max_retries 9)
+            // to resend the whole session, and each resend bills again before any
+            // post-hoc guard can trip. 402 = do not retry, fix spend state first.
+            (
+                402,
+                format!("{msg} (spend-terminal: retrying this request re-bills; not retried server-side)"),
+                "insufficient_credits".to_string(),
+            )
         }
         None => {
             let st = if msg.contains("risk-refused") { 403 } else { 500 };

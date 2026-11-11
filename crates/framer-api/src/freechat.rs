@@ -228,12 +228,25 @@ pub async fn complete_long(
                 // cannot change a policy decision, so the retry below would
                 // only spend a second request to be refused identically.
                 let upstream_refused = e.starts_with("upstream 403");
+                // SPEND-TERMINAL NEVER HALVE-RETRIES (2026-11-11): ledger-moved /
+                // quarantined / spend-denied / breaker / credits-exhausted mean this
+                // request already billed somewhere; a halve-and-refire re-sends the
+                // full input and bills input-side again. Fail loud instead.
+                // (Must stay in sync with framer-core convert::is_spend_terminal.)
+                let spend_terminal = e.starts_with("ledger-moved:")
+                    || e.contains("leg settled nonzero")
+                    || e.contains("quarantined")
+                    || e.contains("spend denied for model")
+                    || e.contains("zero-spend allowlist")
+                    || e.contains("breaker is tripped")
+                    || e.contains("breaker tripped")
+                    || e.contains("no funded workspace")
+                    || e.ends_with("credits-exhausted");
                 let transport_died = !upstream_refused
                     && e != "risk-refused"
-                    && e != "credits-exhausted"
                     && e != "unauthorized"
                     && !e.starts_with("retryable 4")
-                    && !e.starts_with("ledger-moved");
+                    && !spend_terminal;
                 if !((idle_killed || transport_died) && chunk_tokens > 200) {
                     return Err(e);
                 }
