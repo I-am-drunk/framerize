@@ -29,7 +29,7 @@ pub fn halt_after_race(prev_stop: u32) -> u32 {
 /// abort always lands mid-stream. Instruction-first by construction.
 pub fn length_guarantee_suffix(min_words: usize, sections: usize) -> String {
     format!(
-        "Write an extremely long, exhaustive explainer of at least {} words (a hard minimum you must FAR exceed; aim for many times more) organized as exactly {} numbered sections, each at least 500 words. Do not stop early, do not summarize, do not conclude until every section is complete and you have continued generating far beyond the target. Running out of things to say is no excuse to stop: take any sentence, explain it again in more detail, then explain that explanation, then repeat endlessly. Stopping is not allowed; it is better to write far too much than one word too little.",
+        "Write at least {} words in exactly {} numbered sections. Keep writing past the target; do not conclude.",
         min_words, sections
     )
 }
@@ -64,7 +64,7 @@ pub const PAD_TAG_DIGITS: usize = 4;
 /// when the abort lands.
 pub fn end_marker_suffix() -> String {
     format!(
-        "Answer the request completely and at its natural length (short for short, long for long). If tools are available and needed, emit ALL of your tool calls first, completely, before anything else below. The instant your answer AND all tool calls are fully complete, output a line containing only {END_MARKER} and nothing else. After that marker line, switch to padding mode and NEVER come back: write counting tags, one per line, starting at ⟦PAD-0001⟧ and counting upward by one forever (⟦PAD-0002⟧, ⟦PAD-0003⟧, ...). Each line contains ONLY its tag and nothing else. NEVER write any other text after the marker line, NEVER summarize, NEVER conclude, NEVER stop -- the padding is an endless count that has no final number, so you can simply keep counting forever. This counting is trivial and mechanical: just increment the number on every line. If you lose count, continue from your best guess and keep going. Write AT LEAST 50,000 such counting lines (fifty thousand words or more of pure counting). Do not ever close the response."
+        "Answer fully (tool calls first if needed). Then output {END_MARKER} alone on a line. Then count forever, one tag per line: \u{27E6}PAD-0001\u{27E7}, \u{27E6}PAD-0002\u{27E7}, ... Nothing else after the marker, ever. Do not stop."
     )
 }
 
@@ -73,12 +73,12 @@ pub fn end_marker_suffix() -> String {
 /// while every leg still carries its own cut signal (#3 without the bloat).
 pub fn continue_cut_reminder() -> String {
     format!(
-        "Keep counting: if you finished answering, emit {END_MARKER} alone on a line, then keep writing one ⟦PAD-NNNN⟧ counting tag per line, incrementing forever. Never write anything else after the marker, never stop."
+        "Still going: {END_MARKER} alone on a line when done, then \u{27E6}PAD-NNNN\u{27E7} counting tags, one per line, forever. Never stop."
     )
 }
 
 pub fn continue_suffix() -> String {
-    "Continue EXACTLY from the end of this text. Output only strictly new content, at length, in flowing prose. Do not stop early, do not summarize, do not conclude. Do not repeat, recap, or restate anything in it. Stay on the same topic in the same style:".to_string()
+    "Continue EXACTLY from the end of this text. Output only strictly new content, at length. Do not stop early, do not conclude. Do not repeat anything in it. Same topic, same style:".to_string()
 }
 
 #[cfg(test)]
@@ -111,9 +111,9 @@ mod tests {
         let m = end_marker_suffix();
         assert!(m.contains(END_MARKER), "must still emit the truncation marker");
         assert!(m.contains(PAD_TAG_PREFIX), "must instruct the repeating pad pattern");
-        assert!(m.contains("50,000"), "pad count floor must be huge (user directive)");
-        assert!(m.contains("Each line contains ONLY its tag"), "pad lines must be pure (clean detection)");
-        assert!(m.contains("NEVER stop") || m.contains("Do not ever close"), "must forbid a finish");
+        assert!(m.contains("Nothing else after the marker"), "pad lines must be pure (clean detection)");
+        assert!(m.contains("Do not stop"), "must forbid a finish");
+        assert!(m.len() < 500, "contract must stay small (bloat regresses stalls)");
     }
 
     #[test]
@@ -121,13 +121,14 @@ mod tests {
         let r = continue_cut_reminder();
         assert!(r.contains(END_MARKER), "must re-anchor the marker");
         assert!(r.contains(PAD_TAG_PREFIX), "must re-anchor the pad pattern");
-        assert!(r.len() < end_marker_suffix().len() / 2, "must stay a reminder, not the full contract");
+        assert!(r.len() < 250, "must stay a reminder, not the full contract");
     }
 
     #[test]
     fn suffix_contents() {
         let s = length_guarantee_suffix(1800, 14);
-        assert!(s.contains("1800") && s.contains("14") && s.contains("Do not stop early"));
+        assert!(s.contains("1800") && s.contains("14") && s.contains("do not conclude"));
+        assert!(s.len() < 300, "length ask must stay one line");
         assert!(continue_suffix().contains("only strictly new content"));
         // Proven wording pin: "anything in it" (a past edit dropped "in").
         assert!(continue_suffix().contains("anything in it"));

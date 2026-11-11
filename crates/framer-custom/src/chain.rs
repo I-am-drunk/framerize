@@ -1266,7 +1266,7 @@ mod tests {
         let msgs = leg1["messages"].as_array().unwrap();
         assert_eq!(msgs.len(), 2);
         assert_eq!(msgs[0]["role"], "system");
-        assert!(msgs[0]["content"].as_str().unwrap().contains("words"));
+        assert!(msgs[0]["content"].as_str().unwrap().contains("count forever"), "cut contract present");
         assert_eq!(msgs[1]["role"], "user");
         assert_eq!(msgs[1]["content"], "write a poem");
 
