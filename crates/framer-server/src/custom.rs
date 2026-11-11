@@ -27,6 +27,7 @@
 //! envelope before open_stream. Gate (per workspace x model), residency
 //! observation, and account-health recording all mirror native_complete.
 
+use crate::{retain_owner, AbortOnDrop};
 use super::{current_account, hdr, pick_funded_scope, record_account_health, stable_session, ApiError, AppState};
 use super::pool_control::{lease_account, RequestResidency};
 use async_trait::async_trait;
@@ -729,12 +730,15 @@ pub(super) async fn chat_via_cutoff(
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<CutoffOutcome, ApiError>>(1);
     let model2 = model.clone();
     let headers2 = headers.clone();
-    tokio::spawn(async move {
+    // DISCONNECT KILLS THE CHAIN (#2): a bare spawn outlives a dropped response --
+    // dead clients kept opening legs for nobody. AbortOnDrop + retain_owner ties the
+    // chain task's life to the response body.
+    let handle = AbortOnDrop(tokio::spawn(async move {
         let out =
             cutoff_run(s, &headers2, framer_custom::ChainRequest::Chat(payload), &model2, None, None)
                 .await;
         let _ = tx.send(out).await;
-    });
+    }));
     let id = format!("chatcmpl-{}", uuid::Uuid::new_v4().simple());
     let created = framer_core::rotation::now_ms() / 1000;
     let mut frames: std::collections::VecDeque<String> = std::collections::VecDeque::new();
@@ -807,6 +811,7 @@ pub(super) async fn chat_via_cutoff(
             }
         },
     );
+    let stream = retain_owner(stream, handle);
     let mut resp = axum::response::Response::new(axum::body::Body::from_stream(stream));
     resp.headers_mut().insert(
         axum::http::header::CONTENT_TYPE,
@@ -838,10 +843,13 @@ pub(super) async fn responses_via_cutoff(
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<CutoffOutcome, ApiError>>(1);
     let headers2 = headers.clone();
     let model2 = model.clone();
-    tokio::spawn(async move {
+    // DISCONNECT KILLS THE CHAIN (#2): a bare spawn outlives a dropped response --
+    // dead clients kept opening legs for nobody. AbortOnDrop + retain_owner ties the
+    // chain task's life to the response body.
+    let handle = AbortOnDrop(tokio::spawn(async move {
         let out = cutoff_run(s, &headers2, framer_custom::ChainRequest::Chat(chat), &model2, None, None).await;
         let _ = tx.send(out).await;
-    });
+    }));
     let stream = futures::stream::unfold((rx, false), move |(mut rx, done)| {
         let model = model.clone();
         async move {
@@ -874,6 +882,7 @@ pub(super) async fn responses_via_cutoff(
             }
         }
     });
+    let stream = retain_owner(stream, handle);
     let mut resp = axum::response::Response::new(axum::body::Body::from_stream(stream));
     resp.headers_mut().insert(
         axum::http::header::CONTENT_TYPE,
@@ -937,7 +946,10 @@ pub(super) async fn anthro_via_cutoff(
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<CutoffOutcome, ApiError>>(1);
     let model2 = model.clone();
     let headers2 = headers.clone();
-    tokio::spawn(async move {
+    // DISCONNECT KILLS THE CHAIN (#2): a bare spawn outlives a dropped response --
+    // dead clients kept opening legs for nobody. AbortOnDrop + retain_owner ties the
+    // chain task's life to the response body.
+    let handle = AbortOnDrop(tokio::spawn(async move {
         let out = cutoff_run(
             s,
             &headers2,
@@ -948,7 +960,7 @@ pub(super) async fn anthro_via_cutoff(
         )
         .await;
         let _ = tx.send(out).await;
-    });
+    }));
     let stream = futures::stream::unfold((rx, false), move |(mut rx, done)| {
         let model = model.clone();
         async move {
@@ -989,6 +1001,7 @@ pub(super) async fn anthro_via_cutoff(
             }
         }
     });
+    let stream = retain_owner(stream, handle);
     let mut resp = axum::response::Response::new(axum::body::Body::from_stream(stream));
     resp.headers_mut().insert(
         axum::http::header::CONTENT_TYPE,

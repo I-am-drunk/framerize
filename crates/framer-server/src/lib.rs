@@ -51,7 +51,7 @@ pub struct AppState {
 /// work nobody was reading ("zombie chains", 2026-10-05: the user's cancelled
 /// T3 sessions kept consuming concurrency + velocity, and later requests
 /// errored). This guard aborts the task on drop.
-struct AbortOnDrop<T>(tokio::task::JoinHandle<T>);
+pub(crate) struct AbortOnDrop<T>(tokio::task::JoinHandle<T>);
 impl<T> Drop for AbortOnDrop<T> {
     fn drop(&mut self) {
         self.0.abort();
@@ -471,7 +471,7 @@ async fn compat_forward(
 
 /// Fold an upstream SSE stream into the dialect's non-streaming JSON response.
 /// Verified event shapes in reference/analysis/verified-captures-2026-10-01.md.
-fn retain_owner<S: futures::Stream, T>(stream: S, owner: T) -> impl futures::Stream<Item = S::Item> {
+pub(crate) fn retain_owner<S: futures::Stream, T>(stream: S, owner: T) -> impl futures::Stream<Item = S::Item> {
     use futures::StreamExt;
     stream.map(move |item| { let _ = &owner; item })
 }
