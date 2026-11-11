@@ -232,7 +232,8 @@ pub async fn complete_long(
                     && e != "risk-refused"
                     && e != "credits-exhausted"
                     && e != "unauthorized"
-                    && !e.starts_with("retryable 4");
+                    && !e.starts_with("retryable 4")
+                    && !e.starts_with("ledger-moved");
                 if !((idle_killed || transport_died) && chunk_tokens > 200) {
                     return Err(e);
                 }
@@ -351,7 +352,13 @@ pub async fn complete_long(
             // 3-5k-token writes were cut twice and the chain errored out —
             // 99 such deaths on 2026-10-04).
             tool_cut_retries += 1;
-            let budget = ((tps * 70.0) as u32).clamp(1200, 5000).max(chunk_tokens);
+            // SPEND-SAFETY CAP (2026-11-11 -- the 493->3 bleed): the retry's purpose is
+            // the SPLIT INSTRUCTION, not a bigger window. The old throughput formula
+            // (up to 5000 tokens) re-fired a giant bundled post that billed ~14 and
+            // tripped the oracle, and T3 retried the 500 into an 81-second drain.
+            // Retries NEVER grow the window: same 600 as chunk 0. A second cut goes to
+            // the metered-streaming arm (explicit opt-in; off on prod = clean error).
+            let budget = 600u32;
             eprintln!("[freechat] chunk {i} cut mid-tool_use — free retry #{tool_cut_retries} (max_tokens={budget}, measured {tps:.0} tok/s, instructing split)");
             chunk_tokens = budget;
             ctok = ctok.saturating_sub(out_t);

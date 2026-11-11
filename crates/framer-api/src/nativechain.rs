@@ -246,7 +246,8 @@ pub async fn complete_long(
                     && e != "risk-refused"
                     && e != "credits-exhausted"
                     && e != "unauthorized"
-                    && !e.starts_with("retryable 4");
+                    && !e.starts_with("retryable 4")
+                    && !e.starts_with("ledger-moved");
                 if !((idle_killed || transport_died) && chunk_tokens > 200) {
                     return Err(e);
                 }
