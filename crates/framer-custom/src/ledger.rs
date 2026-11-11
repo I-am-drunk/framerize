@@ -15,8 +15,19 @@ pub const LEDGER_EPS: f64 = 1e-4;
 // a changed meter must be re-proved, not assumed back).
 static CUT_SPENT: std::sync::Mutex<Option<u64>> = std::sync::Mutex::new(None);
 
+/// Floor: only settles bigger than this trip the GLOBAL breaker. Dust (<=0.05,
+/// confirmed-persistent meter behavior on short legs, live-measured) quarantines the
+/// REQUEST (withhold + 402) but must not halt ALL serving -- tripping on dust wedged
+/// the system on ghosts (5 trips in 20 min, pool barely moving). Large settles signal
+/// a changed meter or a billed path and halt everything until an operator re-proves.
+pub const BREAKER_TRIP_FLOOR: f64 = 0.05;
+
 /// Latch the breaker (called with the observed debit for the log line).
 pub fn trip_spend_breaker(debit: f64) {
+    if debit.abs() <= BREAKER_TRIP_FLOOR {
+        eprintln!("[spend-breaker] dust {debit:+.6} (under floor {BREAKER_TRIP_FLOOR}) -- request quarantined, breaker NOT tripped");
+        return;
+    }
     if let Ok(mut g) = CUT_SPENT.lock() {
         if g.is_none() {
             *g = Some(now_ms());

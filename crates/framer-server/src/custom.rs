@@ -2034,7 +2034,11 @@ mod tests {
         let _env = ENV_LOCK.lock().unwrap();
         framer_custom::ledger::reset_spend_breaker();
         assert!(!framer_custom::ledger::spend_breaker_tripped());
+        // Dust (at/below floor) quarantines the request WITHOUT tripping.
         framer_custom::ledger::trip_spend_breaker(-0.05);
+        assert!(!framer_custom::ledger::spend_breaker_tripped());
+        // Large settles trip.
+        framer_custom::ledger::trip_spend_breaker(-2.71);
         assert!(framer_custom::ledger::spend_breaker_tripped());
         framer_custom::ledger::reset_spend_breaker();
         assert!(!framer_custom::ledger::spend_breaker_tripped());
