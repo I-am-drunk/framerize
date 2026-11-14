@@ -125,7 +125,7 @@ pub fn account_might_bill(a: &ManagedAccount) -> bool {
 // credits and caused the credits-exhausted chains).
 static LIVE_BAL: Mutex<Option<HashMap<String, (f64, u64)>>> = Mutex::new(None);
 /// Fresh-read horizon: balance reads older than this are re-fetched.
-pub const LIVE_BAL_TTL_MS: u64 = 60_000;
+pub const LIVE_BAL_TTL_MS: u64 = 1_000;  // was 60s: real charges were hidden for a minute. Now near-real-time.
 
 /// The cached live balance for a workspace, only when fresh.
 pub fn cached_live_balance(team: &str) -> Option<f64> {

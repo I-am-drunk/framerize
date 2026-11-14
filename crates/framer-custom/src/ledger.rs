@@ -51,12 +51,26 @@ fn latch_present() -> bool {
 /// the system on ghosts (5 trips in 20 min, pool barely moving). Large settles signal
 /// a changed meter or a billed path and halt everything until an operator re-proves.
 pub const BREAKER_TRIP_FLOOR: f64 = 0.05;
+/// Aggregate floor: trip the global breaker when the *sum* of sub-floor debits
+/// exceeds this, too. The old per-debit-only floor let N tiny dust settles
+/// (and a large confirmed settle) bleed silently -- the live -0.936 unmetered
+/// drain never tripped it. Aggregate catches the total, not just the largest.
+pub const AGGREGATE_TRIP_FLOOR: f64 = 0.20;
+static AGGREGATE_DEBIT_UX: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
 
 /// Latch the breaker (called with the observed debit for the log line).
 pub fn trip_spend_breaker(debit: f64) {
-    if debit.abs() <= BREAKER_TRIP_FLOOR {
-        eprintln!("[spend-breaker] dust {debit:+.6} (under floor {BREAKER_TRIP_FLOOR}) -- request quarantined, breaker NOT tripped");
-        return;
+    use std::sync::atomic::Ordering;
+    let mag = debit.abs();
+    if mag > 0.0 {
+        let ux = (mag * 1e6) as i64;
+        let prev = AGGREGATE_DEBIT_UX.fetch_add(ux, Ordering::SeqCst);
+        let agg = (prev + ux) as f64 / 1e6;
+        if mag <= BREAKER_TRIP_FLOOR && agg <= AGGREGATE_TRIP_FLOOR {
+            eprintln!("[spend-breaker] dust {debit:+.6} (under floor; agg {agg:.6} <= {AGGREGATE_TRIP_FLOOR}) -- quarantine only, breaker NOT tripped");
+            return;
+        }
+        eprintln!("[spend-breaker] debit {debit:+.6} agg {agg:.6} >= floor -> TRIP");
     }
     if let Ok(mut g) = CUT_SPENT.lock() {
         if g.is_none() {
@@ -88,9 +102,11 @@ pub fn spend_breaker_tripped() -> bool {
 
 /// Operator reset (wired to the status route's POST reset).
 pub fn reset_spend_breaker() {
+    use std::sync::atomic::Ordering;
     if let Ok(mut g) = CUT_SPENT.lock() {
         *g = None;
     }
+    AGGREGATE_DEBIT_UX.store(0, Ordering::SeqCst);
     latch_clear();
     eprintln!("[spend-breaker] RESET by operator");
 }
