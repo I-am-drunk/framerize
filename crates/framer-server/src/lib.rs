@@ -11,6 +11,7 @@ use framer_core::convert::{self, ClientDialect};
 use framer_core::error::AccountCooldown;
 use framer_core::ids::AccountId;
 use framer_core::pipeline::{self, Deps, InferenceOutcome, InferenceRequest};
+use framer_core::workspace::CreditSnapshot;
 #[cfg(test)]
 use framer_core::port::{BrowserBridge, FramerClient, SessionStore, StateStore};
 use serde::Deserialize;
@@ -1129,7 +1130,24 @@ async fn record_account_health<T>(
                 || next.cooldown_cause != account.cooldown_cause
                 || next.consecutive_failures != account.consecutive_failures { return; }
             s.wave.note_success();
-            if next.consecutive_failures == 0 && next.cooling_until_ms.is_none() {
+            // Persist the balance the completed upstream call reported instead
+            // of the import-time snapshot. The compat routes run the chain
+            // directly and never reach pipeline::run, so this completion hook
+            // is their only balance write.
+            let balance_changed = match s.browser.take_usage_remaining(&account.id).await {
+                Some(remaining) => {
+                    let mut credit = next.credit.unwrap_or(CreditSnapshot {
+                        available: remaining, funds: 0, grants: 0, allocated: 0.0,
+                    });
+                    let changed = credit.available != remaining;
+                    credit.available = remaining;
+                    next.credit = Some(credit);
+                    changed
+                }
+                None => false,
+            };
+            if next.consecutive_failures == 0 && next.cooling_until_ms.is_none()
+                && !balance_changed {
                 return; // already clean; skip the write
             }
             next.note_success();

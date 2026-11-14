@@ -499,6 +499,9 @@ pub struct CdpBridge {
     proxies: std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, String>>>,
     instances: Mutex<HashMap<AccountId, Arc<Mutex<CdpInstance>>>>,
     routes: Mutex<HashMap<AccountId, Arc<Mutex<CdpAccountRoute>>>>,
+    /// One-shot `remaining` from the newest `X-Framer-AI-Usage` header per
+    /// account, consumed by the completion that observed it.
+    usage_remaining: Mutex<HashMap<AccountId, f64>>,
 }
 
 impl CdpBridge {
@@ -519,6 +522,7 @@ impl CdpBridge {
             proxies: std::sync::Arc::new(tokio::sync::RwLock::new(HashMap::new())),
             instances: Mutex::new(HashMap::new()),
             routes: Mutex::new(HashMap::new()),
+            usage_remaining: Mutex::new(HashMap::new()),
         }
     }
 
@@ -859,6 +863,10 @@ impl BrowserBridge for CdpBridge {
         let v = g.eval_long(ai_post_expr(path, bearer, body)).await?;
         let status = v["status"].as_i64().unwrap_or(-1);
         let usage = v["usage"].as_str().map(|s| s.to_string());
+        if let Some(remaining) = usage.as_deref()
+            .and_then(framer_core::credits::parse_usage_header) {
+            self.usage_remaining.lock().await.insert(*account, remaining);
+        }
         let text = v["body"].as_str().unwrap_or("").to_string();
         if status == 0 {
             return Err("castle-v3-unavailable".into());
@@ -877,6 +885,10 @@ impl BrowserBridge for CdpBridge {
             );
         }
         Ok((status as u16, usage, text))
+    }
+
+    async fn take_usage_remaining(&self, account: &AccountId) -> Option<f64> {
+        self.usage_remaining.lock().await.remove(account)
     }
 
     async fn rotate_identity(&self, account: &AccountId) -> Result<(), String> {

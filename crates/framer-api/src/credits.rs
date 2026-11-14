@@ -67,8 +67,5 @@ pub async fn usage(
 
 /// `X-Framer-AI-Usage` is URLSearchParams ("remaining=484.875&…").
 pub fn parse_usage_header(value: &str) -> Option<f64> {
-    value.split('&').find_map(|kv| {
-        let (k, v) = kv.split_once('=')?;
-        if k == "remaining" { v.parse().ok() } else { None }
-    })
+    framer_core::credits::parse_usage_header(value)
 }

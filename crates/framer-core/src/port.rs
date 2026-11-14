@@ -179,6 +179,14 @@ pub trait BrowserBridge: Send + Sync {
         0
     }
 
+    /// Consume the most recent `X-Framer-AI-Usage` remaining balance observed
+    /// for this account. It is one-shot so a completed request persists only
+    /// the balance that request actually saw; bridges that do not capture the
+    /// header report None.
+    async fn take_usage_remaining(&self, _account: &AccountId) -> Option<f64> {
+        None
+    }
+
     /// Fresh-device escape hatch: drop the account's browser, wipe its profile
     /// (cookies/storage/fingerprint surface). The daemon's stored session is
     /// unaffected — the browser is only the Castle minting device. Pair with a

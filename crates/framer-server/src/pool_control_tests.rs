@@ -107,6 +107,8 @@ struct Ports {
     request_drops: Arc<AtomicUsize>,
     response_gate: Arc<Semaphore>,
     response_drops: Arc<AtomicUsize>,
+    /// Observed `X-Framer-AI-Usage` balances, consumed on completion.
+    usage_remaining: Mutex<HashMap<AccountId, f64>>,
 }
 
 struct CountDrop(Arc<AtomicUsize>);
@@ -149,6 +151,7 @@ impl Ports {
             request_steps: AtomicUsize::new(0), request_finished: AtomicUsize::new(0),
             request_drops: Arc::new(AtomicUsize::new(0)),
             response_gate: Arc::new(Semaphore::new(0)), response_drops: Arc::new(AtomicUsize::new(0)),
+            usage_remaining: Mutex::new(HashMap::new()),
         }
     }
     fn event(&self, kind: &'static str, id: AccountId) {
@@ -296,6 +299,11 @@ impl BrowserBridge for Ports {
             self.rotate_reply.lock().unwrap().take()
                 .unwrap_or(Ok(()))
         })
+    }
+    fn take_usage_remaining<'s, 'b, 'a>(&'s self, account: &'b AccountId)
+        -> BoxFuture<'a, Option<f64>>
+    where 's: 'a, 'b: 'a, Self: 'a {
+        Box::pin(async move { self.usage_remaining.lock().unwrap().remove(account) })
     }
 }
 

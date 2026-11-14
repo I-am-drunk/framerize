@@ -12,6 +12,18 @@ use crate::pipeline::Deps;
 use crate::port::Session;
 use crate::workspace::CreditSnapshot;
 
+/// `X-Framer-AI-Usage` is URLSearchParams ("remaining=484.875&...").
+///
+/// Every successful `/ai/v3/*` response carries it, so a live balance is
+/// already in hand without the rate-limited ledger endpoint. Both the direct
+/// inference path and the browser bridges parse it through this helper.
+pub fn parse_usage_header(value: &str) -> Option<f64> {
+    value.split('&').find_map(|kv| {
+        let (k, v) = kv.split_once('=')?;
+        if k == "remaining" { v.parse().ok() } else { None }
+    })
+}
+
 /// Ensure the account points at a credited workspace. Cheap path: keep the current
 /// team if its cached snapshot still shows credits.
 pub async fn ensure_workspace(

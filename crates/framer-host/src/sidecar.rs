@@ -201,6 +201,10 @@ pub struct SidecarBridge {
     /// reports how long the request waited for a free page; callers subtract it
     /// before estimating upstream tok/s.
     queue_wait: Mutex<HashMap<AccountId, u64>>,
+    /// Per-account `remaining` from the most recent `X-Framer-AI-Usage`
+    /// header. One-shot: the completion that observed it consumes it so the
+    /// stored credit snapshot tracks real spend.
+    usage_remaining: Mutex<HashMap<AccountId, f64>>,
 }
 
 #[cfg(test)]
@@ -243,6 +247,7 @@ impl SidecarBridge {
             inner: Mutex::new(None),
             routes: Mutex::new(HashMap::new()),
             queue_wait: Mutex::new(HashMap::new()),
+            usage_remaining: Mutex::new(HashMap::new()),
         }
     }
 
@@ -537,6 +542,10 @@ impl SidecarBridge {
         let ai_result::OwnedAiPostResult { status, usage, text, queue_wait_ms } =
             ai_result::take_ai_post_result(value)?;
         self.queue_wait.lock().await.insert(*account, queue_wait_ms);
+        if let Some(remaining) = usage.as_deref()
+            .and_then(framer_core::credits::parse_usage_header) {
+            self.usage_remaining.lock().await.insert(*account, remaining);
+        }
         if status == 0 {
             if text.starts_with("velocity-paused:") {
                 return Ok((0, usage, text));
@@ -687,6 +696,10 @@ impl BrowserBridge for SidecarBridge {
 
     async fn last_queue_wait_ms(&self, account: &AccountId) -> u64 {
         self.queue_wait.lock().await.get(account).copied().unwrap_or(0)
+    }
+
+    async fn take_usage_remaining(&self, account: &AccountId) -> Option<f64> {
+        self.usage_remaining.lock().await.remove(account)
     }
 
     async fn set_proxy(&self, account: &AccountId, proxy: Option<String>) -> Result<(), String> {
