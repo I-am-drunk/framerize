@@ -5,6 +5,7 @@ use crate::account::{AccountState, ManagedAccount};
 use crate::credits;
 use crate::error::{AccountCooldown, CoreError};
 use crate::port::{BrowserBridge, FramerClient, Session, SessionStore, StateStore, WorkspaceSpec};
+use crate::workspace::CreditSnapshot;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,6 +110,7 @@ pub async fn run(
     };
     match initial {
         Ok(InferenceResult::Completed(outcome)) => {
+            record_success(deps, account, &outcome).await;
             account.consecutive_failures = 0;
             Ok(outcome)
         }
@@ -132,7 +134,10 @@ pub async fn run(
                 result => result,
             };
             match retry {
-                Ok(InferenceResult::Completed(outcome)) => Ok(outcome),
+                Ok(InferenceResult::Completed(outcome)) => {
+                    record_success(deps, account, &outcome).await;
+                    Ok(outcome)
+                }
                 Ok(InferenceResult::Exhausted { reason }) => {
                     deps.update(account, |current| current.state = AccountState::Exhausted).await?;
                     Err(CoreError::NotEligible(format!(
@@ -143,6 +148,40 @@ pub async fn run(
             }
         }
         Err(e) => Err(inference_error(deps, account, e).await),
+    }
+}
+
+/// Persist a completed run's live balance.
+///
+/// `X-Framer-AI-Usage` rides every successful `/ai/v3/*` response, so the
+/// exact remaining balance is already in hand here. Before this, the header
+/// was only logged (`proxy.rs`, `credits.usage_header`) and the persisted
+/// snapshot stayed frozen at import time — `/api/accounts` reported a balance
+/// that could not move, which made any spend measurement untrustworthy.
+///
+/// Telemetry must never fail a served request, so a rejected write (e.g. the
+/// account's scope changed concurrently) is logged and swallowed. Only
+/// `available` comes from the header; grant/fund counts belong to the ledger
+/// and are preserved.
+async fn record_success(
+    deps: &Deps<'_>,
+    account: &mut ManagedAccount,
+    outcome: &InferenceOutcome,
+) {
+    let Some(remaining) = outcome.credits_remaining else { return };
+    let result = deps.update(account, |current| {
+        let mut credit = current.credit.unwrap_or(CreditSnapshot {
+            available: remaining,
+            funds: 0,
+            grants: 0,
+            allocated: 0.0,
+        });
+        credit.available = remaining;
+        current.credit = Some(credit);
+    })
+    .await;
+    if let Err(error) = result {
+        eprintln!("[credits] live balance not recorded: {error}");
     }
 }
 

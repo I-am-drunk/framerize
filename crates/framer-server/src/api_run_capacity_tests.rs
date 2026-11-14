@@ -66,12 +66,18 @@ async fn after_session(state: &AppState, ports: &FixturePorts,
     (response, expected, before, framer_core::rotation::now_ms())
 }
 
-fn preserved(state: &AppState, ports: &FixturePorts, expected: &Value, called: bool) {
-    assert_eq!(&records(ports), expected);
+fn preserved(state: &AppState, ports: &FixturePorts, expected: &Value,
+    called: bool, live_balance: Option<f64>) {
+    let mut expected = expected.clone();
+    if let Some(remaining) = live_balance {
+        // A served run persists the balance it observed.
+        expected[0]["credit"]["available"] = json!(remaining);
+    }
+    assert_eq!(&records(ports), &expected);
     assert_eq!(ports.session_calls.load(Ordering::SeqCst), 1);
     assert_eq!(ports.client_calls.load(Ordering::SeqCst), usize::from(called));
     assert_eq!(ports.browser_calls.load(Ordering::SeqCst), 0);
-    assert_eq!(ports.state_writes.load(Ordering::SeqCst), 0);
+    assert_eq!(ports.state_writes.load(Ordering::SeqCst), usize::from(live_balance.is_some()));
     let selected = account(1);
     let calls = if called { vec![(selected.framer_user_id, selected.id, selected.current_project.unwrap())] }
         else { Vec::new() };
@@ -141,7 +147,7 @@ async fn api_run_typed_cooldown_preserves_deadline_and_bounds_http_retry() {
                 "retry_after_seconds":retry,"cooldown_remaining_seconds":remaining}}));
         } else { drop(response); }
         finished(&state, &scope, &gate).await;
-        preserved(&state, &ports, &expected, false);
+        preserved(&state, &ports, &expected, false, None);
         assert!(ports.run_reply.lock().unwrap().is_some());
     } } }
 }
@@ -164,7 +170,7 @@ async fn api_run_typed_not_ready_refuses_after_session_without_peer_substitution
                     format!("account state is {lifecycle:?}; inference requires Ready").as_bytes());
             } else { drop(response); }
             finished(&state, &scope, &gate).await;
-            preserved(&state, &ports, &expected, false);
+            preserved(&state, &ports, &expected, false, None);
             assert!(ports.run_reply.lock().unwrap().is_some());
         }
     }
@@ -185,7 +191,7 @@ async fn api_run_expired_current_deadline_keeps_ready_success() {
                 serde_json::to_value(outcome()).unwrap());
         } else { drop(response); }
         finished(&state, &scope, &gate).await;
-        preserved(&state, &ports, &expected, true);
+        preserved(&state, &ports, &expected, true, Some(95.0));
         assert!(ports.run_reply.lock().unwrap().is_none());
     } }
 }
@@ -220,7 +226,7 @@ async fn api_run_changed_scope_and_missing_record_are_not_capacity_errors() {
                 assert_eq!(to_bytes(response.into_body(), 65536).await.unwrap().as_ref(), expected_error.as_bytes());
             } else { drop(response); }
             finished(&state, &scope, &gate).await;
-            preserved(&state, &ports, &expected, false);
+            preserved(&state, &ports, &expected, false, None);
             assert!(ports.run_reply.lock().unwrap().is_some());
         }
     }
@@ -239,7 +245,7 @@ async fn api_run_capacity_words_in_upstream_errors_do_not_change_their_category(
             assert_eq!(to_bytes(response.into_body(), 65536).await.unwrap().as_ref(), expected_error.as_bytes());
         } else { drop(response); }
         finished(&state, &scope, &gate).await;
-        preserved(&state, &ports, &expected, true);
+        preserved(&state, &ports, &expected, true, None);
         assert!(ports.run_error.lock().unwrap().is_none());
         assert!(ports.run_reply.lock().unwrap().is_some());
     } }
@@ -262,7 +268,8 @@ async fn api_run_mismatched_session_keeps_noncapacity_refusal() {
                 b"account not eligible: workspace session owner mismatch");
         } else { drop(response); }
         finished(&state, &scope, &gate).await;
-        preserved(&state, &ports, &expected, false);
+        preserved(&state, &ports, &expected, false, None);
         assert!(ports.run_reply.lock().unwrap().is_some());
     }
 }
+

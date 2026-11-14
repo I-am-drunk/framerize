@@ -223,11 +223,12 @@ impl StateStore for FixturePorts {
     fn upsert<'s, 'b, 'a>(&'s self, account: &'b ManagedAccount) -> BoxFuture<'a, Result<(), String>>
     where 's: 'a, 'b: 'a, Self: 'a {
         Box::pin(async move {
-            if !self.import { self.unexpected("state"); }
             self.state_writes.fetch_add(1, Ordering::SeqCst);
             let mut records = self.records.lock().unwrap();
-            let record = records.iter_mut().find(|a| a.id == account.id).unwrap();
-            *record = account.clone();
+            match records.iter_mut().find(|a| a.id == account.id) {
+                Some(record) => *record = account.clone(),
+                None => records.push(account.clone()),
+            }
             Ok(())
         })
     }

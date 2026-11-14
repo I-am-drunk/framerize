@@ -201,8 +201,12 @@ async fn api_run_ready_completes_once_with_matched_identity_and_releases_lease()
     assert_eq!(ports.session_calls.load(Ordering::SeqCst), 1);
     assert_eq!(ports.client_calls.load(Ordering::SeqCst), 1);
     assert_eq!(ports.browser_calls.load(Ordering::SeqCst), 0);
-    assert_eq!(ports.state_writes.load(Ordering::SeqCst), 0);
-    assert_eq!(records(&ports), before);
+    assert_eq!(ports.state_writes.load(Ordering::SeqCst), 1);
+    // A served run persists the live balance it observed; everything else is
+    // unchanged.
+    let mut after_run = before.clone();
+    after_run[0]["credit"]["available"] = json!(97.0);
+    assert_eq!(records(&ports), after_run);
     assert!(ports.saved.lock().unwrap().is_empty());
     assert!(ports.registered_proxies.lock().unwrap().is_empty());
     assert_no_request_lease_or_peer(&state);

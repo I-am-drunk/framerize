@@ -46,15 +46,20 @@ fn prepared() -> (AppState, Arc<FixturePorts>, Arc<ServingOwnership>, OperationG
     (state, ports, ownership, gate)
 }
 
-fn assert_one_call(ports: &FixturePorts, before: &Value) {
+fn assert_one_call(ports: &FixturePorts, before: &Value, live_balance: Option<f64>) {
     let target = account(1);
     assert_eq!(*ports.run_calls.lock().unwrap(), vec![(target.framer_user_id,
         target.id, target.current_project.unwrap())]);
     assert_eq!(ports.session_calls.load(Ordering::SeqCst), 1);
     assert_eq!(ports.client_calls.load(Ordering::SeqCst), 1);
     assert_eq!(ports.browser_calls.load(Ordering::SeqCst), 0);
-    assert_eq!(ports.state_writes.load(Ordering::SeqCst), 0);
-    assert_eq!(&records(ports), before); // Includes the untouched peer and both scopes.
+    assert_eq!(ports.state_writes.load(Ordering::SeqCst), usize::from(live_balance.is_some()));
+    let mut expected = before.clone();
+    if let Some(remaining) = live_balance {
+        // A served run persists only the balance it observed.
+        expected[0]["credit"]["available"] = json!(remaining);
+    }
+    assert_eq!(&records(ports), &expected); // Includes the untouched peer and both scopes.
     assert!(ports.saved.lock().unwrap().is_empty());
     assert!(ports.registered_proxies.lock().unwrap().is_empty());
 }
@@ -108,7 +113,7 @@ async fn api_run_clean_success_preserves_output_and_releases_owned_request() {
             let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
             assert_eq!(serde_json::from_slice::<Value>(&bytes).unwrap(), expected);
         } else { drop(response); }
-        assert_one_call(&ports, &before);
+        assert_one_call(&ports, &before, Some(97.0));
         assert!(ports.run_reply.lock().unwrap().is_none());
         assert!(ports.run_error.lock().unwrap().is_none());
         let snapshot = state.serving_accounts.residents.snapshot().unwrap();
@@ -122,7 +127,7 @@ async fn api_run_clean_success_preserves_output_and_releases_owned_request() {
         assert!(!resident.close_started);
         assert_eq!(resident.replacement, None);
         assert_completion(&state, &ownership, &gate, false).await;
-        assert_one_call(&ports, &before);
+        assert_one_call(&ports, &before, Some(97.0));
         assert_eq!(serde_json::to_value(state.serving_accounts.residents.snapshot().unwrap()).unwrap(),
             serde_json::to_value(snapshot).unwrap());
     }
@@ -179,7 +184,7 @@ async fn api_run_unknown_cleanup_preserves_error_and_fences_admission() {
             let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
             assert_eq!(bytes.as_ref(), b"framer: host-lifecycle-unconfirmed: inert api run");
         } else { drop(response); }
-        assert_one_call(&ports, &before);
+        assert_one_call(&ports, &before, None);
         assert!(ports.run_error.lock().unwrap().is_none());
         assert!(matches!(&*ports.run_reply.lock().unwrap(),
             Some(InferenceResult::Completed(reply)) if reply.text == "inert owned completion"));
@@ -194,7 +199,7 @@ async fn api_run_unknown_cleanup_preserves_error_and_fences_admission() {
         assert!(!resident.close_started);
         assert_eq!(resident.replacement, None);
         assert_completion(&state, &ownership, &gate, true).await;
-        assert_one_call(&ports, &before);
+        assert_one_call(&ports, &before, None);
         assert_eq!(serde_json::to_value(state.serving_accounts.residents.snapshot().unwrap()).unwrap(),
             serde_json::to_value(snapshot).unwrap());
         assert!(matches!(crate::current_account(&state, account(1).id).await,

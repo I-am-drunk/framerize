@@ -314,7 +314,7 @@ async fn http_402_sentinel_rotates_to_another_credited_workspace() {
     assert_eq!(current.state, AccountState::Ready);
     assert_eq!(current.cooling_until_ms, None);
     assert_record_eq(&fixture.stored(current.id).unwrap(), &current);
-    fixture.assert_finished(&expected_calls(true, false));
+    fixture.assert_finished(&expected_calls(true, true));
 }
 
 #[tokio::test]
@@ -452,7 +452,7 @@ async fn ready_record_replacement_preserves_one_successful_402_retry() {
     assert_record_eq(&current, &expected);
     assert_record_eq(&fixture.stored(current.id).unwrap(), &expected);
     assert!(current.is_available_at(crate::rotation::now_ms()));
-    fixture.assert_finished(&expected_calls(true, false));
+    fixture.assert_finished(&expected_calls(true, true));
 }
 
 #[tokio::test]
@@ -586,7 +586,7 @@ async fn completed_results_do_not_add_risk_cooldown() {
         assert_eq!(outcome.credits_remaining, Some(100.0));
         assert_record_eq(&current, &operation_scope(rotated));
         assert_record_eq(&fixture.stored(current.id).unwrap(), &current);
-        fixture.assert_finished(&expected_calls(rotated, false));
+        fixture.assert_finished(&expected_calls(rotated, true));
     }
 }
 
@@ -600,4 +600,24 @@ async fn repeated_exhaustion_marks_exhausted_without_risk_cooldown_or_third_atte
     assert_record_eq(&current, &expected);
     assert_record_eq(&fixture.stored(current.id).unwrap(), &expected);
     fixture.assert_finished(&expected_calls(true, true));
+}
+
+#[tokio::test]
+async fn completed_run_persists_live_balance_from_usage_header() {
+    let mut current = account(1);
+    let live = InferenceResult::Completed(InferenceOutcome {
+        text: "inert response".into(),
+        usage: Usage::default(),
+        chat_session: "inert-chat".into(),
+        credits_remaining: Some(42.5),
+    });
+    let fixture = Fixture::new(&current, vec![reply(Ok(live))]);
+    let outcome = fixture.run(&mut current).await.expect("inert completion");
+    assert_eq!(outcome.credits_remaining, Some(42.5));
+    let stored = fixture.stored(current.id).unwrap();
+    let credit = stored.credit.expect("credit snapshot");
+    assert_eq!(credit.available, 42.5);
+    // Ledger-derived fields survive a header-only balance update.
+    assert_eq!((credit.funds, credit.grants, credit.allocated), (1, 1, 100.0));
+    assert_record_eq(&current, &stored);
 }
