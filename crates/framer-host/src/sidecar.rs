@@ -250,9 +250,16 @@ impl SidecarBridge {
     /// This inspects source metadata only and never starts or rewrites the host.
     pub fn with_script(mut self, script: impl Into<PathBuf>) -> Result<Self, String> {
         let script = script.into();
-        if !script.is_absolute()
-            || script.canonicalize().map_err(|_| "cannot resolve sidecar script")? != script
-        {
+        let canonical = script.canonicalize()
+            .map_err(|_| "cannot resolve sidecar script")?;
+        // Windows canonicalize() returns a verbatim `\\?\C:\...` path, so a
+        // normal absolute path never compares equal to it. Accept the same
+        // file addressed without the verbatim prefix while still rejecting
+        // relative or unresolved paths.
+        let matches = canonical == script
+            || (cfg!(windows)
+                && canonical == Path::new(&format!("\\\\?\\{}", script.display())));
+        if !script.is_absolute() || !matches {
             return Err("sidecar script must be an absolute canonical path".into());
         }
         let metadata = script.metadata().map_err(|_| "cannot inspect sidecar script")?;

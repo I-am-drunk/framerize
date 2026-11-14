@@ -2591,6 +2591,15 @@ class Host:
                 pass
 
     async def handle(self, req):
+        if req.get("cmd") == "history_status":
+            # Readiness probe from the Rust sidecar (cross-platform host parity
+            # with runtime/framerize_host/app.py). No browser is started.
+            accounts = req.get("accounts")
+            if (type(accounts) is not list or len(accounts) > 64
+                    or any(type(account) is not str for account in accounts)
+                    or len(set(accounts)) != len(accounts)):
+                raise ValueError("invalid history readiness accounts")
+            return {"ready": True, "accounts": len(accounts)}
         if req.get("cmd") == "resident_authorization_bootstrap":
             if self._observed is not None or getattr(self, "_resident_control", None) is None:
                 raise RuntimeError("resident control is unavailable")
