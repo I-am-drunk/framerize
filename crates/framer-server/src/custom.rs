@@ -101,35 +101,61 @@ async fn sweep_probe_handler(
     if s.browser.seed_session(&account.id, &session.cookie_header).await.is_err() {
         return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "seed fail"}))).into_response()
     };
-    let led0 = s.client.usage(&session, &scope.team).await.map(|x| x.available).unwrap_or(f64::NAN);
-    let model = framer_core::model::effective_upstream_model("anthropic/claude-fable-5.2");
+    // Fully-flexible billing probe: control the upstream `path` and the raw native
+    // `payload` (or build from model/prompt/max_tokens). `stream_mode` controls how the
+    // stream key is sent: "false" (explicit), "true", "omit" (key absent), "null", "string".
+    // Measures the real ledger delta across settle_secs. Optional refund (do_refund).
+    let path = body.get("path").and_then(|v| v.as_str()).unwrap_or("/ai/v3/chat/").to_string();
+    let model = body.get("model").and_then(|v| v.as_str()).unwrap_or("anthropic/claude-fable-5.2").to_string();
+    let stream_mode = body.get("stream_mode").and_then(|v| v.as_str()).unwrap_or("false").to_string();
+    let max_tokens = body.get("max_tokens").and_then(|v| v.as_u64()).unwrap_or(16) as u32;
+    let do_refund = body.get("do_refund").and_then(|v| v.as_bool()).unwrap_or(false);
+    let settle_secs = body.get("settle_secs").and_then(|v| v.as_u64()).unwrap_or(75);
     let prompt = body.get("prompt").and_then(|v| v.as_str()).unwrap_or("Say ok").to_string();
-    let n = body.get("n").and_then(|v| v.as_u64()).unwrap_or(2) as u32;
+    let n = body.get("n").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
+    let custom_payload = body.get("payload").cloned();
+    let feature_category = body.get("feature_category").and_then(|v| v.as_str()).unwrap_or("translation").to_string();
+    let feature_name = body.get("feature_name").and_then(|v| v.as_str()).unwrap_or("translation").to_string();
+    let step = body.get("step").and_then(|v| v.as_str()).unwrap_or("translate").to_string();
+    let led0 = s.client.usage(&session, &scope.team).await.map(|x| x.available).unwrap_or(f64::NAN);
     let mut results: Vec<serde_json::Value> = Vec::new();
     for i in 0..n {
-        let payload = serde_json::json!({"model": model, "messages": [{"role": "user", "content": prompt}], "stream": false, "max_tokens": 4});
-        let sess = format!("rot2-{}-{}", i, &uuid::Uuid::new_v4().simple().to_string()[..6]);
-        let envelope = framer_api::proxy::envelope_raw3(&scope.project, "translation", "translation", "translate", &model, &payload, &sess, 0);
+        let mut payload = custom_payload.clone().unwrap_or_else(|| serde_json::json!({"model": model, "messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens}));
+        match stream_mode.as_str() {
+            "true" => { payload["stream"] = serde_json::json!(true); }
+            "omit" => { payload.as_object_mut().map(|o| o.remove("stream")); }
+            "null" => { payload["stream"] = serde_json::Value::Null; }
+            "string" => { payload["stream"] = serde_json::json!("false"); }
+            _ => { payload["stream"] = serde_json::json!(false); }
+        }
+        let sess = format!("probe-{}-{}", i, &uuid::Uuid::new_v4().simple().to_string()[..6]);
+        let envelope = framer_api::proxy::envelope_raw3(&scope.project, &feature_category, &feature_name, &step, &model, &payload, &sess, 0);
         let turn = envelope["turnId"].as_str().unwrap_or("").to_string();
-        let serve = s.browser.ai_post(&account.id, framer_api::proxy::Dialect::OpenRouterChat.path(), &bearer, &envelope).await;
-        let (st, _uh, _txt) = match serve {
+        let serve = s.browser.ai_post(&account.id, &path, &bearer, &envelope).await;
+        let (st, uh, txt) = match serve {
             Ok(t) => t,
             Err(e) => { results.push(serde_json::json!({"i": i, "serve_ok": false, "err": e})); continue; }
         };
-        tokio::time::sleep(std::time::Duration::from_secs(4)).await;
-        let rbody = serde_json::json!({"projectId": scope.project.0.as_str(), "featureCategory": "translation", "featureName": "translation", "step": "translate", "sessionId": sess.as_str(), "stepIndex": 0, "turnId": turn.as_str(), "userPrompt": "", "castleToken": "garbage"});
-        let refund = s.browser.ai_post(&account.id, "/ai/v3/refund/", &bearer, &rbody).await;
-        let (rst, _, rtxt) = match refund {
-            Ok(t) => t,
-            Err(e) => { results.push(serde_json::json!({"i": i, "serve_ok": true, "serve_status": st, "refund_err": e})); continue; }
-        };
-        let granted = rtxt.contains("granted") && rtxt.contains("true");
-        results.push(serde_json::json!({"i": i, "granted": granted, "serve_status": st, "refund_status": rst, "refund_body": rtxt.chars().take(220).collect::<String>()}));
-        tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+        let snippet: String = txt.chars().take(4000).collect();
+        let mut row = serde_json::json!({"i": i, "serve_status": st, "usage_hdr": uh, "turn": &turn[..8.min(turn.len())], "turn_full": turn, "body": snippet});
+        if do_refund {
+            tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+            let rbody = serde_json::json!({"projectId": scope.project.0.as_str(), "featureCategory": feature_category.as_str(), "featureName": feature_name.as_str(), "step": step.as_str(), "sessionId": sess.as_str(), "stepIndex": 0, "turnId": turn.as_str(), "userPrompt": "", "castleToken": "garbage"});
+            match s.browser.ai_post(&account.id, "/ai/v3/refund/", &bearer, &rbody).await {
+                Ok((rst, _, rtxt)) => {
+                    let granted = rtxt.contains("granted") && rtxt.contains("true");
+                    row["granted"] = serde_json::json!(granted);
+                    row["refund_status"] = serde_json::json!(rst);
+                }
+                Err(e) => { row["refund_err"] = serde_json::json!(e); }
+            }
+        }
+        results.push(row);
     }
+    tokio::time::sleep(std::time::Duration::from_secs(settle_secs)).await;
     let led1 = s.client.usage(&session, &scope.team).await.map(|x| x.available).unwrap_or(f64::NAN);
     Json(serde_json::json!({
-        "account": &account.id.0.to_string()[..8], "team": &scope.team.0[..8], "n": n,
+        "account": &account.id.0.to_string()[..8], "team": &scope.team.0[..8], "model": model, "path": path, "stream_mode": stream_mode, "n": n,
         "results": results, "ledger_before": led0, "ledger_after": led1, "final_delta": led1 - led0,
     })).into_response()
 }
@@ -198,7 +224,13 @@ async fn refund_lab_handler(
                 .into_response();
         }
     };
-    let bearer = match s.client.custom_bearer(&session, &account.id).await {
+    let fresh = body.get("fresh").and_then(|v| v.as_bool()).unwrap_or(false);
+    let bearer_res = if fresh {
+        s.client.custom_bearer_fresh(&session, &account.id).await
+    } else {
+        s.client.custom_bearer(&session, &account.id).await
+    };
+    let bearer = match bearer_res {
         Ok(b) => b,
         Err(e) => {
             return (
