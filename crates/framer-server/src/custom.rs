@@ -129,7 +129,11 @@ async fn sweep_probe_handler(
             _ => { payload["stream"] = serde_json::json!(false); }
         }
         let sess = format!("probe-{}-{}", i, &uuid::Uuid::new_v4().simple().to_string()[..6]);
-        let envelope = framer_api::proxy::envelope_raw3(&scope.project, &feature_category, &feature_name, &step, &model, &payload, &sess, 0);
+        let envelope = if let Some(tid) = body.get("turn_id").and_then(|v| v.as_str()) {
+            framer_api::proxy::envelope_raw4(&scope.project, &feature_category, &feature_name, &step, &model, &payload, &sess, 0, Some(tid))
+        } else {
+            framer_api::proxy::envelope_raw3(&scope.project, &feature_category, &feature_name, &step, &model, &payload, &sess, 0)
+        };
         let turn = envelope["turnId"].as_str().unwrap_or("").to_string();
         let serve = s.browser.ai_post(&account.id, &path, &bearer, &envelope).await;
         let (st, uh, txt) = match serve {
