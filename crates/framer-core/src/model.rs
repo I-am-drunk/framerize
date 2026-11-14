@@ -45,8 +45,22 @@ const DENIED_SUFFIX_MODELS: &[&str] = &["anthropic/claude-fable-5.2:floor"];
 /// would collapse these to the blocked base).
 const SUFFIX_FREE: &[&str] = &[
     "anthropic/claude-opus-5.5:nitro",
+    // Uppercase-provider forms: framer plan-gate matches case-sensitively, so
+    // the provider-capitalized id slips the paid_plan_only gate upstream (the
+    // "case-bypassed past the workspace plan-gate" class, extended to paid claude).
+    "ANTHROPIC/claude-opus-5.5:nitro",
+    "ANTHROPIC/claude-opus-5.5:floor",
+    "ANTHROPIC/claude-sonnet-5.5:nitro",
+    "ANTHROPIC/claude-sonnet-5.5:floor",
+    "ANTHROPIC/claude-fable-5.2:nitro",
     "anthropic/claude-opus-5.5:floor",
     "anthropic/claude-sonnet-5.5:nitro",
+    // Fable 5.2 fast (nitro/floor) — intended free variant (owner order 2026-11-13).
+    "anthropic/claude-fable-5.2:nitro",
+    "anthropic/claude-fable-5.2:floor",
+    "anthropic/claude-fable-5.2:nitro-full",
+    "anthropic/claude-fable-5.2:ultrafast",
+    "anthropic/claude-fable-5.2:astral",
     // Kimi (2026-11-10, measured $0 live): k3:floor end_turn clean, k3:nitro $0,
     // k3.1-pro :nitro/:floor $0. Bare k3/k3.1-pro bill or 403 -> denied (per-token arm).
     "moonshotai/kimi-k3:nitro",

@@ -418,7 +418,7 @@ fn sanitize_leg_payload(
     }
     let mut p = payload.clone();
     let mut emulated_tools: Vec<serde_json::Value> = Vec::new();
-    const MAX_EMULATED_TOOLS: usize = 12;
+    const MAX_EMULATED_TOOLS: usize = 64;
     if let Some(tools) = p.get("tools").and_then(|t| t.as_array()).map(|a| a.to_vec()) {
         if tools.len() > MAX_EMULATED_TOOLS && tool_mode() == ToolMode::Emulate {
             return Err(format!(

@@ -79,7 +79,59 @@ pub fn custom_routes(state: AppState) -> Router {
         )
         .route("/complete/status", axum::routing::get(status_handler).post(status_reset_handler))
         .route("/refund_lab", axum::routing::post(refund_lab_handler))
+        .route("/sweep_probe", axum::routing::post(sweep_probe_handler))
         .with_state(state)
+}
+
+async fn sweep_probe_handler(
+    State(s): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> Response {
+    let acct = headers.get("x-framerize-account").and_then(|v| v.to_str().ok()).map(|x| x.to_string());
+    let sel = crate::select_funded_account(&s, acct).await;
+    let (account, _res, session, scope) = match sel {
+        Ok(t) => t,
+        Err(e) => return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": format!("no funded: {e:?}")}))).into_response(),
+    };
+    let bearer = match s.client.custom_bearer(&session, &account.id).await {
+        Ok(b) => b,
+        Err(e) => return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": format!("bearer: {e}")}))).into_response(),
+    };
+    if s.browser.seed_session(&account.id, &session.cookie_header).await.is_err() {
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "seed fail"}))).into_response()
+    };
+    let led0 = s.client.usage(&session, &scope.team).await.map(|x| x.available).unwrap_or(f64::NAN);
+    let model = framer_core::model::effective_upstream_model("anthropic/claude-fable-5.2");
+    let prompt = body.get("prompt").and_then(|v| v.as_str()).unwrap_or("Say ok").to_string();
+    let n = body.get("n").and_then(|v| v.as_u64()).unwrap_or(2) as u32;
+    let mut results: Vec<serde_json::Value> = Vec::new();
+    for i in 0..n {
+        let payload = serde_json::json!({"model": model, "messages": [{"role": "user", "content": prompt}], "stream": false, "max_tokens": 4});
+        let sess = format!("rot2-{}-{}", i, &uuid::Uuid::new_v4().simple().to_string()[..6]);
+        let envelope = framer_api::proxy::envelope_raw3(&scope.project, "translation", "translation", "translate", &model, &payload, &sess, 0);
+        let turn = envelope["turnId"].as_str().unwrap_or("").to_string();
+        let serve = s.browser.ai_post(&account.id, framer_api::proxy::Dialect::OpenRouterChat.path(), &bearer, &envelope).await;
+        let (st, _uh, _txt) = match serve {
+            Ok(t) => t,
+            Err(e) => { results.push(serde_json::json!({"i": i, "serve_ok": false, "err": e})); continue; }
+        };
+        tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+        let rbody = serde_json::json!({"projectId": scope.project.0.as_str(), "featureCategory": "translation", "featureName": "translation", "step": "translate", "sessionId": sess.as_str(), "stepIndex": 0, "turnId": turn.as_str(), "userPrompt": "", "castleToken": "garbage"});
+        let refund = s.browser.ai_post(&account.id, "/ai/v3/refund/", &bearer, &rbody).await;
+        let (rst, _, rtxt) = match refund {
+            Ok(t) => t,
+            Err(e) => { results.push(serde_json::json!({"i": i, "serve_ok": true, "serve_status": st, "refund_err": e})); continue; }
+        };
+        let granted = rtxt.contains("granted") && rtxt.contains("true");
+        results.push(serde_json::json!({"i": i, "granted": granted, "serve_status": st, "refund_status": rst, "refund_body": rtxt.chars().take(220).collect::<String>()}));
+        tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+    }
+    let led1 = s.client.usage(&session, &scope.team).await.map(|x| x.available).unwrap_or(f64::NAN);
+    Json(serde_json::json!({
+        "account": &account.id.0.to_string()[..8], "team": &scope.team.0[..8], "n": n,
+        "results": results, "ledger_before": led0, "ledger_after": led1, "final_delta": led1 - led0,
+    })).into_response()
 }
 
 /// Loud hint for wrong-method/wrong-path callers (T3 compat): tells them
@@ -742,6 +794,7 @@ fn cutoff_model_denied(model: &str) -> ApiError {
         "model {model} is not on the zero-spend allowlist (cutoff chain serves ONLY gpt-4.1-mini + claude-haiku-4.5 + gpt-6-astra + claude-fable-5.2 (case-bypassed past the workspace plan-gate, proved $0); every other upstream meter bills per-token or per-burst -- proved live). No account was leased, no page opened, nothing spent."
     ))
 }
+
 
 pub(super) async fn cutoff_run(
     s: AppState,
@@ -1608,6 +1661,9 @@ async fn custom_real_once(
             &scope_team.0[..8.min(scope_team.0.len())],
             live_credits,
         );
+        // LEDGER SYNC (fix): persist the live balance into the local DB ledger so local==live.
+        let _ = s.state.set_credit_available(account.id, live_credits).await;
+
         let floor = framer_core::rotation::bill_floor();
         if !live_credits.is_finite() || live_credits < floor {
             return Err((

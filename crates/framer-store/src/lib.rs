@@ -94,6 +94,12 @@ impl StateStore for SqliteStateStore {
         Ok(())
     }
 
+    async fn set_credit_available(&self, id: AccountId, available: f64) -> Result<(), String> {
+        let mut acc = match self.get(id).await? { Some(a) => a, None => return Ok(()) };
+        if let Some(c) = acc.credit.as_mut() { c.available = available; }
+        self.upsert(&acc).await
+    }
+
     async fn remove(&self, id: AccountId) -> Result<(), String> {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM accounts WHERE id = ?1", [id.0.to_string()])

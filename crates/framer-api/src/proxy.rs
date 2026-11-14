@@ -104,6 +104,40 @@ pub fn envelope(
     })
 }
 
+pub fn envelope_raw3(
+    project: &ProjectId,
+    category: &str,
+    feature_name: &str,
+    step: &str,
+    top_model: &str,
+    payload: &Value,
+    chat_session: &str,
+    step_index: u32,
+) -> Value {
+    let mut e = envelope(project, category, step, payload, chat_session, step_index);
+    e["featureName"] = serde_json::Value::String(feature_name.to_string());
+    e["model"] = serde_json::Value::String(top_model.to_string());
+    e
+}
+
+pub fn envelope_raw4(
+    project: &ProjectId,
+    category: &str,
+    feature_name: &str,
+    step: &str,
+    top_model: &str,
+    payload: &Value,
+    chat_session: &str,
+    step_index: u32,
+    turn_override: Option<&str>,
+) -> Value {
+    let mut e = envelope(project, category, step, payload, chat_session, step_index);
+    e["featureName"] = serde_json::Value::String(feature_name.to_string());
+    e["model"] = serde_json::Value::String(top_model.to_string());
+    if let Some(t) = turn_override { e["turnId"] = serde_json::Value::String(t.to_string()); }
+    e
+}
+
 /// Forward one native payload through the gateway. The request is sent
 /// IN-PAGE from the account's own browser (`BrowserBridge::ai_post`), which
 /// also mints the Castle token there: the verified rule (2026-10-02 quadrant
