@@ -898,17 +898,10 @@ fn stable_session(account: &AccountId) -> String {
     out
 }
 
-pub(crate) async fn free_complete(
-    s: AppState,
-    headers: &axum::http::HeaderMap,
-    dialect: ClientDialect,
-    payload: serde_json::Value,
-) -> Result<axum::response::Response, ApiError> {
-    // ONE request id per CLIENT request (attribution: every guard/chain line
-    // for this request shares it; grep req=<short>).
-    let req_id = uuid::Uuid::new_v4().to_string();
-    let req_short = req_id[..8].to_string();
-    let mut payload = payload;
+/// Request model normalization: ultrafast-tier strip, then the nitro map.
+/// Pure function (no I/O): T3 `-ultrafast` ids strip to base + service_tier;
+/// bare premium claude maps to its :nitro endpoint (user directive 2026-11-10).
+fn normalize_request_model(mut payload: serde_json::Value) -> serde_json::Value {
     // T3 ultrafast variants (compat/t3/ultrafast): a model id ending in
     // "-ultrafast" strips to the base model and rides upstream with
     // service_tier:"ultrafast" (OpenAI's lowest-latency tier — free on the
@@ -936,6 +929,20 @@ pub(crate) async fn free_complete(
     payload["model"] = serde_json::Value::String(
         framer_core::model::effective_upstream_model(payload["model"].as_str().unwrap_or("")),
     );
+    payload
+}
+
+pub(crate) async fn free_complete(
+    s: AppState,
+    headers: &axum::http::HeaderMap,
+    dialect: ClientDialect,
+    payload: serde_json::Value,
+) -> Result<axum::response::Response, ApiError> {
+    // ONE request id per CLIENT request (attribution: every guard/chain line
+    // for this request shares it; grep req=<short>).
+    let req_id = uuid::Uuid::new_v4().to_string();
+    let req_short = req_id[..8].to_string();
+    let mut payload = normalize_request_model(payload);
 
     let client_model = payload["model"].as_str().unwrap_or_default().to_string();
     // Codex "custom" tools (exec, apply_patch, …) ride upstream in an
