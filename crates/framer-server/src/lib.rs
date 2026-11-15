@@ -19,6 +19,7 @@ use std::sync::Arc;
 use tower_http::services::ServeDir;
 
 mod custom;
+mod goose;
 mod serving_accounts;
 mod pool_config;
 mod pool_control;
@@ -179,13 +180,20 @@ pub fn router(state: AppState, web_dir: &str) -> Router {
         .nest("/anthropic", anthropic_paid)
         .nest("/openai", openai_paid);
     let custom = custom::custom_routes(state.clone());
+    // Goose route (F27 paid-flagship recipe, deliberate env gate): mounted
+    // ONLY when FRAMERIZE_GOOSE_ROUTE=1 at boot; otherwise absent (404).
+    let goose = if goose::enabled() { Some(goose::goose_routes(state.clone())) } else { None };
 
-    Router::new()
+    let mut root = Router::new()
         .nest("/api", api)
         .nest("/anthropic", anthropic)
         .nest("/openai", openai)
         .nest("/paid", paid)
-        .nest("/api/custom", custom)
+        .nest("/api/custom", custom);
+    if let Some(goose) = goose {
+        root = root.nest("/goose/v1", goose);
+    }
+    root
         .fallback_service(ServeDir::new(web_dir))
         .layer(axum::middleware::from_fn(access_log))
         // Claude Code sends multi-MB contexts (images, long histories) — axum's
