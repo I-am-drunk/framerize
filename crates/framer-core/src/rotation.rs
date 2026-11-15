@@ -379,12 +379,24 @@ pub fn pick_at(pool: &[ManagedAccount], now: u64) -> Option<&ManagedAccount> {
     // served 7,178 chars free). Deprioritize recently-served accounts while
     // any un-cooled alternative exists; never starve (all-cooled falls back
     // to the normal rotation).
+    let cool_ms = crate::env::metered_serve_cool_ms();
     let uncooled: Vec<&ManagedAccount> = tied
         .iter()
-        .filter(|a| last_served_at(&a.id.0.to_string()).map(|t| now.saturating_sub(t) > crate::env::metered_serve_cool_ms()).unwrap_or(true))
+        .filter(|a| last_served_at(&a.id.0.to_string()).map(|t| now.saturating_sub(t) > cool_ms).unwrap_or(true))
         .cloned()
         .collect();
-    let tied: Vec<&ManagedAccount> = if uncooled.is_empty() { tied } else { uncooled };
+    let tied: Vec<&ManagedAccount> = if uncooled.is_empty() { tied } else {
+        if cool_ms > 0 {
+            for a in tied.iter() {
+                if let Some(t) = last_served_at(&a.id.0.to_string()) {
+                    if now.saturating_sub(t) <= cool_ms {
+                        eprintln!("[rotation] post-serve cool: steering off {} (served {}s ago, cool {}s)", &a.id.0.to_string()[..8.min(a.id.0.to_string().len())], now.saturating_sub(t)/1000, cool_ms/1000);
+                    }
+                }
+            }
+        }
+        uncooled
+    };
     let n = tied.len();
     let i = CURSOR.fetch_add(1, Ordering::Relaxed) % n;
     Some(tied[i])
