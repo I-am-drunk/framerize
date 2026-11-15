@@ -205,6 +205,26 @@ pub(super) async fn activate(State(s): State<AppState>, Json(body): Json<Account
     Ok(Json(serde_json::json!({"account_id":body.account_id,"status":"active"})))
 }
 
+
+/// Positive funding evidence: fresh live-cache > 0 on any scope, or DB
+/// credit > 0. Cold-boot unknowns (never read anywhere) have none — they
+/// seat on demand, not at prewarm.
+fn has_funding_evidence(account: &framer_core::account::ManagedAccount) -> bool {
+    if account
+        .credit
+        .as_ref()
+        .map(|c| c.available > 0.0)
+        .unwrap_or(false)
+    {
+        return true;
+    }
+    account.all_scopes().iter().any(|sc| {
+        framer_core::rotation::cached_live_balance(&sc.team.0)
+            .map(|b| b > 0.0)
+            .unwrap_or(false)
+    })
+}
+
 pub async fn prewarm_accounts(s: AppState) {
     let Ok(mut accounts) = s.state.list().await else { return; };
     let now = framer_core::rotation::now_ms();
@@ -220,13 +240,27 @@ pub async fn prewarm_accounts(s: AppState) {
     // ~5 dead requests per restart). The DB holds last-known per-account
     // credits (persisted by the ledger sync) — 0-credit records sort last
     // even with a cold cache. Stale-but-directional beats unknown.
+    // POSITIVE-EVIDENCE SEATING (2026-11-15): the DB tiebreak is stale
+    // (dead workspaces-lite snapshot 500.0 for months) and might_bill passes
+    // cold-cache unknowns — so boot still seats corpses by uuid. Seat ONLY
+    // accounts with positive funding evidence (fresh live-cache > 0 on any
+    // scope, or DB credit > 0); demand (first requests) seats the rest via
+    // empty-pool admission — a slow first mint beats a wedged pool.
+    // Never seats known-dead: might_bill false always sorts last AND is
+    // excluded from the seatable prefix below.
     accounts.sort_by_key(|account| (
         !framer_core::rotation::account_might_bill(account),
-        account.credit.as_ref().map(|c| c.available <= 0.0).unwrap_or(false),
+        !has_funding_evidence(account),
         account.consecutive_failures,
         account.id.0,
     ));
-    for account in accounts.into_iter().take(s.serving_accounts.config().active_capacity) {
+    // NOTE: evidence is a SORT preference, not a gate. Gating prewarm to
+    // nothing on cold boot merely shifts all seating to demand (correct but
+    // slow-starting every restart) and breaks the residency-engagement
+    // contract. Known-dead (might_bill false) still sorts last; hygiene +
+    // marks converge any corpse seating within a few requests.
+    let capacity = s.serving_accounts.config().active_capacity;
+    for account in accounts.into_iter().take(capacity) {
         if s.wave.check().is_some() { break; }
         let t0 = std::time::Instant::now();
         let result = activate(State(s.clone()), Json(AccountBody { account_id: account.id })).await;
