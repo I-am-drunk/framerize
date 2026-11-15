@@ -152,6 +152,12 @@ pub(super) async fn lease_account(s: &AppState, id: AccountId) -> Result<Residen
     let now = framer_core::rotation::now_ms();
     let preferred = idle.iter().find(|victim| accounts.iter().any(|account|
         account.id == **victim && (!s.serving_accounts.allows(victim) || !account.is_available_at(now))))
+        // Dead-first eviction: a proven-empty idle resident is the cheapest
+        // victim (its slot is wasted). might_bill is false only for PROVEN
+        // empty (unknown accounts pass), so fresh accounts are never victims
+        // by this arm — only corpses.
+        .or_else(|| idle.iter().find(|victim| accounts.iter().any(|account|
+            account.id == **victim && !framer_core::rotation::account_might_bill(account))))
         .copied();
     let lease = s.serving_accounts.acquire(s.browser.as_ref(), id, preferred, Some(s.state.as_ref())).await?;
     if s.state.get(id).await.map_err(ApiError::Internal)?.is_none() {

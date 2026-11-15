@@ -220,13 +220,16 @@ impl ServingAccountPolicy {
                 .filter(|a| framer_core::rotation::account_might_bill(a))
                 .cloned()
                 .collect();
-            let pool_ref: &[ManagedAccount] = if funded.is_empty() {
-                &ready_residents
-            } else {
-                &funded
-            };
-            return framer_core::rotation::pick_at(pool_ref, now).cloned()
-                .ok_or_else(|| self.no_eligible_account());
+            // KNOWN-DEAD residents must not be served: if every ready resident
+            // is proven empty (funded filter removed them all), fall THROUGH to
+            // the general fallback below, which picks among funded non-residents
+            // (admitting one via eviction) instead of burning attempts on corpses.
+            // (Unknown/never-read accounts still pass might_bill, so fresh
+            // accounts never starve — only PROVEN-empty residents are skipped.)
+            if !funded.is_empty() {
+                return framer_core::rotation::pick_at(&funded, now).cloned()
+                    .ok_or_else(|| self.no_eligible_account());
+            }
         }
         // The general selector can fall back to a cooling account. HTTP
         // admission must instead let the client back off before SSE starts.
