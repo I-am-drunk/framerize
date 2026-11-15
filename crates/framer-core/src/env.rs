@@ -198,3 +198,16 @@ pub fn python_bin() -> Option<String> {
 pub fn gate_state_file() -> Option<String> {
     std::env::var("FRAMERIZE_GATE_STATE").ok()
 }
+
+/// Post-serve cool mark (ms) for metered-model serves: after an account serves
+/// a metered-model request, the rotation steers the next such requests elsewhere
+/// for this long while any alternative exists. Sized from the live `content_filter`
+/// finding (2026-11-15): a metered leg re-leased onto the just-served account
+/// 13s later filtered at 18s (-0.23); the same shape on a fresh account served
+/// 7,178 chars free. 0 disables. Default 120000.
+pub fn metered_serve_cool_ms() -> u64 {
+    std::env::var("FRAMERIZE_METERED_SERVE_COOL_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(120_000)
+}

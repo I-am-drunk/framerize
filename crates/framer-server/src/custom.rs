@@ -1669,6 +1669,13 @@ framer_core::env::feature_category()
                 open_ledger,
                 close_ledger,
             );
+            // POST-SERVE COOL (2026-11-15, F54 follow-up): metered-model
+            // serves heat the account at the mirror (content_filter
+            // velocity-filter on a hot re-lease). Steer the next metered
+            // picks elsewhere while any alternative exists; advisory only.
+            if !framer_core::rotation::spend_allowed(&model_log) {
+                framer_core::rotation::note_metered_served(&account.id.0.to_string());
+            }
             Ok(CutoffOutcome {
                 assembled,
                 req_id: req_id.to_string(),

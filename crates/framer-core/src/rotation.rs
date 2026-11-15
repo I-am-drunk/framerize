@@ -44,6 +44,33 @@ fn saturated_until(team: &str) -> Option<u64> {
         .and_then(|m| m.get(team).copied())
 }
 
+/// Account id -> last successful-serve time (unix ms). A just-served account
+/// ties clean in the picker (zero failures), so without this the cursor hands
+/// a metered-model serve straight back to the same hot account — and the
+/// metered mirror velocity-filters it (F54 follow-up, 2026-11-15). Marked by
+/// the serve path after a metered request completes; consulted in pick_at to
+/// deprioritize hot accounts while any alternative exists. Advisory only:
+/// never excludes, never starves (see the pick_at fallback).
+static LAST_SERVED: Mutex<Option<HashMap<String, u64>>> = Mutex::new(None);
+
+/// Record a completed metered-model serve on an account (advisory cool mark).
+pub fn note_metered_served(account_id: &str) {
+    let now = now_ms();
+    LAST_SERVED
+        .lock()
+        .unwrap()
+        .get_or_insert_with(HashMap::new)
+        .insert(account_id.to_string(), now);
+}
+
+fn last_served_at(account_id: &str) -> Option<u64> {
+    LAST_SERVED
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|m| m.get(account_id).copied())
+}
+
 /// Per-account round-robin index over its workspace scopes (the concurrency
 /// goose: chains spread across every workspace the account owns).
 static SCOPE_RR: Mutex<Option<HashMap<String, usize>>> = Mutex::new(None);
@@ -345,6 +372,19 @@ pub fn pick_at(pool: &[ManagedAccount], now: u64) -> Option<&ManagedAccount> {
         .collect();
 
     // `tied` is non-empty: `best` came from the same filtered set.
+    // POST-SERVE COOL (2026-11-15, live-proved): a just-served account ties
+    // clean (zero failures) and the cursor hands it straight back — but the
+    // metered mirror velocity-filters a hot account (content_filter at 18s on
+    // a re-lease 13s after an 8-leg serve; the same shape on a fresh account
+    // served 7,178 chars free). Deprioritize recently-served accounts while
+    // any un-cooled alternative exists; never starve (all-cooled falls back
+    // to the normal rotation).
+    let uncooled: Vec<&ManagedAccount> = tied
+        .iter()
+        .filter(|a| last_served_at(&a.id.0.to_string()).map(|t| now.saturating_sub(t) > crate::env::metered_serve_cool_ms()).unwrap_or(true))
+        .cloned()
+        .collect();
+    let tied: Vec<&ManagedAccount> = if uncooled.is_empty() { tied } else { uncooled };
     let n = tied.len();
     let i = CURSOR.fetch_add(1, Ordering::Relaxed) % n;
     Some(tied[i])
@@ -484,6 +524,36 @@ mod tests {
         // first ever did.
         assert!(picks.contains(&"main"), "main never picked: {picks:?}");
         assert!(picks.contains(&"probe"), "probe never picked: {picks:?}");
+    }
+
+    #[test]
+    fn post_serve_cool_steers_to_uncooled_then_falls_back() {
+        // Live-proved 2026-11-15: metered re-lease onto the just-served
+        // account filtered (content_filter); the same shape on a fresh
+        // account served free. The served account must lose the tie while
+        // any alternative exists, and must serve again when it is the only
+        // choice (never starve).
+        let _g = ENV_GUARD.lock().unwrap();
+        let a = acct("hot", 0, AccountState::Ready);
+        let b = acct("cool", 0, AccountState::Ready);
+        note_metered_served(&a.id.0.to_string());
+        let pool = vec![a, b];
+        // Hot is deprioritized while cool exists (cursor may start anywhere,
+        // so assert over several picks, not one).
+        for _ in 0..4 {
+            assert_eq!(pick(&pool).expect("a pick").alias, "cool");
+        }
+        // All-cooled: falls back to normal rotation, both serve.
+        let c = acct("hot2", 0, AccountState::Ready);
+        let d = acct("cool2", 0, AccountState::Ready);
+        note_metered_served(&c.id.0.to_string());
+        note_metered_served(&d.id.0.to_string());
+        let pool2 = vec![c, d];
+        let picks: Vec<&str> = (0..4)
+            .map(|_| pick(&pool2).expect("a pick").alias.as_str())
+            .collect();
+        assert!(picks.contains(&"hot2"), "hot2 starved: {picks:?}");
+        assert!(picks.contains(&"cool2"), "cool2 starved: {picks:?}");
     }
 
     #[test]
