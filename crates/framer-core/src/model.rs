@@ -181,6 +181,30 @@ pub fn effective_upstream_model(model: &str) -> String {
             None => base.to_uppercase(),
         };
     }
+    // SUFFIX PRESERVATION (2026-11-15, restores F27): a caller-chosen :floor
+    // (or :nitro) suffix that is itself a SUFFIX_FREE member must reach the
+    // wire intact. The MappedNitro arm below would otherwise rewrite
+    // "opus-5-5:floor" -> ":nitro" (to_openrouter_id strips suffixes), killing
+    // the F27 non-streaming free path which needs :floor on the wire.
+    {
+        let t = model.trim();
+        if let Some((base, suf)) = t.rsplit_once(':') {
+            if suf.eq_ignore_ascii_case("floor") || suf.eq_ignore_ascii_case("nitro") {
+                let canon_base = crate::convert::to_openrouter_id(base);
+                let candidate = format!("{canon_base}:{suf}");
+                if SUFFIX_FREE.contains(&candidate.as_str()) {
+                    return candidate;
+                }
+                // Also try lowercase-provider form (SUFFIX_FREE is exact-match).
+                let lower = candidate.to_lowercase();
+                // Only accept the lowercase form when it is itself listed (never
+                // invent ids): provider case is significant upstream.
+                if SUFFIX_FREE.contains(&lower.as_str()) {
+                    return lower;
+                }
+            }
+        }
+    }
     match classify(model) {
         ModelClass::MappedNitro => {
             // Map to the provider-prefixed, dotted, :nitro form (the exact id in

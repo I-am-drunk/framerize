@@ -467,9 +467,26 @@ fn sanitize_leg_payload(
     Ok((p, emulated_tools))
 }
 
+/// Thinking-budget cap for cutoff legs (2026-11-15): unbounded reasoning
+/// (T3 sends 2000-32000) generates minutes of metered reasoning before text,
+/// billing ~-1.30/leg (live). Cap at 1024 like the native path: bounded
+/// reasoning, bounded meter exposure, text still follows.
+fn cap_thinking(p: &mut serde_json::Value) {
+    if let Some(t) = p.get_mut("thinking") {
+        if t.get("type").and_then(|v| v.as_str()) == Some("enabled") {
+            if let Some(b) = t.get_mut("budget_tokens") {
+                if b.as_u64().unwrap_or(u64::MAX) > 1024 {
+                    *b = serde_json::json!(1024);
+                }
+            }
+        }
+    }
+}
+
 fn leg1_native(payload: &serde_json::Value) -> Result<serde_json::Value, String> {
     // All tool billing-shape handling lives in sanitize_leg_payload (single point).
     let (mut p, emulated_tools) = sanitize_leg_payload(payload)?;
+    cap_thinking(&mut p);
     let msgs = payload["messages"]
         .as_array()
         .ok_or("chain: native chat payload has no messages array")?;
@@ -504,6 +521,7 @@ fn continue_native(
     anchor_chars: usize,
 ) -> serde_json::Value {
     let mut p = payload.clone();
+    cap_thinking(&mut p);
     let msgs: Vec<serde_json::Value> = payload["messages"]
         .as_array()
         .cloned()

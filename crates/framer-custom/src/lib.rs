@@ -23,6 +23,8 @@ pub mod merge;
 pub mod gate;
 pub mod transport;
 pub mod rung;
+#[cfg(test)]
+mod ringer;
 pub mod ledger;
 pub mod chain;
 pub mod format;
