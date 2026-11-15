@@ -945,6 +945,18 @@ async fn honest_route_check(
     Ok(None)
 }
 
+/// Wave-pause admission shared by all cutoff arms (and identical to the
+/// native path contract the endpoint tests pin): a wave pause rejects fast
+/// with the same shape and I/O budget before any chain work.
+fn cutoff_admit_wave(s: &AppState) -> Result<(), ApiError> {
+    if let Some(remaining) = s.wave.check() {
+        return Err(ApiError::Cooling {
+            retry_after_secs: remaining.as_secs().saturating_add(1),
+        });
+    }
+    Ok(())
+}
+
 /// Cutoff-leg error classification (shared by all three dialect arms).
 /// Deterministic failures (admission, spend lock, spend-terminal, plan-gate)
 /// return as-is — falling through to the METERED native chain would bill.
@@ -1119,14 +1131,7 @@ pub(crate) async fn free_complete(
         // would silently hop off it.
         && hdr(headers, "x-framerize-account").is_none()
     {
-        // IDENTICAL admission contract as the native path (the endpoint tests
-        // pin it): a wave pause and an all-cooling pool reject with the same
-        // error shapes and the same I/O budget BEFORE any chain work.
-        if let Some(remaining) = s.wave.check() {
-            return Err(ApiError::Cooling {
-                retry_after_secs: remaining.as_secs().saturating_add(1),
-            });
-        }
+        cutoff_admit_wave(&s)?;
         // All-cooling rejects through the chain own selection (select_fresh
         // -> pick_ready -> AccountCooling) with the same error shape and the
         // same one-read I/O budget the endpoint tests pin.
@@ -1149,11 +1154,7 @@ pub(crate) async fn free_complete(
         && cutoff_responses
         && hdr(headers, "x-framerize-account").is_none()
     {
-        if let Some(remaining) = s.wave.check() {
-            return Err(ApiError::Cooling {
-                retry_after_secs: remaining.as_secs().saturating_add(1),
-            });
-        }
+        cutoff_admit_wave(&s)?;
         match custom::responses_via_cutoff(s.clone(), headers, payload.clone(), wants_stream).await {
             Ok(resp) => return Ok(resp),
             Err(e) => match classify_cutoff_error(e, "responses") {
@@ -1179,11 +1180,7 @@ pub(crate) async fn free_complete(
             && cutoff_anthro
             && hdr(headers, "x-framerize-account").is_none()
         {
-            if let Some(remaining) = s.wave.check() {
-                return Err(ApiError::Cooling {
-                    retry_after_secs: remaining.as_secs().saturating_add(1),
-                });
-            }
+            cutoff_admit_wave(&s)?;
             // The cutoff needs the anthro-shaped payload (model + messages).
             let mut acap = convert::to_anthropic_request(dialect, &payload).map_err(ApiError::Internal)?;
             // Preserve the client model id for the allowlist + envelope.
