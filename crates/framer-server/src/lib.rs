@@ -898,6 +898,38 @@ fn stable_session(account: &AccountId) -> String {
     out
 }
 
+/// Learned model-gate refusal (2026-11-10, user directive; default OFF).
+/// Fires ONLY when blocking is enabled AND the request would ride the CUTOFF
+/// chain or a NON-STREAMING native call. Rationale: on streaming native calls
+/// the refusal surfaces live in-stream and the client retries/fails over
+/// itself -- blocking there only wedges clients (measured: T3's reconnect
+/// storm). The gate keeps LEARNING always; the env only controls BLOCKING.
+/// Nitro-mapped models never hit the gate (different entitlement surface).
+fn model_gate_check(
+    headers: &axum::http::HeaderMap,
+    dialect: ClientDialect,
+    payload: &serde_json::Value,
+    client_model: &str,
+) -> Result<(), ApiError> {
+    let gate_env = framer_core::env::model_gate_blocks();
+    let nitro = client_model.ends_with(":nitro");
+    // Mirror the cutoff-route conditions below (chat + responses, non-anthro, unpinned).
+    let cutoff_would_run = (!convert::is_anthropic_model(client_model))
+        && hdr(headers, "x-framerize-account").is_none()
+        && ((dialect == ClientDialect::OpenAiChat)
+            || (dialect == ClientDialect::OpenAiResponses));
+    let wants_stream = payload["stream"].as_bool().unwrap_or(false);
+    if gate_env && !nitro && (cutoff_would_run || !wants_stream)
+        && framer_core::rotation::is_model_gated(client_model)
+    {
+        return Err(ApiError::InvalidRequest(format!(
+            "model {client_model} is unavailable on your workspaces right now (learned from a live refusal; it retries on its own shortly). Working free models: gpt-4.1-mini, claude-haiku-4.5, claude-fable-5.2, gpt-6-astra (when its guardrail allows)."
+        )));
+    }
+    Ok(())
+}
+
+/// Request model normalization: ultrafast-tier strip, then the nitro map.
 /// Request model normalization: ultrafast-tier strip, then the nitro map.
 /// Pure function (no I/O): T3 `-ultrafast` ids strip to base + service_tier;
 /// bare premium claude maps to its :nitro endpoint (user directive 2026-11-10).
@@ -948,32 +980,7 @@ pub(crate) async fn free_complete(
     // Codex "custom" tools (exec, apply_patch, …) ride upstream in an
     // {"input": …} wrapper; the render side unwraps them by name.
     let custom_tools = convert::custom_tool_names(&payload);
-    // MODEL GATE (2026-11-10, user directive; default OFF): the learned-gate refusal
-    // ("model X is unavailable ... learned from a live refusal") fires ONLY when
-    // FRAMERIZE_MODEL_GATE=1 AND the request would ride the CUTOFF chain or a
-    // NON-STREAMING native call. Rationale: on streaming native calls the refusal
-    // surfaces live in-stream and the client retries/fails over itself -- blocking
-    // there only wedges clients (measured: T3's reconnect storm). The gate keeps
-    // LEARNING always (marks still recorded); the env only controls whether it BLOCKS.
-    // Nitro-mapped models (:nitro suffix) never hit the gate: the suffix endpoint is
-    // a different entitlement surface that the learned base-model refusal doesn't cover.
-    {
-        let gate_env = framer_core::env::model_gate_blocks();
-        let nitro = client_model.ends_with(":nitro");
-        // Mirror the cutoff-route conditions below (chat + responses, non-anthro, unpinned).
-        let cutoff_would_run = (!convert::is_anthropic_model(&client_model))
-            && hdr(headers, "x-framerize-account").is_none()
-            && ((dialect == ClientDialect::OpenAiChat)
-                || (dialect == ClientDialect::OpenAiResponses));
-        let wants_stream = payload["stream"].as_bool().unwrap_or(false);
-        if gate_env && !nitro && (cutoff_would_run || !wants_stream)
-            && framer_core::rotation::is_model_gated(&client_model)
-        {
-            return Err(ApiError::InvalidRequest(format!(
-                "model {client_model} is unavailable on your workspaces right now (learned from a live refusal; it retries on its own shortly). Working free models: gpt-4.1-mini, claude-haiku-4.5, claude-fable-5.2, gpt-6-astra (when its guardrail allows)."
-            )));
-        }
-    }
+    model_gate_check(headers, dialect, &payload, &client_model)?;
     // Honest model routing (2026-10-05, user rule: never substitute silently).
     // gpt-6.x are direct-route models (OpenAI Responses, metered): Codex and
     // other Responses clients pass through natively. Genuinely unavailable
