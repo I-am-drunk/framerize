@@ -928,6 +928,24 @@ pub(super) async fn cutoff_run(
             _ => model_str,
         }
     };
+    // NITRO-STRIP FOR ALLOWLISTED BASES (2026-11-15): :nitro on a free base
+    // buys nothing (no gate to dodge) and rides a metering endpoint (10%
+    // billed incl. a -15.51 mega). Bare serves free. Strip it here so the
+    // leg opens bare. Premium (non-free-base) :nitro passes through (that
+    // mapping is the only path that 200s for opus-class).
+    let model_stripped: String;
+    let model_str: &str = {
+        let t = model_str.trim();
+        match t.rsplit_once(':') {
+            Some((base, suf)) if suf.eq_ignore_ascii_case("nitro")
+                && framer_core::model::free_on_cutoff(base) =>
+            {
+                model_stripped = base.to_string();
+                &model_stripped
+            }
+            _ => model_str,
+        }
+    };
     {
         // Pass the FULL (possibly mapped) id: SUFFIX_FREE matches exact provider-prefixed
         // ids; stripping first would miss ("claude-opus-5.5:nitro" != allowlisted
@@ -1844,6 +1862,30 @@ async fn custom_real_once(
     })?;
     let result = residency.observe_result(account.id, result);
     record_account_health(&s, &account, &result).await;
+    // GRANT-BUCKET ROUTING (2026-11-15): a billed quarantine means this
+    // account's upstream grant bucket is depleted (billed legs cluster in
+    // streaks: ef81a070 6-long). An Ok-with-debit must NOT clear health —
+    // cool the account so the selector routes away until the bucket refills.
+    // (Quarantine text is already withheld; this only steers FUTURE legs.
+    // Runs AFTER record_account_health: its Ok arm would note_success-wipe
+    // this cooling, so this upsert must win.)
+    if let Ok(ref assembled) = result {
+        if assembled.total_debit < -framer_custom::ledger::LEDGER_EPS {
+            let now = framer_core::rotation::now_ms();
+            // Re-read: record may have mutated stored health; base off latest.
+            if let Ok(Some(latest)) = s.state.get(account.id).await {
+                let mut hot = latest;
+                hot.note_risk_refused(now);
+                let ms = framer_core::account::ManagedAccount::cooldown_backoff_ms(hot.cooldown_step - 1);
+                let id8 = hot.id.0.to_string()[..8].to_string();
+                let debit = assembled.total_debit;
+                let _ = s.state.upsert(&hot).await;
+                eprintln!(
+                    "[health] {id8}: billed quarantine ({debit:+.6}) -> cooling {ms}ms (grant-bucket backoff)",
+                );
+            }
+        }
+    }
     match result {
         Ok(mut assembled) => {
             s.gate.on_success(&gate_key).await;
