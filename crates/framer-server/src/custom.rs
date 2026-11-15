@@ -80,6 +80,7 @@ pub fn custom_routes(state: AppState) -> Router {
         .route("/complete/status", axum::routing::get(status_handler).post(status_reset_handler))
         .route("/refund_lab", axum::routing::post(refund_lab_handler))
         .route("/sweep_probe", axum::routing::post(sweep_probe_handler))
+        .route("/claim_grant", axum::routing::post(claim_grant_handler))
         .with_state(state)
 }
 
@@ -161,6 +162,49 @@ async fn sweep_probe_handler(
     Json(serde_json::json!({
         "account": &account.id.0.to_string()[..8], "team": &scope.team.0[..8], "model": model, "path": path, "stream_mode": stream_mode, "n": n,
         "results": results, "ledger_before": led0, "ledger_after": led1, "final_delta": led1 - led0,
+    })).into_response()
+}
+
+
+/// RESEARCH: claim_workspace_grant on an existing account. Framer grants 500
+/// free-intro credits to the first TWO workspaces on an account. Accounts imported
+/// with a pinned team_id skipped the claim, so they hold one grant. This creates the
+/// second workspace and measures whether the second 500-credit grant lands.
+async fn claim_grant_handler(
+    State(s): State<AppState>,
+    Json(body): Json<serde_json::Value>,
+) -> Response {
+    let acct = body.get("account_id").and_then(|v| v.as_str()).map(|x| x.to_string());
+    let sel = crate::select_funded_account(&s, acct).await;
+    let (account, _res, session, scope) = match sel {
+        Ok(t) => t,
+        Err(e) => return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": format!("no funded: {e:?}")}))).into_response(),
+    };
+    let total_credits = |s: AppState, session: framer_core::port::Session| async move {
+        let me = match s.client.me(&session).await { Ok(m) => m, Err(_) => return f64::NAN };
+        let orgs: Vec<&serde_json::Value> = me["spaces"].as_array()
+            .map(|a| a.iter().filter(|sp| sp["scope"].as_str() == Some("organization")).collect())
+            .unwrap_or_default();
+        let mut total = 0.0;
+        for sp in orgs {
+            if let Some(tid) = sp["ownerId"].as_str() {
+                let team = framer_core::ids::TeamId(tid.to_string());
+                if let Ok(snap) = s.client.usage(&session, &team).await { total += snap.available; }
+            }
+        }
+        total
+    };
+    let before = total_credits(s.clone(), session.clone()).await;
+    let claimed = s.client.claim_workspace_grant(&session).await;
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    let after = total_credits(s.clone(), session.clone()).await;
+    Json(serde_json::json!({
+        "account": &account.id.0.to_string()[..8],
+        "team": &scope.team.0[..8.min(scope.team.0.len())],
+        "claimed": format!("{:?}", claimed),
+        "credits_before": before,
+        "credits_after": after,
+        "delta": after - before,
     })).into_response()
 }
 
@@ -1946,10 +1990,16 @@ async fn custom_real_once(
                     framer_core::rotation::mark_saturated(&team.0, 45_000);
                 }
             }
-            // A 402 means the leased scope workspace is truly out of credits
-            // (provider-verified, not a guess). Mark the scope team saturated
-            // for 5 minutes so later picks steer away from the dead team.
-            if e.contains("402") || e.contains("credit_balance_exhausted")
+            // A credits-exhausted scope means the leased workspace is truly out of
+            // credits (provider-verified, not a guess). Mark the scope team
+            // saturated for 5 minutes so later picks steer away from the dead team.
+            // NOTE: match on the structured marker ONLY. The old `e.contains("402")`
+            // substring fired on 403 entitlement envelopes whose timestamps/refs
+            // contain "402" (e.g. "2026-11-15T04:20:09.07340246Z"), wrongly
+            // saturating FUNDED workspaces (b4d2e736 399cr, 92775550 103cr) for
+            // 5min and starving the pool behind a false "saturated" failover loop.
+            if e.ends_with("credits-exhausted")
+                || e.contains("credit_balance_exhausted")
                 || e.contains("team_credit_balance_exhausted")
             {
                 framer_core::rotation::mark_saturated(&scope_team.0, 300_000);
