@@ -1026,6 +1026,27 @@ fn model_gate_check(
     Ok(())
 }
 
+/// Request params parsed once per free_complete call (was: re-parsed inline
+/// at each use site, with max_tokens triple-fallback repeated).
+struct RequestParams {
+    wants_stream: bool,
+    include_usage: bool,
+    max_tokens: u32,
+}
+
+impl RequestParams {
+    fn from_payload(payload: &serde_json::Value) -> Self {
+        Self {
+            wants_stream: payload["stream"].as_bool().unwrap_or(false),
+            include_usage: payload["stream_options"]["include_usage"].as_bool().unwrap_or(false),
+            max_tokens: payload["max_tokens"].as_u64()
+                .or_else(|| payload["max_completion_tokens"].as_u64())
+                .or_else(|| payload["max_output_tokens"].as_u64())
+                .unwrap_or(4096) as u32,
+        }
+    }
+}
+
 /// Request model normalization: ultrafast-tier strip, then the nitro map.
 /// Request model normalization: ultrafast-tier strip, then the nitro map.
 /// Pure function (no I/O): T3 `-ultrafast` ids strip to base + service_tier;
@@ -1081,12 +1102,7 @@ pub(crate) async fn free_complete(
     if let Some(resp) = honest_route_check(&s, headers, dialect, &payload, &client_model).await? {
         return Ok(resp);
     }
-    let wants_stream = payload["stream"].as_bool().unwrap_or(false);
-    let include_usage = payload["stream_options"]["include_usage"].as_bool().unwrap_or(false);
-    let max_tokens = payload["max_tokens"].as_u64()
-        .or_else(|| payload["max_completion_tokens"].as_u64())
-        .or_else(|| payload["max_output_tokens"].as_u64())
-        .unwrap_or(4096) as u32;
+    let params = RequestParams::from_payload(&payload);
 
     // THE DIALECT-NATIVE RULE (docs/native-chains.md, 2026-10-06): OpenAI
     // clients never convert to Anthropic. Responses clients run the
@@ -1135,7 +1151,7 @@ pub(crate) async fn free_complete(
         // All-cooling rejects through the chain own selection (select_fresh
         // -> pick_ready -> AccountCooling) with the same error shape and the
         // same one-read I/O budget the endpoint tests pin.
-        match custom::chat_via_cutoff(s.clone(), headers, payload.clone(), wants_stream, include_usage).await {
+        match custom::chat_via_cutoff(s.clone(), headers, payload.clone(), params.wants_stream, params.include_usage).await {
             Ok(resp) => return Ok(resp),
             Err(e) => match classify_cutoff_error(e, "chat") {
                 CutoffVerdict::Return(e) => return Err(e),
@@ -1155,7 +1171,7 @@ pub(crate) async fn free_complete(
         && hdr(headers, "x-framerize-account").is_none()
     {
         cutoff_admit_wave(&s)?;
-        match custom::responses_via_cutoff(s.clone(), headers, payload.clone(), wants_stream).await {
+        match custom::responses_via_cutoff(s.clone(), headers, payload.clone(), params.wants_stream).await {
             Ok(resp) => return Ok(resp),
             Err(e) => match classify_cutoff_error(e, "responses") {
                 CutoffVerdict::Return(e) => return Err(e),
@@ -1189,7 +1205,7 @@ pub(crate) async fn free_complete(
                     acap["model"] = m;
                 }
             }
-            match custom::anthro_via_cutoff(s.clone(), headers, acap, wants_stream).await {
+            match custom::anthro_via_cutoff(s.clone(), headers, acap, params.wants_stream).await {
                 Ok(resp) => return Ok(resp),
                 Err(e) => match classify_cutoff_error(e, "anthro") {
                     CutoffVerdict::Return(e) => return Err(e),
@@ -1199,7 +1215,7 @@ pub(crate) async fn free_complete(
         }
     }
     if dialect != ClientDialect::AnthropicMessages && !anthro_family {
-        return native_complete(s, headers, dialect, payload, wants_stream, include_usage, max_tokens).await;
+        return native_complete(s, headers, dialect, payload, params.wants_stream, params.include_usage, params.max_tokens).await;
     }
 
     // Client request → faithful Anthropic Messages payload (model normalized).
@@ -1239,7 +1255,7 @@ pub(crate) async fn free_complete(
     current_account(&s, account.id).await?;
 
     let mk_cfg = |team: &framer_core::ids::TeamId| framer_core::port::ChainConfig {
-        max_total_tokens: Some(max_tokens),
+        max_total_tokens: Some(params.max_tokens),
         // Metered rungs are credit spend: off unless the operator opts in.
         // TWO-KEY SPEND (2026-11-11): the metered fallback bills per chunk. It takes
         // BOTH FRAMERIZE_ALLOW_METERED=1 AND FRAMERIZE_ALLOW_SPEND=1 -- no single env flip,
@@ -1258,7 +1274,7 @@ pub(crate) async fn free_complete(
     };
     let mut cfg = mk_cfg(&scope_team);
     let mut account = account;
-    if wants_stream {
+    if params.wants_stream {
         let body_residency = residency.clone();
         // INCREMENTAL streaming: spawn the chain with an events callback and
         // emit SSE frames as chunks land — message_start/role/created
@@ -1393,7 +1409,7 @@ pub(crate) async fn free_complete(
             done: bool,
         }
         let stream = futures::stream::unfold(
-            (rx, open_frames, composer, St { done: false }, handle, client_model, include_usage, dialect),
+            (rx, open_frames, composer, St { done: false }, handle, client_model, params.include_usage, dialect),
             |(mut rx, mut pending, mut composer, mut st, mut handle, client_model, include_usage, dialect)| async move {
                 if st.done {
                     return None;
