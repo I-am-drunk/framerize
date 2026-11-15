@@ -55,6 +55,7 @@ pub const END_MARKER: &str = "⟦FRZ-END⟧";
 /// the model to emit perfectly. The page cut fires on EVERY repetition (not just once),
 /// so one missed window can never strand the stream. Format, e.g. `⟦PAD-0042⟧`.
 pub const PAD_TAG_PREFIX: &str = "⟦PAD-";
+/// Closing bracket of the pad-pattern tag (matches PAD_TAG_PREFIX).
 pub const PAD_TAG_SUFFIX: &str = "⟧";
 /// How many digits the model zero-pads to (0001..9999, then continues unpadded).
 pub const PAD_TAG_DIGITS: usize = 4;
@@ -77,6 +78,7 @@ pub fn continue_cut_reminder() -> String {
     )
 }
 
+/// Continuation-leg nudge: continue the accumulated text verbatim at length.
 pub fn continue_suffix() -> String {
     "Continue EXACTLY from the end of this text. Output only strictly new content, at length. Do not stop early, do not conclude. Do not repeat anything in it. Same topic, same style:".to_string()
 }

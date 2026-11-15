@@ -30,6 +30,7 @@
 use crate::{retain_owner, AbortOnDrop};
 use super::{current_account, hdr, record_account_health, stable_session, ApiError, AppState};
 use super::pool_control::{lease_account, RequestResidency};
+use super::render;
 use async_trait::async_trait;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -416,37 +417,6 @@ pub(super) async fn custom_complete_handler(
 /// Grants arrive in bursts (~2/window); the sweeper captures the next burst automatically
 /// instead of losing denied turns forever.
 
-fn sse_response(assembled: &framer_custom::Assembled, req_id: &str, refunded: u32) -> Response {
-    // Frame contract: text+legs are the stable fields every client reads.
-    // outcome/total_debit/legs-detail/req_id are additive diagnostics so a
-    // billed, short, or raced run is diagnosable from the response alone
-    // (mirrors the [custom-route] daemon log lines, same req_id).
-    let event = format!(
-        "data: {}\n\n",
-        serde_json::json!({
-            "text": assembled.text,
-            "legs": assembled.legs.len(),
-            "outcome": format!("{:?}", assembled.outcome),
-            "total_debit": assembled.total_debit,
-            // Deterministic progress + the compaction input: per-leg captured
-            // chars and an estimated output-token count. The abort lands
-            // BEFORE the usage frame by design, so real token counts never
-            // arrive -- the estimate (chars/4, the standard heuristic) is
-            // marked as such, never presented as metered truth.
-            "estimated_output_tokens": (assembled.text.chars().count() / 4).max(1),
-            "token_estimate": "estimated", // honest marker: never metered truth
-            "legs_detail": assembled.legs.iter().map(|l| serde_json::json!({
-                "raced": l.raced, "debited": l.debited,
-                "stop_used": l.stop_used, "debit": l.debit, "events": l.events,
-                "chars": l.text.chars().count(),
-            })).collect::<Vec<_>>(),
-            "req_id": req_id,
-            // Settles this chain reversed via /ai/v3/refund/ (0 on a clean run).
-            "turns_refunded": refunded,
-        })
-    );
-    ([("content-type", "text/event-stream")], event).into_response()
-}
 
 /// Real mode: assemble per-request deps mirroring native_complete, run the
 /// engine over the live page stream, record health, answer SSE.
@@ -472,7 +442,7 @@ async fn mock_complete(body: &CompleteBody) -> Response {
                 .into_response();
         }
     };
-    sse_response(&assembled, "mock", 0)
+    render::sse_response(&assembled, "mock", 0)
 }
 
 fn sweeper_path() -> Option<std::path::PathBuf> {
@@ -589,7 +559,7 @@ async fn custom_real_request(
         )
             .into_response());
     }
-    let mut resp = sse_response(&out.assembled, &out.req_id, out.refunded);
+    let mut resp = render::sse_response(&out.assembled, &out.req_id, out.refunded);
     resp.headers_mut().insert(
         "x-framerize-session",
         out.chat_session
@@ -835,7 +805,7 @@ pub(super) async fn chat_via_cutoff(
         let out =
             cutoff_run(s, headers, framer_custom::ChainRequest::Chat(payload), &model, None, None)
                 .await?;
-        return Ok(chat_completion_json(&out, &model, include_usage, prompt_chars));
+        return Ok(render::chat_completion_json(&out, &model, include_usage, prompt_chars));
     }
     // Admission BEFORE the stream opens: a cooling/wave rejection must be
     // the 503 response, not a stream that dies after the headers (the
@@ -845,7 +815,7 @@ pub(super) async fn chat_via_cutoff(
     // silence (clients time out silent sockets), then replays the answer as
     // chunk deltas and ends. Buffered chain, replayed stream -- the meter is
     // never settled either way.
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<CutoffOutcome, ApiError>>(1);
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<CutoffOutcome, ApiError>>(1);
     let model2 = model.clone();
     let headers2 = headers.clone();
     // DISCONNECT KILLS THE CHAIN (#2): a bare spawn outlives a dropped response --
@@ -859,7 +829,7 @@ pub(super) async fn chat_via_cutoff(
     }));
     let id = format!("chatcmpl-{}", uuid::Uuid::new_v4().simple());
     let created = framer_core::rotation::now_ms() / 1000;
-    let mut frames: std::collections::VecDeque<String> = std::collections::VecDeque::new();
+    let frames: std::collections::VecDeque<String> = std::collections::VecDeque::new();
     let stream = futures::stream::unfold(
         (rx, false, frames),
         move |(mut rx, mut done, mut frames)| {
@@ -877,14 +847,14 @@ pub(super) async fn chat_via_cutoff(
                         let answer = out.assembled.text.clone();
                         let completion_tokens = answer.chars().count() / 4;
                         let prompt_tokens = prompt_chars / 4;
-                        frames.push_back(chat_chunk(&id, created, &model, serde_json::json!({"role": "assistant"})));
+                        frames.push_back(render::chat_chunk(&id, created, &model, serde_json::json!({"role": "assistant"})));
                         if !out.assembled.tool_calls.is_empty() {
-                            frames.push_back(chat_chunk(&id, created, &model, serde_json::json!({"tool_calls": framer_core::convert::tool_calls_openai(&out.assembled.tool_calls)})));
+                            frames.push_back(render::chat_chunk(&id, created, &model, serde_json::json!({"tool_calls": framer_core::convert::tool_calls_openai(&out.assembled.tool_calls)})));
                         }
                         let chars: Vec<char> = answer.chars().collect();
                         for piece in chars.chunks(400) {
                             let piece: String = piece.iter().collect();
-                            frames.push_back(chat_chunk(&id, created, &model, serde_json::json!({"content": piece})));
+                            frames.push_back(render::chat_chunk(&id, created, &model, serde_json::json!({"content": piece})));
                         }
                         let fin_reason = if out.assembled.tool_calls.is_empty() { "stop" } else { "tool_calls" };
                         let mut finchunk = serde_json::json!({"id": id, "object": "chat.completion.chunk", "created": created, "model": model, "choices": [{"index": 0, "delta": {}, "finish_reason": fin_reason}]});
@@ -898,7 +868,6 @@ pub(super) async fn chat_via_cutoff(
                         }
                         frames.push_back(format!("data: {}\n\n", finchunk));
                         frames.push_back("data: [DONE]\n\n".to_string());
-                        done = false; // stays false until frames drain; flip below
                         // pop the first frame now; mark done when frames empty
                         let f = frames.pop_front().unwrap();
                         let d = frames.is_empty();
@@ -952,13 +921,13 @@ pub(super) async fn responses_via_cutoff(
     let chat = framer_core::convert::responses_request_to_chat(&payload).map_err(ApiError::InvalidRequest)?;
     if !wants_stream {
         let out = cutoff_run(s, headers, framer_custom::ChainRequest::Chat(chat), &model, None, None).await?;
-        return Ok(render_responses(&out, &model, false));
+        return Ok(render::render_responses(&out, &model, false));
     }
     // Admission before the stream opens (same contract as the chat path).
     cutoff_admit(&s).await?;
     // The chain runs in a task; the stream pings every 8s of silence, then
     // replays the responses-dialect frames.
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<CutoffOutcome, ApiError>>(1);
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<CutoffOutcome, ApiError>>(1);
     let headers2 = headers.clone();
     let model2 = model.clone();
     // DISCONNECT KILLS THE CHAIN (#2): a bare spawn outlives a dropped response --
@@ -976,7 +945,7 @@ pub(super) async fn responses_via_cutoff(
             }
             match tokio::time::timeout(std::time::Duration::from_secs(8), rx.recv()).await {
                 Ok(Some(Ok(out))) => {
-                    let body = responses_frames(&out, &model);
+                    let body = render::responses_frames(&out, &model);
                     Some((Ok::<_, std::convert::Infallible>(body), (rx, true)))
                 }
                 Ok(Some(Err(e))) => {
@@ -1061,7 +1030,7 @@ pub(super) async fn anthro_via_cutoff(
         return Ok(resp);
     }
     cutoff_admit(&s).await?;
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<CutoffOutcome, ApiError>>(1);
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<CutoffOutcome, ApiError>>(1);
     let model2 = model.clone();
     let headers2 = headers.clone();
     // DISCONNECT KILLS THE CHAIN (#2): a bare spawn outlives a dropped response --
@@ -1128,165 +1097,13 @@ pub(super) async fn anthro_via_cutoff(
     Ok(resp)
 }
 
-fn render_responses(out: &CutoffOutcome, model: &str, stream: bool) -> Response {
-    let resp_id = format!("resp_{}", uuid::Uuid::new_v4().simple());
-    let created = framer_core::rotation::now_ms() / 1000;
-    let mut output: Vec<serde_json::Value> = Vec::new();
-    let text = &out.assembled.text;
-    if !text.is_empty() {
-        output.push(serde_json::json!({
-            "id": format!("msg_{}", uuid::Uuid::new_v4().simple()),
-            "type": "message",
-            "role": "assistant",
-            "status": "completed",
-            "content": [{"type": "output_text", "text": text}],
-        }));
-    }
-    for tc in &out.assembled.tool_calls {
-        output.push(serde_json::json!({
-            "id": format!("fc_{}", uuid::Uuid::new_v4().simple()),
-            "type": "function_call",
-            "call_id": tc["id"].as_str().unwrap_or(""),
-            "name": tc["name"].as_str().unwrap_or(""),
-            "arguments": tc["arguments"].as_str().unwrap_or(""),
-            "status": "completed",
-        }));
-    }
-    let completion_tokens = text.chars().count() / 4;
-    let usage = serde_json::json!({
-        "input_tokens": 0,
-        "output_tokens": completion_tokens,
-        "total_tokens": completion_tokens,
-    });
-    if !stream {
-        return axum::Json(serde_json::json!({
-            "id": resp_id,
-            "object": "response",
-            "created_at": created,
-            "status": "completed",
-            "model": model,
-            "output": output,
-            "usage": usage,
-            "x-framerize-usage": "estimated",
-        }))
-        .into_response();
-    }
-    let body = responses_frames(out, model);
-    return ([("content-type", "text/event-stream")], body).into_response();
-}
 
 /// The responses-dialect SSE replay: response.created, item added/done per
 /// item, response.completed with usage.
-fn responses_frames(out: &CutoffOutcome, model: &str) -> String {
-    let resp_id = format!("resp_{}", uuid::Uuid::new_v4().simple());
-    let created = framer_core::rotation::now_ms() / 1000;
-    let mut output: Vec<serde_json::Value> = Vec::new();
-    let text = &out.assembled.text;
-    if !text.is_empty() {
-        output.push(serde_json::json!({
-            "id": format!("msg_{}", uuid::Uuid::new_v4().simple()),
-            "type": "message",
-            "role": "assistant",
-            "status": "completed",
-            "content": [{"type": "output_text", "text": text}],
-        }));
-    }
-    for tc in &out.assembled.tool_calls {
-        output.push(serde_json::json!({
-            "id": format!("fc_{}", uuid::Uuid::new_v4().simple()),
-            "type": "function_call",
-            "call_id": tc["id"].as_str().unwrap_or(""),
-            "name": tc["name"].as_str().unwrap_or(""),
-            "arguments": tc["arguments"].as_str().unwrap_or(""),
-            "status": "completed",
-        }));
-    }
-    let completion_tokens = text.chars().count() / 4;
-    let usage = serde_json::json!({
-        "input_tokens": 0,
-        "output_tokens": completion_tokens,
-        "total_tokens": completion_tokens,
-    });
-    let mut body = String::new();
-    body.push_str(&format!(
-        "data: {}\n\n",
-        serde_json::json!({"type": "response.created", "response": {"id": resp_id, "object": "response", "created_at": created, "status": "in_progress", "model": model, "output": []}})
-    ));
-    for (i, item) in output.iter().enumerate() {
-        body.push_str(&format!(
-            "data: {}\n\n",
-            serde_json::json!({"type": "response.output_item.added", "output_index": i, "item": item})
-        ));
-        if item["type"].as_str() == Some("message") {
-            let full = item["content"][0]["text"].as_str().unwrap_or("");
-            body.push_str(&format!(
-                "data: {}\n\n",
-                serde_json::json!({"type": "response.output_text.delta", "output_index": i, "content_index": 0, "delta": full})
-            ));
-        }
-        body.push_str(&format!(
-            "data: {}\n\n",
-            serde_json::json!({"type": "response.output_item.done", "output_index": i, "item": item})
-        ));
-    }
-    body.push_str(&format!(
-        "data: {}\n\n",
-        serde_json::json!({
-            "type": "response.completed",
-            "response": {"id": resp_id, "object": "response", "created_at": created, "status": "completed", "model": model, "output": output, "usage": usage},
-        })
-    ));
-    body
-}
 
 /// One chat.completion.chunk SSE frame.
-fn chat_chunk(id: &str, created: u64, model: &str, delta: serde_json::Value) -> String {
-    format!(
-        "data: {}\n\n",
-        serde_json::json!({
-            "id": id, "object": "chat.completion.chunk", "created": created, "model": model,
-            "choices": [{"index": 0, "delta": delta, "finish_reason": null}],
-        })
-    )
-}
 
 /// Buffered chat.completion render of a chain outcome.
-fn chat_completion_json(
-    out: &CutoffOutcome,
-    model: &str,
-    include_usage: bool,
-    prompt_chars: usize,
-) -> Response {
-    let text = &out.assembled.text;
-    let completion_tokens = text.chars().count() / 4;
-    let prompt_tokens = prompt_chars / 4;
-    let has_tools = !out.assembled.tool_calls.is_empty();
-    let message = if has_tools {
-        serde_json::json!({"role": "assistant", "content": if text.is_empty() { serde_json::Value::Null } else { serde_json::json!(text) }, "tool_calls": framer_core::convert::tool_calls_openai(&out.assembled.tool_calls)})
-    } else {
-        serde_json::json!({"role": "assistant", "content": text})
-    };
-    let mut body = serde_json::json!({
-        "id": format!("chatcmpl-{}", uuid::Uuid::new_v4().simple()),
-        "object": "chat.completion",
-        "created": framer_core::rotation::now_ms() / 1000,
-        "model": model,
-        "choices": [{
-            "index": 0,
-            "message": message,
-            "finish_reason": if has_tools { "tool_calls" } else { "stop" },
-        }],
-    });
-    if include_usage {
-        body["usage"] = serde_json::json!({
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_tokens": prompt_tokens + completion_tokens,
-        });
-        body["x-framerize-usage"] = serde_json::Value::String("estimated".into());
-    }
-    axum::Json(body).into_response()
-}
 
 async fn custom_real_once(
     s: AppState,

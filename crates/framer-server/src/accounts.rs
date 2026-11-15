@@ -3,13 +3,11 @@
 //! Pure move out of lib.rs (no behavior change).
 
 use super::{pool_control, AppState, ApiError};
-use super::handlers::hdr;
 use super::serving_accounts::ServingAccountPolicy;
 use crate::{DedupeBody, RemoveBody};
 use framer_core::account::ManagedAccount;
-use framer_core::ids::{AccountId, TeamId};
+use framer_core::ids::AccountId;
 use framer_core::pipeline::Deps;
-use framer_core::port::Session;
 use axum::extract::State;
 use axum::Json;
 

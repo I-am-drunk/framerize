@@ -20,6 +20,7 @@ use std::sync::Arc;
 use tower_http::services::ServeDir;
 
 mod custom;
+mod render;
 mod custom_admin;
 mod accounts;
 mod handlers;
@@ -927,7 +928,6 @@ pub(crate) async fn free_complete(
         payload["model"] = serde_json::Value::String(base);
         payload["service_tier"] = serde_json::Value::String(tier.into());
     }
-    let client_model = payload["model"].as_str().unwrap_or_default().to_string();
     // NITRO-MAP (2026-11-10, user directive; single source = model::effective_upstream_model).
     // Bare premium claude (opus/sonnet, unsuffixed) 403s paid_plan_only_model upstream, but the
     // :nitro endpoint routes past the workspace blocklist and settles $0 (proved live). The
