@@ -898,6 +898,53 @@ fn stable_session(account: &AccountId) -> String {
     out
 }
 
+/// Honest model routing (2026-10-05, user rule: never substitute silently).
+/// Returns Some(response) to serve immediately (metered opt-in direct path),
+/// None to continue on the free path, or Err for genuinely unavailable models.
+async fn honest_route_check(
+    s: &AppState,
+    headers: &axum::http::HeaderMap,
+    dialect: ClientDialect,
+    payload: &serde_json::Value,
+    client_model: &str,
+) -> Result<Option<axum::response::Response>, ApiError> {
+    match convert::model_route(client_model) {
+        convert::ModelRoute::DirectResponses => {
+            // Metered route BLOCKED by default (user rule 2026-10-06: "we
+            // should not be using the paid route"). gpt-6-sol/6.1-sol/luna/
+            // terra only exist on the metered direct route, so they are
+            // unavailable unless the operator explicitly opts into spend.
+            if framer_core::env::allow_metered() {
+                if dialect == ClientDialect::OpenAiResponses {
+                    return Ok(Some(
+                        compat_forward(
+                            s.clone(),
+                            "openai-responses",
+                            hdr(headers, "x-framerize-account"),
+                            hdr(headers, "x-framerize-session"),
+                            payload.clone(),
+                        )
+                        .await?,
+                    ));
+                }
+                return Err(ApiError::Internal(format!(
+                    "model {client_model} is a direct-route model (OpenAI Responses API, metered) — call /openai/v1/responses for it"
+                )));
+            }
+            return Err(ApiError::Internal(format!(
+                "model {client_model} is metered-only (direct route) and metered access is disabled on this gateway (set FRAMERIZE_ALLOW_METERED=1 to allow spend). Free alternatives: gpt-6-astra, gpt-4.1, kimi-k3, gemini-2.5-flash, and the Claude roster."
+            )));
+        }
+        convert::ModelRoute::Unavailable(reason) => {
+            return Err(ApiError::Internal(format!(
+                "model {client_model} is not available on this gateway: {reason}"
+            )));
+        }
+        convert::ModelRoute::FreePassthrough => {}
+    }
+    Ok(None)
+}
+
 /// Learned model-gate refusal (2026-11-10, user directive; default OFF).
 /// Fires ONLY when blocking is enabled AND the request would ride the CUTOFF
 /// chain or a NON-STREAMING native call. Rationale: on streaming native calls
@@ -981,41 +1028,8 @@ pub(crate) async fn free_complete(
     // {"input": …} wrapper; the render side unwraps them by name.
     let custom_tools = convert::custom_tool_names(&payload);
     model_gate_check(headers, dialect, &payload, &client_model)?;
-    // Honest model routing (2026-10-05, user rule: never substitute silently).
-    // gpt-6.x are direct-route models (OpenAI Responses, metered): Codex and
-    // other Responses clients pass through natively. Genuinely unavailable
-    // models get a clear error — the user picks what to do, not us.
-    match convert::model_route(&client_model) {
-        convert::ModelRoute::DirectResponses => {
-            // Metered route BLOCKED by default (user rule 2026-10-06: "we
-            // should not be using the paid route"). gpt-6-sol/6.1-sol/luna/
-            // terra only exist on the metered direct route, so they are
-            // unavailable unless the operator explicitly opts into spend.
-            if framer_core::env::allow_metered() {
-                if dialect == ClientDialect::OpenAiResponses {
-                    return compat_forward(
-                        s,
-                        "openai-responses",
-                        hdr(headers, "x-framerize-account"),
-                        hdr(headers, "x-framerize-session"),
-                        payload,
-                    )
-                    .await;
-                }
-                return Err(ApiError::Internal(format!(
-                    "model {client_model} is a direct-route model (OpenAI Responses API, metered) — call /openai/v1/responses for it"
-                )));
-            }
-            return Err(ApiError::Internal(format!(
-                "model {client_model} is metered-only (direct route) and metered access is disabled on this gateway (set FRAMERIZE_ALLOW_METERED=1 to allow spend). Free alternatives: gpt-6-astra, gpt-4.1, kimi-k3, gemini-2.5-flash, and the Claude roster."
-            )));
-        }
-        convert::ModelRoute::Unavailable(reason) => {
-            return Err(ApiError::Internal(format!(
-                "model {client_model} is not available on this gateway: {reason}"
-            )));
-        }
-        convert::ModelRoute::FreePassthrough => {}
+    if let Some(resp) = honest_route_check(&s, headers, dialect, &payload, &client_model).await? {
+        return Ok(resp);
     }
     let wants_stream = payload["stream"].as_bool().unwrap_or(false);
     let include_usage = payload["stream_options"]["include_usage"].as_bool().unwrap_or(false);
