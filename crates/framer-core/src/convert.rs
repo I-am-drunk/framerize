@@ -91,6 +91,13 @@ pub fn to_openrouter_id(model: &str) -> String {
     // fragment gate buckets and break key-stable tests.
     let m = model.split(':').next().unwrap_or(model);
     if m.contains('/') {
+        // Canonicalize the core's version tail (dash<->dot) so gate
+        // exact-match works regardless of input spelling: both
+        // "ANTHROPIC/claude-opus-5-5" and ".../claude-opus-5.5" must hit
+        // SUFFIX_FREE. Provider case preserved (caps intent matters upstream).
+        if let Some((prov, rest)) = m.split_once('/') {
+            return format!("{prov}/{}", join_version(rest));
+        }
         return m.to_string();
     }
     if let Some(rest) = m.strip_prefix("claude-") {
