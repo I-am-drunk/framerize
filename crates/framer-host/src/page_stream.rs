@@ -61,6 +61,7 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
     }
     const slot = { open: true, closed: false, status: 0, usage: null,
       buf: "", cursor: 0, chunks: 0, stopped: false, stopAt: 0, done: false, error: "",
+      thinkChars: 0,
       reader: null, ctl: null };
     window.__customPS = slot;
     (async () => {
@@ -151,7 +152,16 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
                 // content_block_delta as a live line (empty text — thinking is
                 // reasoning, not billable output; the text accumulator stays
                 // clean so served content never contains reasoning).
-                else if (j.type === "content_block_delta" && j.delta && typeof j.delta.type === "string") { d = ""; }
+                else if (j.type === "content_block_delta" && j.delta && typeof j.delta.type === "string") {
+                  d = "";
+                  // REASONING METER (2026-11-15): count thinking/signature chars
+                  // in-pump. Billed-thinking legs may correlate with reasoning
+                  // length; the drain reports thinkChars per batch.
+                  try {
+                    const t = (j.delta.thinking || "") + (j.delta.signature || "");
+                    if (typeof t === "string" && t) { slot.thinkChars = (slot.thinkChars || 0) + t.length; }
+                  } catch (e) {}
+                }
                 // TOOL CALLS (2026-11-09): a tool turn ends with
                 // finish_reason=tool_calls and the call is COMPLETE before
                 // the finish line -- so the finish cutoff captures tool
@@ -365,6 +375,7 @@ pub const DRAIN_SNIPPET: &str = r#"(() => {
     toolCalls: tcs,
     status: slot.status, usage: slot.usage, error: slot.error || "",
     chunks: slot.chunks || 0, wireTap: tap + cutTrace,
+    thinkChars: slot.thinkChars || 0,
     streamLive: !!slot.streamLive };
 })()"#;
 
@@ -707,6 +718,14 @@ impl<E: PageEval> framer_custom::PageStream for HostPageStream<E> {
         // arguments wire shape (string-fragment vs object) is visible.
         if !tool_calls.is_empty() {
             eprintln!("[toolshape] raw={}", serde_json::to_string(&tool_calls).unwrap_or_default().chars().take(600).collect::<String>());
+        }
+        // REASONING METER (2026-11-15): per-drain thinking chars. Correlate
+        // with billed legs: if billed-thinking always shows large thinkChars,
+        // the meter prices reasoning length and the cap must drop further.
+        if let Some(n) = v["thinkChars"].as_u64() {
+            if n > 0 {
+                eprintln!("[thinkmeter] thinkChars={n}");
+            }
         }
         let batch = framer_custom::StreamBatch {
             events,
