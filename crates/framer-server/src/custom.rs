@@ -921,19 +921,19 @@ pub(super) async fn cutoff_run(
     } else {
         model_str
     };
-    // PROVIDER-CASE NORMALIZATION (2026-11-15, live-proved): an UPPERCASE
-    // provider prefix (ANTHROPIC/x) routes upstream to a METERED provider
-    // endpoint (50% billed, -$149 over 52 legs) while the lowercase form
-    // rides the grant-covered native endpoint (~1% micro-quanta). The gate
-    // below slug-matches either form, so caps legs OPEN — then bill. Rewrite
-    // to lowercase-provider BEFORE gating so every leg opens on the free
-    // endpoint. Same upstream model (echoes identical), strictly dominant.
-    // Owned String so the borrow lives past this block.
+    // PROVIDER-CASE POLICY (2026-11-15): an UPPERCASE provider prefix
+    // (ANTHROPIC/x) historically routed upstream to a METERED provider endpoint
+    // (50% billed pre-abort-first) while lowercase rides the grant-covered native
+    // endpoint. Default: rewrite to lowercase-provider BEFORE gating (safe).
+    // FRAMERIZE_SSC_ALLOW_CAPS=1 preserves caller case: with abort-first live,
+    // caps legs may now cut clean — measurable via the proof lines (compare
+    // quarantine rates caps vs bare). Default OFF (safe).
+    let ssc_allow_caps = std::env::var("FRAMERIZE_SSC_ALLOW_CAPS").map(|v| v == "1").unwrap_or(false);
     let model_lowered: String;
     let model_str: &str = {
         let t = model_str.trim();
         match t.split_once('/') {
-            Some((p, rest)) if p.chars().any(|c| c.is_ascii_uppercase()) => {
+            Some((p, rest)) if !ssc_allow_caps && p.chars().any(|c| c.is_ascii_uppercase()) => {
                 model_lowered = format!("{}/{}", p.to_ascii_lowercase(), rest);
                 &model_lowered
             }
@@ -998,6 +998,32 @@ pub(super) async fn cutoff_run(
                     &failed[..8.min(failed.len())],
                     format!("{e:?}").chars().take(160).collect::<String>(),
                 );
+                // SLOT HYGIENE (2026-11-15): a scope-empty failure means the
+                // attempt leased a slot for a corpse and dropped it (users 0)
+                // — but the slot REMAINS, and 3 attempts/request × idle pool =
+                // 6 corpse residents holding capacity while funded accounts
+                // wait outside (live: 2 requests created 6 corpse slots).
+                // Reclaim it now: park the dead slot (best-effort, bounded).
+                // Only on scope-empty (proven corpse), never on transient
+                // failures (a starting browser's slot must survive).
+                if format!("{e:?}").contains("no funded workspace") {
+                    if let Ok(fid) = failed.parse::<uuid::Uuid>() {
+                        let pid = framer_core::ids::AccountId(fid);
+                        if let Ok(()) = tokio::time::timeout(
+                            std::time::Duration::from_secs(10),
+                            s.serving_accounts.park_managed(s.browser.as_ref(), pid),
+                        )
+                        .await
+                        .map_err(|_| ())
+                        .and_then(|r| r.map_err(|_| ()))
+                        {
+                            eprintln!(
+                                "[custom-route] req={req_short} reclaimed dead slot {}",
+                                &failed[..8.min(failed.len())]
+                            );
+                        }
+                    }
+                }
                 tried.push(failed);
                 last = Some(e);
             }
@@ -1800,6 +1826,14 @@ async fn custom_real_once(
         );
         // LEDGER SYNC (fix): persist the live balance into the local DB ledger so local==live.
         let _ = s.state.set_credit_available(account.id, live_credits).await;
+        // ROTATION SYNC (2026-11-15): feed the same read into the live-balance
+        // cache + dead marks. Without this, every request re-discovers the same
+        // corpse scopes via fresh ledger reads (the cache never learns, select
+        // keeps dealing them, failover burns 3 attempts/request on empties).
+        // note_live_balance dead-marks below-floor teams for 5 min.
+        if live_credits.is_finite() {
+            framer_core::rotation::note_live_balance(&scope_team.0, live_credits);
+        }
 
         let floor = framer_core::rotation::bill_floor();
         if !live_credits.is_finite() || live_credits < floor {

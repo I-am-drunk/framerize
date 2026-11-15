@@ -209,7 +209,17 @@ pub async fn prewarm_accounts(s: AppState) {
     let Ok(mut accounts) = s.state.list().await else { return; };
     let now = framer_core::rotation::now_ms();
     accounts.retain(|account| s.serving_accounts.allows(&account.id) && account.is_available_at(now));
-    accounts.sort_by_key(|account| (account.consecutive_failures, account.id.0));
+    // FUNDED-FIRST SEATING (2026-11-15): prewarm seated corpses (0-failure,
+    // low-uuid empty accounts sort first) which then held residency while
+    // funded accounts waited outside — every request burned failover on
+    // dead residents. Prefer might_bill-passing accounts; only seat
+    // known-dead when nothing else exists (might_bill passes unknowns, so
+    // cold-boot never starves — it converges as the live cache warms).
+    accounts.sort_by_key(|account| (
+        !framer_core::rotation::account_might_bill(account),
+        account.consecutive_failures,
+        account.id.0,
+    ));
     for account in accounts.into_iter().take(s.serving_accounts.config().active_capacity) {
         if s.wave.check().is_some() { break; }
         let t0 = std::time::Instant::now();
