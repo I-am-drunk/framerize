@@ -950,11 +950,13 @@ async fn native_ledger_before(
     s: &AppState,
     session: &framer_core::port::Session,
     team: &framer_core::ids::TeamId,
+    req_short: &str,
+    account8: &str,
 ) -> Option<f64> {
     match s.client.usage(session, team).await {
         Ok(snap) => Some(snap.available),
         Err(e) => {
-            eprintln!("[native-guard] before-read failed (gate open, serving): {e}");
+            eprintln!("[native-guard] req={req_short} account={account8} before-read failed (gate open, serving): {e}");
             None
         }
     }
@@ -967,6 +969,8 @@ async fn native_ledger_check(
     team: &framer_core::ids::TeamId,
     before: Option<f64>,
     ctx: &str,
+    req_short: &str,
+    account8: &str,
 ) -> Option<f64> {
     let b = match before {
         Some(v) => v,
@@ -981,23 +985,23 @@ async fn native_ledger_check(
                 // moved -1.08; balances frozen between requests). Withholding + tripping
                 // on a hold wedges serving on ghosts. Confirm persistence: re-read after
                 // 20s; serve normally if recovered, withhold+trip only if confirmed.
-                eprintln!("[native-guard] {ctx}: tentative move {d:+.6} (before {b:.2} -> after {:.2}) -- confirming in 20s", snap.available);
+                eprintln!("[native-guard] req={req_short} account={account8} {ctx}: tentative move {d:+.6} (before {b:.2} -> after {:.2}) -- confirming in 20s", snap.available);
                 tokio::time::sleep(std::time::Duration::from_secs(20)).await;
                 match s.client.usage(session, team).await {
                     Ok(snap2) => {
                         let d2 = snap2.available - b;
                         if d2 < -1e-4 {
-                            eprintln!("[native-guard] {ctx}: CONFIRMED settle {d2:+.6} -- withholding + tripping");
+                            eprintln!("[native-guard] req={req_short} account={account8} {ctx}: CONFIRMED settle {d2:+.6} -- withholding + tripping");
                             framer_custom::ledger::trip_spend_breaker(d2);
                             return Some(d2);
                         }
-                        eprintln!("[native-guard] {ctx}: hold released ({:.2} recovered) -- serving normally", snap2.available);
+                        eprintln!("[native-guard] req={req_short} account={account8} {ctx}: hold released ({:.2} recovered) -- serving normally", snap2.available);
                         return None;
                     }
                     Err(e) => {
                         // UNKNOWN debit: steer around this team for 45s (existing
                         // backpressure pattern) instead of serving blind or wedging.
-                        eprintln!("[native-guard] {ctx}: confirm-read failed ({e}) -- steering around team for 45s");
+                        eprintln!("[native-guard] req={req_short} account={account8} {ctx}: confirm-read failed ({e}) -- steering around team for 45s");
                         framer_core::rotation::mark_saturated(&team.0, 45_000);
                         return None;
                     }
@@ -1006,7 +1010,7 @@ async fn native_ledger_check(
             None
         }
         Err(e) => {
-            eprintln!("[native-guard] {ctx}: after-read failed (cannot verify $0): {e} -- steering around team for 45s");
+            eprintln!("[native-guard] req={req_short} account={account8} {ctx}: after-read failed (cannot verify $0): {e} -- steering around team for 45s");
             framer_core::rotation::mark_saturated(&team.0, 45_000);
             None
         }
@@ -1019,6 +1023,10 @@ async fn free_complete(
     dialect: ClientDialect,
     payload: serde_json::Value,
 ) -> Result<axum::response::Response, ApiError> {
+    // ONE request id per CLIENT request (attribution: every guard/chain line
+    // for this request shares it; grep req=<short>).
+    let req_id = uuid::Uuid::new_v4().to_string();
+    let req_short = req_id[..8].to_string();
     let mut payload = payload;
     // T3 ultrafast variants (compat/t3/ultrafast): a model id ending in
     // "-ultrafast" strips to the base model and rides upstream with
@@ -1308,7 +1316,9 @@ async fn free_complete(
         hdr(headers, "x-framerize-session").unwrap_or_else(|| stable_session(&account.id));
 
     // NATIVE LEDGER GUARD (2026-11-11): snapshot BEFORE the native anthro chain runs.
-    let native_before = native_ledger_before(&s, &session, &scope_team).await;
+    let account8_free = account.id.0.to_string();
+    let account8_free = account8_free[..8.min(account8_free.len())].to_string();
+    let native_before = native_ledger_before(&s, &session, &scope_team, &req_short, &account8_free).await;
     // Per (workspace × MODEL) concurrency — measured 2026-10-05: ~6 in-flight
     // per model; 6 models × 6 = 36/36 clean. Keyed on the normalized upstream
     // id (client spellings collapse to the true bucket) AND the chain's
@@ -1755,7 +1765,7 @@ async fn free_complete(
     // move: withhold the billed text (402 quarantine, books kept) + trip the breaker.
     // (Proved necessary: a 2965-token native fable leg settled ~105 credits with zero
     // instrumentation watching -- the cutoff-only guards never saw it.)
-    if let Some(debit) = native_ledger_check(&s, &session, &scope_team, native_before, "free-anthro").await {
+    if let Some(debit) = native_ledger_check(&s, &session, &scope_team, native_before, "free-anthro", &req_short, &account8_free).await {
         return Ok(axum::response::IntoResponse::into_response(ShapedApiError(
             StatusCode::PAYMENT_REQUIRED,
             serde_json::json!({
@@ -1870,6 +1880,8 @@ async fn native_complete(
     include_usage: bool,
     max_tokens: u32,
 ) -> Result<axum::response::Response, ApiError> {
+    let req_id = uuid::Uuid::new_v4().to_string();
+    let req_short = req_id[..8].to_string();
     let client_model = payload["model"].as_str().unwrap_or_default().to_string();
     let mut native_payload = if dialect == ClientDialect::OpenAiChat {
         convert::chat_to_responses_request(&payload).map_err(ApiError::Internal)?
@@ -1918,7 +1930,8 @@ async fn native_complete(
     current_account(&s, account.id).await?;
 
     // NATIVE LEDGER GUARD (2026-11-11): snapshot BEFORE the native chain runs.
-    let native_before_nc = native_ledger_before(&s, &session, &scope_team).await;
+    let account8_nc: String = { let a = account.id.0.to_string(); a[..8.min(a.len())].to_string() };
+    let native_before_nc = native_ledger_before(&s, &session, &scope_team, &req_short, &account8_nc).await;
 
     let mk_cfg = |team: &framer_core::ids::TeamId| framer_core::port::ChainConfig {
         max_total_tokens: Some(max_tokens),
@@ -1946,7 +1959,7 @@ async fn native_complete(
 
     // NATIVE LEDGER GUARD (streaming): snapshot before spawn; the task checks at end.
     let stream_before = if wants_stream {
-        native_ledger_before(&s, &session, &scope_team).await
+        native_ledger_before(&s, &session, &scope_team, &req_short, &account8_nc).await
     } else {
         None
     };
@@ -1956,6 +1969,8 @@ async fn native_complete(
         let (tx, rx) = tokio::sync::mpsc::channel::<convert::ChainEvent>(1024);
         let s2 = s.clone();
         let account2 = account.clone();
+        let req_short2 = req_short.clone();
+        let account8_2 = account8_nc.clone();
         let project2 = project.clone();
         let mut chat_session2 = chat_session.clone();
         let explicit_chat_session = hdr(headers, "x-framerize-session");
@@ -2060,7 +2075,7 @@ async fn native_complete(
                     .map(|t| t.0)
                     .unwrap_or_else(|| stream_team0.clone());
                 let team_id = framer_core::ids::TeamId(team_now);
-                native_ledger_check(&s2, &session, &team_id, stream_before, "native-stream").await;
+                native_ledger_check(&s2, &session, &team_id, stream_before, "native-stream", &req_short2, &account8_2).await;
             }
             let result = match result {
                 Ok(r) => Ok(r),
@@ -2273,7 +2288,8 @@ async fn native_complete(
     };
     // NATIVE LEDGER GUARD (2026-11-11): re-read AFTER the native chain. On any move:
     // withhold the billed text (402 quarantine, books kept) + trip the breaker.
-    if let Some(debit) = native_ledger_check(&s, &session, &scope_team, native_before_nc, "native-complete").await {
+    let account8_end: String = { let a = account.id.0.to_string(); a[..8.min(a.len())].to_string() };
+    if let Some(debit) = native_ledger_check(&s, &session, &scope_team, native_before_nc, "native-complete", &req_short, &account8_end).await {
         return Ok(axum::response::IntoResponse::into_response(ShapedApiError(
             StatusCode::PAYMENT_REQUIRED,
             serde_json::json!({

@@ -925,10 +925,16 @@ pub(super) async fn cutoff_run(
             "spend breaker latched (a cutoff leg settled nonzero) -- cutoff serving halted until an operator resets it via POST /api/custom/complete/status {\"reset_spend_breaker\":true}".into(),
         ));
     }
+    // ONE request id per CLIENT request (not per failover attempt): every
+    // attempt, leg, refund, and trip line for this request shares req_short,
+    // so `grep req=<short>` reconstructs the full causal chain. Attempts are
+    // numbered (attempt=1..3) to distinguish failover hops sharing the id.
+    let req_id = uuid::Uuid::new_v4().to_string();
+    let req_short = req_id[..8].to_string();
     let mut tried: Vec<String> = Vec::new();
     let mut last: Option<ApiError> = None;
-    for _ in 0..3 {
-        match custom_real_once(s.clone(), headers, request.clone(), model_str, max_legs, stop, &tried).await {
+    for attempt in 1..=3 {
+        match custom_real_once(s.clone(), headers, request.clone(), model_str, max_legs, stop, &tried, &req_id, req_short.clone(), attempt).await {
             Ok(out) => {
                 // SPEND BREAKER (here, not in a renderer: every renderer --
                 // custom SSE, chat, responses -- funnels through cutoff_run).
@@ -1466,6 +1472,9 @@ async fn custom_real_once(
     body_max_legs: Option<u32>,
     body_stop: Option<u32>,
     tried: &[String],
+    req_id: &str,
+    req_short: String,
+    attempt: u32,
 ) -> Result<CutoffOutcome, (ApiError, Option<String>)> {
     // A caller-pinned account is strict: its failures never hop silently.
     let pinned = hdr(headers, "x-framerize-account").is_some();
@@ -1476,8 +1485,6 @@ async fn custom_real_once(
             Some(account.id.0.to_string())
         }
     };
-    let req_id = uuid::Uuid::new_v4().to_string();
-    let req_short = req_id[..8].to_string();
     if let Some(remaining) = s.wave.check() {
         return Err((
             ApiError::Cooling {
@@ -1506,7 +1513,7 @@ async fn custom_real_once(
     };
     if open_refusal_active(&account.id.0.to_string()) {
         eprintln!(
-            "[custom-route] req={req_short} account {} skipped (custom open refused it recently)",
+            "[custom-route] req={req_short} attempt={attempt} account {} skipped (custom open refused it recently)",
             short_id(&account.id)
         );
         return Err((
@@ -1518,7 +1525,7 @@ async fn custom_real_once(
     // empty per the live ledger cache) never serve a leg.
     if !framer_core::rotation::account_might_bill(&account) {
         eprintln!(
-            "[custom-route] req={req_short} account {} skipped (no funded workspace)",
+            "[custom-route] req={req_short} attempt={attempt} account {} skipped (no funded workspace)",
             short_id(&account.id)
         );
         return Err((
@@ -1528,12 +1535,12 @@ async fn custom_real_once(
             local(&account),
         ));
     }
-    eprintln!("[custom-route] req={req_short} stage=lease account={}", short_id(&account.id));
+    eprintln!("[custom-route] req={req_short} attempt={attempt} stage=lease account={}", short_id(&account.id));
     let residency = RequestResidency::new(
         tokio::time::timeout(STAGE_TIMEOUT, lease_account(&s, account.id))
             .await
             .map_err(|_| {
-                eprintln!("[custom-route] req={req_short} stage=lease timed out after 90s");
+                eprintln!("[custom-route] req={req_short} attempt={attempt} stage=lease timed out after 90s");
                 (
                     ApiError::Internal("custom route: account lease timed out after 90s".into()),
                     local(&account),
@@ -1544,11 +1551,11 @@ async fn custom_real_once(
     let account = current_account(&s, account.id)
         .await
         .map_err(|e| (e, local(&account)))?;
-    eprintln!("[custom-route] req={req_short} stage=session account={}", short_id(&account.id));
+    eprintln!("[custom-route] req={req_short} attempt={attempt} stage=session account={}", short_id(&account.id));
     let session = tokio::time::timeout(STAGE_TIMEOUT, s.sessions.load(&account.framer_user_id))
         .await
         .map_err(|_| {
-            eprintln!("[custom-route] req={req_short} stage=session timed out after 90s");
+            eprintln!("[custom-route] req={req_short} attempt={attempt} stage=session timed out after 90s");
             (
                 ApiError::Internal("custom route: session load timed out after 90s".into()),
                 local(&account),
@@ -1565,11 +1572,11 @@ async fn custom_real_once(
     // pick_funded_scope skips known-dead/saturated scopes and pairs each
     // team with its own project (the billing pairing bug fix); the preflight
     // below re-verifies the picked scope's live balance before any leg opens.
-    eprintln!("[custom-route] req={req_short} stage=scope account={}", short_id(&account.id));
+    eprintln!("[custom-route] req={req_short} attempt={attempt} stage=scope account={}", short_id(&account.id));
     let scope = tokio::time::timeout(STAGE_TIMEOUT, crate::pick_funded_scope(&s, &account, &session))
         .await
         .map_err(|_| {
-            eprintln!("[custom-route] req={req_short} stage=scope timed out after 90s");
+            eprintln!("[custom-route] req={req_short} attempt={attempt} stage=scope timed out after 90s");
             (
                 ApiError::Internal("custom route: scope pick timed out after 90s".into()),
                 local(&account),
@@ -1656,7 +1663,7 @@ async fn custom_real_once(
     let _permit = tokio::time::timeout(std::time::Duration::from_secs(60), s.gate.acquire(&gate_key))
         .await
         .map_err(|_| {
-            eprintln!("[custom-route] req={req_short} gate wait timed out (key={gate_key})");
+            eprintln!("[custom-route] req={req_short} attempt={attempt} gate wait timed out (key={gate_key})");
             (
                 ApiError::ServingCapacity(
                     "custom route concurrency gate is saturated; retry shortly".into(),
@@ -1669,11 +1676,11 @@ async fn custom_real_once(
         .map_err(|e| (e, local(&account)))?;
 
     // AI bearer JWT: the same per-account cached mint forward() uses.
-    eprintln!("[custom-route] req={req_short} stage=bearer account={}", short_id(&account.id));
+    eprintln!("[custom-route] req={req_short} attempt={attempt} stage=bearer account={}", short_id(&account.id));
     let bearer = tokio::time::timeout(STAGE_TIMEOUT, s.client.custom_bearer(&session, &account.id))
         .await
         .map_err(|_| {
-            eprintln!("[custom-route] req={req_short} stage=bearer timed out after 90s");
+            eprintln!("[custom-route] req={req_short} attempt={attempt} stage=bearer timed out after 90s");
             (
                 ApiError::Internal("custom route: bearer mint timed out after 90s".into()),
                 local(&account),
@@ -1682,14 +1689,14 @@ async fn custom_real_once(
         .map_err(|e| (ApiError::Internal(e), local(&account)))?;
     // Seed the browser cookie jar (mirrors attempt: imported accounts start
     // with an empty jar; in-page fetches authenticate from it).
-    eprintln!("[custom-route] req={req_short} stage=seed account={}", short_id(&account.id));
+    eprintln!("[custom-route] req={req_short} attempt={attempt} stage=seed account={}", short_id(&account.id));
     tokio::time::timeout(
         STAGE_TIMEOUT,
         s.browser.seed_session(&account.id, &session.cookie_header),
     )
     .await
     .map_err(|_| {
-        eprintln!("[custom-route] req={req_short} stage=seed timed out after 90s");
+        eprintln!("[custom-route] req={req_short} attempt={attempt} stage=seed timed out after 90s");
         (
             ApiError::Internal("custom route: session seed timed out after 90s".into()),
             local(&account),
@@ -1727,16 +1734,17 @@ async fn custom_real_once(
     // balance before any page opens. The daemon's cached CreditSnapshot is
     // advisory only (it went stale by 500 credits above); this GET costs
     // nothing and fails the request loud instead of burning an OPEN.
+    // Bound here (not in the block) so the terminal proof line can cite it.
+    let open_ledger = s
+        .client
+        .usage(&session, &scope_team)
+        .await
+        .map(|snap| snap.available)
+        .unwrap_or(f64::NAN);
     {
-        let live_credits = s
-            .client
-            .usage(&session, &scope_team)
-            .await
-            .map(|snap| snap.available)
-            .unwrap_or(f64::NAN);
+        let live_credits = open_ledger;
         eprintln!(
-            "[custom-route] req={} stage=ledger account={} team={} live_credits={:.2}",
-            req_short,
+            "[custom-route] req={req_short} attempt={attempt} stage=ledger account={} team={} live_credits={:.2}",
             &account.id.0.to_string()[..8.min(account.id.0.to_string().len())],
             &scope_team.0[..8.min(scope_team.0.len())],
             live_credits,
@@ -1798,7 +1806,7 @@ async fn custom_real_once(
         },
     );
     eprintln!(
-        "[custom-route] req={req_short} stage=open account={} model={model_log}",
+        "[custom-route] req={req_short} attempt={attempt} stage=open account={} model={model_log}",
         short_id(&account.id)
     );
     let result = tokio::time::timeout(
@@ -1809,7 +1817,7 @@ async fn custom_real_once(
     .map_err(|_| {
         (
             ApiError::Internal(format!(
-                "chain: engine run exceeded {}s with no terminal or stop (req {req_short})",
+                "chain: engine run exceeded {}s with no terminal or stop (req {req_short} attempt {attempt})",
                 ENGINE_TIMEOUT.as_secs()
             )),
             None,
@@ -1873,7 +1881,7 @@ async fn custom_real_once(
                         {
                             refunded += 1;
                             eprintln!(
-                                "[custom-route] req={req_short} refund turn {} GRANTED (settle reversed)",
+                                "[custom-route] req={req_short} attempt={attempt} refund turn {} GRANTED (settle reversed)",
                                 &turn_id[..8.min(turn_id.len())]
                             );
                             // Stop when whole: quota is ~2/window, so a recovered balance
@@ -1881,19 +1889,19 @@ async fn custom_real_once(
                             if let Ok(snap) = s.client.usage(&refund_session, &scope_team).await {
                                 if snap.available >= before {
                                     eprintln!(
-                                        "[custom-route] req={req_short} balance whole after {refunded} grant(s); stopping refund loop"
+                                        "[custom-route] req={req_short} attempt={attempt} balance whole after {refunded} grant(s); stopping refund loop"
                                     );
                                     break;
                                 }
                             }
                         }
                         Ok((status, _, text)) => eprintln!(
-                            "[custom-route] req={req_short} refund turn {} denied/HTTP {status}: {}",
+                            "[custom-route] req={req_short} attempt={attempt} refund turn {} denied/HTTP {status}: {}",
                             &turn_id[..8.min(turn_id.len())],
                             &text[..text.len().min(120)]
                         ),
                         Err(e) => eprintln!(
-                            "[custom-route] req={req_short} refund turn {} transport: {e}",
+                            "[custom-route] req={req_short} attempt={attempt} refund turn {} transport: {e}",
                             &turn_id[..8.min(turn_id.len())]
                         ),
                     }
@@ -1911,7 +1919,7 @@ async fn custom_real_once(
                             framer_core::rotation::note_live_balance(&scope_team.0, after);
                             assembled.total_debit += recovered;
                             eprintln!(
-                                "[custom-route] req={req_short} refunds recovered {recovered:+.6}; adjusted total_debit={:+.6}",
+                                "[custom-route] req={req_short} attempt={attempt} refunds recovered {recovered:+.6}; adjusted total_debit={:+.6}",
                                 assembled.total_debit
                             );
                         }
@@ -1959,10 +1967,14 @@ async fn custom_real_once(
                     }
                 }
             }
+            // PROOF LINE: ledger re-read at close. Each request's own delta is
+            // computable from its stage=ledger line (open) and close_ledger here
+            // — no paired external reads needed. team+project identify the scope.
+            let close_ledger = s.client.usage(&session, &scope_team).await
+                .map(|snap| snap.available).unwrap_or(f64::NAN);
             eprintln!(
-                "[custom-route] req={} account={} model={} legs={} chars={} total_debit={:+.6} refunded={} outcome={:?} session={}",
-                req_short,
-                &account.id.0.to_string()[..8.min(account.id.0.to_string().len())],
+                "[custom-route] req={req_short} attempt={attempt} account={} model={} legs={} chars={} total_debit={:+.6} refunded={} outcome={:?} session={} team={} project={} open_ledger={:.2} close_ledger={:.2}",
+                    &account.id.0.to_string()[..8.min(account.id.0.to_string().len())],
                 model_log.clone(),
                 assembled.legs.len(),
                 assembled.text.len(),
@@ -1970,18 +1982,21 @@ async fn custom_real_once(
                 refunded,
                 assembled.outcome,
                 chat_session,
+                &scope_team.0[..8.min(scope_team.0.len())],
+                &scope.project.0.to_string()[..8.min(scope.project.0.to_string().len())],
+                open_ledger,
+                close_ledger,
             );
             Ok(CutoffOutcome {
                 assembled,
-                req_id,
+                req_id: req_id.to_string(),
                 chat_session,
                 refunded,
             })
         }
         Err(e) => {
-            eprintln!("[custom-route] req={} account={} model={} FAILED: {}",
-                req_short,
-                &account.id.0.to_string()[..8.min(account.id.0.to_string().len())],
+            eprintln!("[custom-route] req={req_short} attempt={attempt} account={} model={} FAILED: {}",
+                    &account.id.0.to_string()[..8.min(account.id.0.to_string().len())],
                 model_log,
                 e.chars().take(300).collect::<String>());
             if e.contains("retryable 429") {
