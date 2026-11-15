@@ -30,6 +30,8 @@ mod ledger_guard;
 // Re-exported for endpoint tests (was defined here pre-split).
 #[cfg(test)]
 pub(crate) use accounts::pool_shape;
+#[cfg(test)]
+pub(crate) use classify::should_retry_account;
 mod goose;
 mod serving_accounts;
 mod pool_config;
