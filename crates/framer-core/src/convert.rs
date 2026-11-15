@@ -1666,6 +1666,63 @@ pub fn is_spend_terminal(msg: &str) -> bool {
 /// Dialect-shaped error JSON with the CORRECT status and error type — so the
 /// client sees the real upstream cause (e.g. context overflow → compact) instead
 /// of a generic 500 it retries forever ("gave up after repeated API errors").
+/// Client-facing error message: strips internal operator detail and returns a
+/// short, safe string an end user (an LLM harness, a developer at midnight) can
+/// act on. The raw internal message still goes to the daemon journal; only this
+/// cleaned form reaches the client. Preserves nothing secret, leaks no route
+/// names, no breaker internals, no refund mechanics.
+pub fn client_message(msg: &str) -> String {
+    let lower = msg.to_lowercase();
+    // Spend breaker latched / spend halted / cutoff halted: an upstream billing
+    // anomaly paused the service. User action: retry in a bit. Operator detail
+    // (the reset route) stays in the journal.
+    if lower.contains("spend breaker latched")
+        || lower.contains("breaker tripped")
+        || lower.contains("breaker is tripped")
+        || lower.contains("spend halted") {
+        return "The model service is briefly paused after an upstream billing anomaly. Please retry in about 30 seconds.".to_string();
+    }
+    // No funded workspace / pick another / credit one: capacity than can't serve.
+    if lower.contains("no funded workspace")
+        || lower.contains("has no funded workspace")
+        || lower.contains("pick another or credit") {
+        return "No workspace capacity is ready right now. Please retry shortly.".to_string();
+    }
+    // Plan gate / entitlement: model unavailable on current workspace.
+    if lower.contains("upgrade your workspace to use this model")
+        || lower.contains("paid_plan_only_model")
+        || lower.contains("model blocked by guardrail")
+        || lower.contains("0 endpoints out of") {
+        return "This model isn't available on the current workspaces. Free models that work now: gpt-4.1-mini, claude-haiku-4.5.".to_string();
+    }
+    // Quarantine / ledger moved / credits exhausted: request not completed, nothing useful.
+    if lower.contains("leg settled nonzero")
+        || lower.contains("quarantined")
+        || lower.contains("ledger-moved")
+        || lower.contains("credits-exhausted")
+        || lower.contains("bill at dispatch")
+        || lower.contains("bill intermittently") {
+        return "The request hit an upstream billing issue and was not completed. No response was charged to you for this attempt; retry.".to_string();
+    }
+    // Context overflow: genuinely the client's prompt.
+    if is_context_overflow(msg) {
+        return "The request exceeded the model's context limit. Shorten the prompt or conversation and retry.".to_string();
+    }
+    if lower.contains("pool_busy") || lower.contains("pool busy") {
+        return "The model pool is reallocating capacity. Please retry in a few seconds.".to_string();
+    }
+    // Generic: pass through Unknown one-liners verbatim — a terse, already-clean
+    // message (e.g. "account is disabled by the pool configuration...") must not be
+    // clobbered. Only the LONG internal blobs above get rewritten to short text.
+    // Safety: a candidate with a Debug/structured wrapper leaks internals; redact it.
+    if msg.contains("Internal(\"") || msg.contains("ServingCapacity(\"")
+        || msg.contains("http 403:") || msg.contains("http 402:") || msg.contains("<")
+    {
+        return "The request could not be completed. Please retry shortly.".to_string();
+    }
+    msg.to_string()
+}
+
 pub fn error_json(d: ClientDialect, msg: &str) -> (u16, serde_json::Value) {
     let (status, umsg, utype) = match parse_upstream_error(msg) {
         Some((st, body)) => {
@@ -1682,10 +1739,11 @@ pub fn error_json(d: ClientDialect, msg: &str) -> (u16, serde_json::Value) {
             // settled nonzero and was quarantined, spend was denied, or the breaker is
             // tripped. This MUST NOT be a 500: a 500 tells the client (T3, max_retries 9)
             // to resend the whole session, and each resend bills again before any
-            // post-hoc guard can trip. 402 = do not retry, fix spend state first.
+            // post-hoc guard can trip. 402 = do not retry. Client sees the SHORT
+            // sanitized message; the full internal reason goes to the journal.
             (
                 402,
-                format!("{msg} (spend-terminal: retrying this request re-bills; not retried server-side)"),
+                client_message(msg).to_string(),
                 "insufficient_credits".to_string(),
             )
         }
@@ -1694,11 +1752,11 @@ pub fn error_json(d: ClientDialect, msg: &str) -> (u16, serde_json::Value) {
             || msg.contains("Model blocked by guardrail") =>
         {
             // Entitlement refusal (FOXTROT1: refused opens can still settle) -- never 500.
-            (402, format!("{msg} (entitlement-terminal: retrying re-bills or fails identically; not retried server-side)"), "permission_denied".to_string())
+            (402, client_message(msg).to_string(), "permission_denied".to_string())
         }
         None => {
             let st = if msg.contains("risk-refused") { 403 } else { 500 };
-            (st, msg.to_string(), "api_error".to_string())
+            (st, client_message(msg).to_string(), "api_error".to_string())
         }
     };
     let code = if is_context_overflow(&umsg) { "context_length_exceeded" } else { utype.as_str() };

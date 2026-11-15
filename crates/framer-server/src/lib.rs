@@ -3387,17 +3387,17 @@ impl axum::response::IntoResponse for ApiError {
         let account_cooling = matches!(&self, Self::AccountCooling { .. });
         match self {
             Self::InvalidRequest(message) => (StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error":{"code":"invalid_request","message":message}}))).into_response(),
+                Json(serde_json::json!({"error":{"code":"invalid_request","message":framer_core::convert::client_message(&message)}}))).into_response(),
             Self::PoolBusy(message) => (StatusCode::SERVICE_UNAVAILABLE,
                 [(axum::http::header::RETRY_AFTER, "1")],
                 Json(serde_json::json!({"error":{"code":"framerize_pool_busy",
-                    "message":message,"retry_after_seconds":1}}))).into_response(),
+                    "message":framer_core::convert::client_message(&message),"retry_after_seconds":1}}))).into_response(),
             Self::Internal(message) if framer_core::convert::is_spend_terminal(&message) => (
                 StatusCode::PAYMENT_REQUIRED,
                 Json(serde_json::json!({"error":{"code":"insufficient_credits",
-                    "message": format!("{message} (spend-terminal: not retried server-side; retrying re-bills or fails identically)")}})),
+                    "message": framer_core::convert::client_message(&message)}})),
             ).into_response(),
-            Self::Internal(message) => (StatusCode::INTERNAL_SERVER_ERROR, message).into_response(),
+            Self::Internal(message) => (StatusCode::INTERNAL_SERVER_ERROR, framer_core::convert::client_message(&message)).into_response(),
             Self::ServingCapacity(message) if framer_core::convert::is_spend_terminal(&message) => {
                 // Spend-terminal serving failure (dry pool / quarantined scope): 402, not
                 // 503. T3 retries 503s (attempts 1..4+ measured); a dry pool fails every
@@ -3405,10 +3405,10 @@ impl axum::response::IntoResponse for ApiError {
                 (
                     StatusCode::PAYMENT_REQUIRED,
                     Json(serde_json::json!({"error":{"code":"insufficient_credits",
-                        "message": format!("{message} (spend-terminal: retrying re-bills or fails identically; credit a workspace first)")}})),
+                        "message": framer_core::convert::client_message(&message)}})),
                 ).into_response()
             }
-            Self::ServingCapacity(message) => (StatusCode::SERVICE_UNAVAILABLE, message).into_response(),
+            Self::ServingCapacity(message) => (StatusCode::SERVICE_UNAVAILABLE, framer_core::convert::client_message(&message)).into_response(),
             Self::Cooling { retry_after_secs } | Self::AccountCooling { retry_after_secs } => {
                 // Rechecks can see recovered capacity or an in-flight success.
                 // Their interval never shortens the underlying cooldown.

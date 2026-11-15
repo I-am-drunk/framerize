@@ -876,6 +876,18 @@ fn cutoff_model_denied(model: &str) -> ApiError {
 }
 
 
+
+fn client_err_msg(e: &ApiError) -> String {
+    // Unwrap the variant to its bare message, then sanitize for the client.
+    let raw = match e {
+        ApiError::Internal(m) | ApiError::InvalidRequest(m)
+        | ApiError::PoolBusy(m) | ApiError::ServingCapacity(m) => m.clone(),
+        ApiError::Cooling { .. } => "The model service is briefly busy. Retry shortly.".to_string(),
+        ApiError::AccountCooling { .. } => "A workspace is cooling down. Retry shortly.".to_string(),
+    };
+    framer_core::convert::client_message(&raw).to_string()
+}
+
 pub(super) async fn cutoff_run(
     s: AppState,
     headers: &HeaderMap,
@@ -1131,7 +1143,7 @@ pub(super) async fn chat_via_cutoff(
                         );
                         let frame = format!(
                             "data: {}\n\n{}data: [DONE]\n\n",
-                            serde_json::json!({"error": {"message": format!("{e:?}"), "type": "api_error"}}),
+                            serde_json::json!({"error": {"message": client_err_msg(&e), "type": "api_error"}}),
                             stop_chunk,
                         );
                         Some((Ok(frame), (rx, done, frames)))
@@ -1203,8 +1215,8 @@ pub(super) async fn responses_via_cutoff(
                     let err_id = format!("resp_{}", uuid::Uuid::new_v4().simple());
                     let frame = format!(
                         "data: {}\n\ndata: {}\n\n",
-                        serde_json::json!({"type": "error", "error": {"message": format!("{e:?}")}}),
-                        serde_json::json!({"type": "response.completed", "response": {"id": err_id, "object": "response", "model": model, "status": "failed", "output": [], "error": format!("{e:?}")}}),
+                        serde_json::json!({"type": "error", "error": {"message": client_err_msg(&e)}}),
+                        serde_json::json!({"type": "response.completed", "response": {"id": err_id, "object": "response", "model": model, "status": "failed", "output": [], "error": client_err_msg(&e)}}),
                     );
                     Some((Ok(frame), (rx, true)))
                 }
@@ -1323,7 +1335,7 @@ pub(super) async fn anthro_via_cutoff(
                 Ok(Some(Err(e))) => {
                     let frame = format!(
                         "data: {}\n\ndata: [DONE]\n\n",
-                        serde_json::json!({"error": {"message": format!("{e:?}"), "type": "api_error"}})
+                        serde_json::json!({"error": {"message": client_err_msg(&e), "type": "api_error"}})
                     );
                     Some((Ok(frame), (rx, true)))
                 }
