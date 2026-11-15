@@ -23,6 +23,7 @@ mod custom;
 mod render;
 mod custom_admin;
 mod accounts;
+mod classify;
 mod handlers;
 mod ledger_guard;
 
@@ -363,7 +364,7 @@ pub(crate) async fn compat_forward(
                 .client
                 .proxy(&session2, s2.browser.as_ref(), &account2.id, &project2, &dialect2, payload, &chat2)
                 .await,
-                Err(error) => Err(chain_admission_error(error)),
+                Err(error) => Err(classify::chain_admission_error(error)),
             };
             let r = pool_control::observe_lease_result(&producer_residency, r).map(|mut response| {
                 use futures::StreamExt;
@@ -745,40 +746,7 @@ pub(crate) async fn select_funded_account(
 /// "chunk N retry died (fallback off): <cause>", so the sentinel is a SUFFIX —
 /// the exact-match bug of 2026-10-11: `e == "risk-refused"` never fired and a
 /// 100%-refused account read fail: 0 through 20 straight chain deaths.
-fn is_castle_refusal(e: &str) -> bool {
-    if e.starts_with("upstream 403") {
-        return false;
-    }
-    e.ends_with("risk-refused")
-}
 
-fn should_retry_account(error: &str) -> bool {
-    // credits-exhausted (2026-11-09): the chain's scope died mid-request.
-    // The account's OTHER workspaces (or a fresh account's) may be funded;
-    // the ledger cache dead-marks the drained scope on its next read, so the
-    // re-pick routes around it. Without this, one drained workspace failed
-    // the whole request in front of six funded accounts.
-    // SPEND-TERMINAL NEVER REPICKS (2026-11-11 -- the 493->3 bleed): ledger-moved /
-    // quarantined / spend-denied / breaker-tripped / credits-exhausted mean THIS request
-    // already billed somewhere. A fresh account re-sends the full input and bills AGAIN
-    // (input-side settlement at dispatch). Fail loud on the current account instead.
-    // (credits-exhausted moves here from the old arm: same reason -- the scope that died
-    // billed before dying, and the 2026-11-09 multi-workspace case is now covered by the
-    // funded-scope picker routing around dead scopes on the NEXT request, not this one.)
-    if framer_core::convert::is_spend_terminal(error) {
-        return false;
-    }
-    // PLAN-GATE / GUARDRAIL NEVER REPICKS (2026-11-11 -- FOXTROT1 billed -0.40): an
-    // entitlement refusal is deterministic per model, not per account. A fresh account
-    // re-sends the full input and bills ANOTHER dispatch settle for an identical 403.
-    // (The model allowlist already refuses known-gated ids pre-dispatch; this covers
-    // newly-gated ones the allowlist hasn't learned yet.)
-    if is_plan_gated(error) || is_guardrail_blocked(error) {
-        return false;
-    }
-    is_castle_refusal(error) || AccountCooldown::from_error(error).is_some()
-        || pool_control::cleanup_unconfirmed(error)
-}
 
 /// Pick a serving account excluding the ones already tried for this request.
 /// Re-reads the pool so health marks written moments ago are honored.
@@ -812,14 +780,6 @@ async fn current_account(s: &AppState, id: AccountId) -> Result<ManagedAccount, 
     Ok(account)
 }
 
-fn chain_admission_error(error: ApiError) -> String {
-    match error {
-        ApiError::AccountCooling { retry_after_secs } => format!("account-cooling:{retry_after_secs}"),
-        ApiError::Cooling { retry_after_secs } => format!("server-cooling:{retry_after_secs}"),
-        ApiError::InvalidRequest(message) | ApiError::PoolBusy(message)
-        | ApiError::Internal(message) | ApiError::ServingCapacity(message) => message,
-    }
-}
 
 async fn record_account_health<T>(
     s: &AppState,
@@ -850,7 +810,7 @@ async fn record_account_health<T>(
         // never fired (measured 2026-10-11: conform served 20/20 refusals at
         // fail: 0). "upstream 403 ..." bodies are excluded by is_castle_refusal
         // (their policy refusal is not the account's health).
-        Err(e) if is_castle_refusal(e) => {
+        Err(e) if classify::is_castle_refusal(e) => {
             s.wave.note_refusal(&account.id.0.to_string());
             next.note_risk_refused(now);
             eprintln!(
@@ -985,7 +945,7 @@ fn classify_cutoff_error(e: ApiError, route: &str) -> CutoffVerdict {
         // refused this model on this scope — deterministic. Native opens the
         // SAME gated model and bills for an identical refusal (measured:
         // bare-fable 403 → native -0.286). Fail loud $0 instead.
-        e if is_plan_gated(&format!("{e:?}")) || is_guardrail_blocked(&format!("{e:?}")) => {
+        e if classify::is_plan_gated(&format!("{e:?}")) || classify::is_guardrail_blocked(&format!("{e:?}")) => {
             CutoffVerdict::Return(e)
         }
         e => {
@@ -1289,7 +1249,7 @@ pub(crate) async fn free_complete(
         let project2 = project.clone();
         let mut chat_session2 = chat_session.clone();
         let explicit_chat_session = hdr(headers, "x-framerize-session");
-        let log_model = anthro_model_for_log(dialect, &payload);
+        let log_model = classify::anthro_model_for_log(dialect, &payload);
         // The task owns the first permit and reacquires for each replacement
         // account using that attempt's actual workspace and model.
         let handle = AbortOnDrop(tokio::spawn(async move {
@@ -1324,7 +1284,7 @@ pub(crate) async fn free_complete(
                     None => s2.gate.acquire(&gate_key).await,
                 };
                 if let Err(error) = current_account(&s2, account.id).await {
-                    break Err(chain_admission_error(error));
+                    break Err(classify::chain_admission_error(error));
                 }
                 let r = s2
                     .client
@@ -1342,7 +1302,7 @@ pub(crate) async fn free_complete(
                 drop(permit);
                 let r = residency.observe_result(account.id, r);
                 record_account_health(&s2, &account, &r).await;
-                let refusal = matches!(&r, Err(e) if should_retry_account(e));
+                let refusal = matches!(&r, Err(e) if classify::should_retry_account(e));
                 if refusal && !emitted_content.load(std::sync::atomic::Ordering::Relaxed) && acct_attempt < 2 {
                     tried.push(account.id.0.to_string());
                     drop(residency.take());
@@ -1437,7 +1397,7 @@ pub(crate) async fn free_complete(
                         let tail = match r {
                             Ok(Ok(assembled)) => composer.finish(&assembled, &client_model, include_usage),
                             Ok(Err(e)) => {
-                                if is_plan_gated(&e) || is_guardrail_blocked(&e) {
+                                if classify::is_plan_gated(&e) || classify::is_guardrail_blocked(&e) {
                                     framer_core::rotation::mark_model_gated(&client_model);
                                 }
                                 convert::error_frames(dialect, &e)
@@ -1593,7 +1553,7 @@ pub(crate) async fn free_complete(
             }
         }
     }
-    if matches!(&result, Err(e) if should_retry_account(e)) && acct_attempt < 2 {
+    if matches!(&result, Err(e) if classify::should_retry_account(e)) && acct_attempt < 2 {
         tried_accounts.push(account.id.0.to_string());
         // Mark BEFORE re-picking: the store must know this account is poisoned
         // so every later request steers away, not just this one.
@@ -1656,7 +1616,7 @@ pub(crate) async fn free_complete(
         use framer_core::observability::Event;
         let mut ev = Event::new("ai.chain")
             .account(&account.id)
-            .field("model", anthro_model_for_log(dialect, &payload))
+            .field("model", classify::anthro_model_for_log(dialect, &payload))
             .field("dialect", format!("{dialect:?}"))
             .duration_ms(t0.elapsed().as_millis());
         ev = match &result {
@@ -1674,7 +1634,7 @@ pub(crate) async fn free_complete(
     let result = match result {
         Ok(r) => r,
         Err(e) => {
-            if is_plan_gated(&e) || is_guardrail_blocked(&e) {
+            if classify::is_plan_gated(&e) || classify::is_guardrail_blocked(&e) {
                 framer_core::rotation::mark_model_gated(&client_model);
             }
             let (status, body) = convert::error_json(dialect, &e);
@@ -1722,78 +1682,19 @@ pub(crate) async fn free_complete(
 /// messages route serves the SAME model fine (proved live 2026-11-09:
 /// opus-5.5 200 on /ai/v3/messages/, 403 on /ai/v3/responses/), so the
 /// daemon retries there instead of failing the client.
-fn is_plan_gated(e: &str) -> bool {
-    e.contains("Upgrade your workspace to use this model") || e.contains("paid_plan_only_model")
-}
 
 /// OpenRouter guardrail blocks ("Model blocked by guardrail", "0 endpoints
 /// ... available"): the workspace's OpenRouter guardrail config, not the
 /// route. Same fast-fail treatment.
-fn is_guardrail_blocked(e: &str) -> bool {
-    e.contains("Model blocked by guardrail") || e.contains("0 endpoints out of")
-}
 
 /// Anthropic-chain result rendered as the Responses shape: one message item
 /// carrying the assembled text, usage carried across. Used when the native
 /// responses route plan-gates and the anthro chain answers instead.
-fn anthro_as_responses(a: &framer_core::convert::AssembledResponse) -> framer_core::convert::AssembledResponses {
-    let text: String = a
-        .content
-        .iter()
-        .filter_map(|b| b["text"].as_str())
-        .collect::<Vec<_>>()
-        .join("");
-    framer_core::convert::AssembledResponses {
-        id: a.id.clone(),
-        created_at: 0,
-        output: vec![serde_json::json!({
-            "id": a.id,
-            "type": "message",
-            "role": "assistant",
-            "status": "completed",
-            "content": [{"type": "output_text", "text": text, "annotations": []}],
-        })],
-        status: "completed".into(),
-        incomplete_details: None,
-        usage: a.usage.clone(),
-        service_tier: serde_json::Value::Null,
-        input_tokens: a.input_tokens,
-        output_tokens: a.output_tokens,
-        chunks: a.chunks,
-        metered_chunks: a.metered_chunks,
-    }
-}
 
 /// Retry a plan-gated request on the Anthropic messages route (the
 /// non-gated endpoint for these models) with the same account/session/
 /// scope/lease, and synthesize the Responses-shape result.
 #[allow(clippy::too_many_arguments)]
-async fn anthro_route_fallback(
-    s: &AppState,
-    dialect: ClientDialect,
-    payload: &serde_json::Value,
-    cfg: &framer_core::port::ChainConfig,
-    account: &framer_core::account::ManagedAccount,
-    session: &framer_core::port::Session,
-    project: &framer_core::ids::ProjectId,
-    chat_session: &str,
-) -> Result<framer_core::convert::AssembledResponses, String> {
-    let anthro = convert::to_anthropic_request(dialect, payload)?;
-    let assembled = s
-        .client
-        .freechat_long(
-            session,
-            s.browser.as_ref(),
-            &account.id,
-            project,
-            anthro,
-            cfg,
-            chat_session,
-            None,
-        )
-        .await?;
-    Ok(anthro_as_responses(&assembled))
-}
 
 async fn native_complete(
     s: AppState,
@@ -1929,7 +1830,7 @@ async fn native_complete(
                     None => s2.gate.acquire(&gate_key).await,
                 };
                 if let Err(error) = current_account(&s2, account.id).await {
-                    break Err(chain_admission_error(error));
+                    break Err(classify::chain_admission_error(error));
                 }
                 let r = s2
                     .client
@@ -1947,7 +1848,7 @@ async fn native_complete(
                 drop(permit);
                 let r = residency.observe_result(account.id, r);
                 record_account_health(&s2, &account, &r).await;
-                let refusal = matches!(&r, Err(e) if should_retry_account(e));
+                let refusal = matches!(&r, Err(e) if classify::should_retry_account(e));
                 if refusal && !emitted_content.load(std::sync::atomic::Ordering::Relaxed) && acct_attempt < 2 {
                     tried.push(account.id.0.to_string());
                     drop(residency.take());
@@ -2004,13 +1905,13 @@ async fn native_complete(
             let result = match result {
                 Ok(r) => Ok(r),
                 Err(e)
-                    if is_plan_gated(&e)
+                    if classify::is_plan_gated(&e)
                         && !emitted_content.load(std::sync::atomic::Ordering::Relaxed) =>
                 {
                     eprintln!(
                         "[nativechain] plan-gated on responses route; retrying via messages route ({log_model})"
                     );
-                    anthro_route_fallback(
+                    classify::anthro_route_fallback(
                         &s2, dialect, &payload_fallback, &cfg2, &account, &session, &project,
                         &chat_session2,
                     )
@@ -2065,7 +1966,7 @@ async fn native_complete(
                         let tail = match r {
                             Ok(Ok(assembled)) => composer.take().unwrap().finish(&assembled, include_usage),
                             Ok(Err(e)) => {
-                                if is_plan_gated(&e) || is_guardrail_blocked(&e) {
+                                if classify::is_plan_gated(&e) || classify::is_guardrail_blocked(&e) {
                                     framer_core::rotation::mark_model_gated(&client_model);
                                 }
                                 convert::error_frames(dialect, &e)
@@ -2134,7 +2035,7 @@ async fn native_complete(
         // Nothing reaches the client on the non-stream path until the chain
         // completes, so a Castle refusal is always safe to retry on a fresh
         // account (the verdict follows the account, not the request).
-        if matches!(&r, Err(e) if should_retry_account(e)) && acct_attempt < 2 {
+        if matches!(&r, Err(e) if classify::should_retry_account(e)) && acct_attempt < 2 {
             tried_accounts.push(account.id.0.to_string());
             drop(residency.take());
             match pick_fresh_account(&s, &tried_accounts).await {
@@ -2191,7 +2092,7 @@ async fn native_complete(
         // The responses route plan-gates; the messages route serves the same
         // model. Retry there (the gate is per-route, proved live) before the
         // client ever sees an error.
-        Err(e) if is_plan_gated(&e) => anthro_route_fallback(
+        Err(e) if classify::is_plan_gated(&e) => classify::anthro_route_fallback(
             &s, dialect, &payload, &cfg, &account, &session, &project, &chat_session,
         )
         .await,
@@ -2200,7 +2101,7 @@ async fn native_complete(
     let result = match result {
         Ok(r) => r,
         Err(e) => {
-            if is_plan_gated(&e) || is_guardrail_blocked(&e) {
+            if classify::is_plan_gated(&e) || classify::is_guardrail_blocked(&e) {
                 framer_core::rotation::mark_model_gated(&client_model);
             }
             let (status, body) = convert::error_json(dialect, &e);
@@ -2270,10 +2171,6 @@ impl NativeComposerState {
     }
 }
 
-fn anthro_model_for_log(dialect: ClientDialect, payload: &Value) -> String {
-    let _ = dialect;
-    convert::to_openrouter_id(payload["model"].as_str().unwrap_or_default())
-}
 
 /// Paid-path wrappers: the metered streaming passthroughs, mounted at /paid/*.
 /// Team ids already held by OTHER accounts. `exclude` is the account being
