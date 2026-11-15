@@ -557,13 +557,26 @@ fn continue_native(
 /// Per-leg trace line for daemon logs: everything needed to diagnose a
 /// billed or short leg without re-running it.
 fn leg_line(tag: &str, leg_index: u32, stop: u32, r: &rung::RungResult, before: f64, after: f64) -> String {
+    // Cut-cause attribution (2026-11-15): names WHICH abort won the leg, so a
+    // billed leg's line says whether our cutoff fired (then the meter beat it
+    // elsewhere) or never fired (then the cut itself failed).
+    let cut = if r.finished {
+        "pump-cut"
+    } else if r.raced {
+        "raced-terminal"
+    } else if r.events >= stop {
+        "stop-cut"
+    } else {
+        "other"
+    };
     format!(
-        "[custom-route] {tag} leg={} stop={} events={} captured={} raced={} credits {:.6} -> {:.6} (delta {:+.6})",
+        "[custom-route] {tag} leg={} stop={} events={} captured={} raced={} cut={} credits {:.6} -> {:.6} (delta {:+.6})",
         leg_index,
         stop,
         r.events,
         r.captured.len(),
         r.raced,
+        cut,
         before,
         after,
         after - before

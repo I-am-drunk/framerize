@@ -719,6 +719,14 @@ impl<E: PageEval> framer_custom::PageStream for HostPageStream<E> {
         if !tool_calls.is_empty() {
             eprintln!("[toolshape] raw={}", serde_json::to_string(&tool_calls).unwrap_or_default().chars().take(600).collect::<String>());
         }
+        // CUT REASON (2026-11-15): which pump abort fired (finish_reason /
+        // marker / pad-pattern / tool_calls / stop). Pairs with the leg_line
+        // cut= field to prove which cut won each leg.
+        if let Some(fr) = v["finishReason"].as_str() {
+            if !fr.is_empty() {
+                eprintln!("[cutreason] {fr}");
+            }
+        }
         // REASONING METER (2026-11-15): per-drain thinking chars. Correlate
         // with billed legs: if billed-thinking always shows large thinkChars,
         // the meter prices reasoning length and the cap must drop further.
