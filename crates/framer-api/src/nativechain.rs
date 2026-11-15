@@ -44,7 +44,7 @@ pub async fn complete_long(
     events: Option<&(dyn Fn(ChainEvent) + Send + Sync)>,
 ) -> Result<AssembledResponses, String> {
     let chain_step: String =
-        if std::env::var("FRAMERIZE_FEATURE_CATEGORY").unwrap_or_else(|_| "translation".to_string()) == "translation" {
+        if framer_core::env::feature_category() == "translation" {
             "translate".to_string()
         } else {
             "message".to_string()

@@ -224,7 +224,7 @@ impl SidecarBridge {
 
         // Python resolution: explicit override, then the installer's venv,
         // then PATH. The venv is where install-camoufox.sh puts everything.
-        let python = std::env::var("FRAMERIZE_PYTHON").unwrap_or_else(|_| {
+        let python = framer_core::env::python_bin().unwrap_or_else(|| {
             let venv = dirs_home().join(".framerize/venv/bin/python3");
             if venv.exists() { venv.to_string_lossy().into_owned() } else { "python3".into() }
         });

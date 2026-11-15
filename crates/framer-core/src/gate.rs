@@ -76,14 +76,6 @@ fn grow_step(limit: usize, max: usize, ceiling: usize) -> usize {
     step.min(headroom)
 }
 
-fn env_usize(key: &str, default: usize) -> usize {
-    std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
-}
-
-fn env_u64(key: &str, default: u64) -> u64 {
-    std::env::var(key).ok().and_then(|v| v.parse().ok()).unwrap_or(default)
-}
-
 /// Tunables, read once per gate construction.
 #[derive(Debug, Clone, Copy)]
 pub struct GateConfig {
@@ -99,16 +91,16 @@ pub struct GateConfig {
 
 impl Default for GateConfig {
     fn default() -> Self {
-        let max = env_usize("FRAMERIZE_GATE_MAX", DEFAULT_MAX).max(1);
-        let min = env_usize("FRAMERIZE_GATE_MIN", DEFAULT_MIN).clamp(1, max);
-        let initial = env_usize("FRAMERIZE_GATE_INITIAL", DEFAULT_INITIAL).clamp(min, max);
+        let max = crate::env::gate_max(DEFAULT_MAX).max(1);
+        let min = crate::env::gate_min(DEFAULT_MIN).clamp(1, max);
+        let initial = crate::env::gate_initial(DEFAULT_INITIAL).clamp(min, max);
         Self {
             initial,
             min,
             max,
-            recover_ms: env_u64("FRAMERIZE_GATE_RECOVER_MS", DEFAULT_RECOVER_MS),
-            relax_ms: env_u64("FRAMERIZE_GATE_RELAX_MS", DEFAULT_RELAX_MS),
-            min_interval_ms: env_u64("FRAMERIZE_GATE_MIN_INTERVAL_MS", 2500),
+            recover_ms: crate::env::gate_recover_ms(DEFAULT_RECOVER_MS),
+            relax_ms: crate::env::gate_relax_ms(DEFAULT_RELAX_MS),
+            min_interval_ms: crate::env::gate_min_interval_ms(2500),
         }
     }
 }

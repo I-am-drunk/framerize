@@ -133,3 +133,63 @@ pub fn refund_lab() -> bool {
 pub fn log_dir() -> Option<String> {
     std::env::var("FRAMERIZE_LOG_DIR").ok()
 }
+
+/// Concurrency gate tunables (defaults = struct defaults in gate.rs).
+pub fn gate_max(default: usize) -> usize {
+    std::env::var("FRAMERIZE_GATE_MAX").ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+/// Concurrency gate tunables (defaults = struct defaults in gate.rs).
+pub fn gate_min(default: usize) -> usize {
+    std::env::var("FRAMERIZE_GATE_MIN").ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+/// Concurrency gate tunables (defaults = struct defaults in gate.rs).
+pub fn gate_initial(default: usize) -> usize {
+    std::env::var("FRAMERIZE_GATE_INITIAL").ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+/// Concurrency gate tunables (defaults = struct defaults in gate.rs).
+pub fn gate_recover_ms(default: u64) -> u64 {
+    std::env::var("FRAMERIZE_GATE_RECOVER_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+/// Concurrency gate tunables (defaults = struct defaults in gate.rs).
+pub fn gate_relax_ms(default: u64) -> u64 {
+    std::env::var("FRAMERIZE_GATE_RELAX_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+/// Concurrency gate tunables (defaults = struct defaults in gate.rs).
+pub fn gate_min_interval_ms(default: u64) -> u64 {
+    std::env::var("FRAMERIZE_GATE_MIN_INTERVAL_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
+/// Upstream feature category for envelope construction.
+pub fn feature_category() -> String {
+    std::env::var("FRAMERIZE_FEATURE_CATEGORY").unwrap_or_else(|_| "translation".to_string())
+}
+
+/// Custom-route direct dialect override.
+pub fn custom_direct() -> bool {
+    flag("FRAMERIZE_CUSTOM_DIRECT")
+}
+
+/// JWT relay URL / token (auth bridge).
+pub fn jwt_relay_url() -> String {
+    std::env::var("FRAMERIZE_JWT_RELAY_URL").unwrap_or_default()
+}
+
+/// JWT relay URL / token (auth bridge).
+pub fn jwt_relay_token() -> Option<String> {
+    std::env::var("FRAMERIZE_JWT_RELAY_TOKEN").ok()
+}
+
+/// GPU acceleration hint (browser host).
+pub fn gpu_hint() -> bool {
+    std::env::var("FRAMERIZE_GPU").is_ok()
+}
+
+/// Python interpreter override (sidecar host); None = use venv/PATH fallback.
+pub fn python_bin() -> Option<String> {
+    std::env::var("FRAMERIZE_PYTHON").ok()
+}

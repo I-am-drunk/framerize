@@ -1282,7 +1282,7 @@ async fn custom_real_once(
     let dialect = if framer_core::convert::model_route(&model)
         == framer_core::convert::ModelRoute::DirectResponses
     {
-        if std::env::var("FRAMERIZE_CUSTOM_DIRECT").map(|v| v == "1").unwrap_or(false) {
+        if framer_core::env::custom_direct() {
             framer_api::proxy::Dialect::OpenAiResponses
         } else {
             return Err((
@@ -1350,7 +1350,7 @@ async fn custom_real_once(
     let category = if matches!(dialect, framer_api::proxy::Dialect::OpenAiResponses) {
         "agents".to_string()
     } else {
-        std::env::var("FRAMERIZE_FEATURE_CATEGORY").unwrap_or_else(|_| "translation".to_string())
+framer_core::env::feature_category()
     };
     // Refund context: cloned BEFORE deps moves the originals, so a settled
     // chain can reverse its own turns after the engine returns.

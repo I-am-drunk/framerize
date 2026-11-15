@@ -172,8 +172,7 @@ pub async fn forward(
     let t0 = std::time::Instant::now();
     let req_id = uuid::Uuid::new_v4().to_string();
     let token = cached_token(t, token_cache, session, account).await?;
-    let category = std::env::var("FRAMERIZE_FEATURE_CATEGORY")
-        .unwrap_or_else(|_| "translation".to_string());
+    let category = framer_core::env::feature_category();
     match attempt(browser, session, account, &token, project, dialect, step, &payload, chat_session, &category, step_index).await {
         Ok(resp) => {
             framer_core::observability::Event::new("ai.request")

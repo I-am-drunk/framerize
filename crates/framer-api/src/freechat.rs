@@ -80,8 +80,7 @@ pub async fn complete_long(
     // Default "translate" to MATCH proxy.rs's default category (translation):
     // the envelope went category=translation + step=message otherwise — real
     // translation traffic uses step=translate (invisibility audit 2026-10-11).
-    let category = std::env::var("FRAMERIZE_FEATURE_CATEGORY")
-        .unwrap_or_else(|_| "translation".to_string());
+    let category = framer_core::env::feature_category();
     let chain_step: String =
         if category == "translation" { "translate".to_string() } else { "message".to_string() };
     let bucket = |_i: usize| -> (Dialect, String) { (DIALECTS[0], chain_step.clone()) };

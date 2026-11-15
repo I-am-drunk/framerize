@@ -59,7 +59,7 @@ async fn mint(t: &Transport, session: &Session, path: &str) -> Result<AiToken, S
 /// Auth to the relay itself comes from FRAMERIZE_JWT_RELAY_TOKEN (sent as a
 /// bearer header — e.g. a PAT for a private GitHub raw URL).
 async fn relay_mint(session: &Session) -> Result<AiToken, String> {
-    let relay = std::env::var("FRAMERIZE_JWT_RELAY_URL").unwrap_or_default();
+    let relay = framer_core::env::jwt_relay_url();
     if relay.is_empty() {
         return Err("no relay configured".into());
     }
@@ -75,7 +75,7 @@ async fn relay_mint(session: &Session) -> Result<AiToken, String> {
         .get(&url)
         .header("accept", "application/vnd.github.raw")
         .header("user-agent", "framerize-relay/0.1");
-    if let Ok(tok) = std::env::var("FRAMERIZE_JWT_RELAY_TOKEN") {
+    if let Some(tok) = framer_core::env::jwt_relay_token() {
         if !tok.is_empty() {
             req = req.header("authorization", format!("Bearer {}", tok));
         }

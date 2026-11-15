@@ -579,7 +579,7 @@ impl CdpBridge {
                 // Opt-in real GPU (Crostini/virgl, GPUs on servers with
                 // displays): a SwiftShader WebGL renderer is a container tell.
                 // Default off — WebGL failing entirely scores worse.
-                if std::env::var("FRAMERIZE_GPU").is_ok() {
+                if framer_core::env::gpu_hint() {
                     cmd.arg("--enable-gpu").arg("--use-angle=gl-egl");
                 }
             }
