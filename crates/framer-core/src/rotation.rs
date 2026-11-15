@@ -423,10 +423,12 @@ mod tests {
     }
 
     #[test]
-    fn fable_case_map_slips_plan_gate() {
-        // F4 + essay proved $0 live on the uppercase provider form.
-        assert_eq!(effective_upstream_model("anthropic/claude-fable-5.2"), "ANTHROPIC/claude-fable-5.2");
-        assert_eq!(effective_upstream_model("claude-fable-5-2"), "ANTHROPIC/claude-fable-5.2");
+    fn fable_case_map_retired_bare_everywhere() {
+        // 2026-11-15: the uppercase endpoint is metered (50% billed, -$149/52
+        // legs). Bare id rides the grant-covered endpoint; plan-gate ($0) on
+        // non-plan scopes is correct behavior.
+        assert_eq!(effective_upstream_model("anthropic/claude-fable-5.2"), "anthropic/claude-fable-5.2");
+        assert_eq!(effective_upstream_model("claude-fable-5-2"), "claude-fable-5-2");
         assert_eq!(effective_upstream_model("ANTHROPIC/claude-fable-5.2"), "ANTHROPIC/claude-fable-5.2");
         assert!(spend_allowed("ANTHROPIC/claude-fable-5.2"));
         assert!(free_on_cutoff("ANTHROPIC/claude-fable-5.2"));

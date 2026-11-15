@@ -909,6 +909,25 @@ pub(super) async fn cutoff_run(
     } else {
         model_str
     };
+    // PROVIDER-CASE NORMALIZATION (2026-11-15, live-proved): an UPPERCASE
+    // provider prefix (ANTHROPIC/x) routes upstream to a METERED provider
+    // endpoint (50% billed, -$149 over 52 legs) while the lowercase form
+    // rides the grant-covered native endpoint (~1% micro-quanta). The gate
+    // below slug-matches either form, so caps legs OPEN — then bill. Rewrite
+    // to lowercase-provider BEFORE gating so every leg opens on the free
+    // endpoint. Same upstream model (echoes identical), strictly dominant.
+    // Owned String so the borrow lives past this block.
+    let model_lowered: String;
+    let model_str: &str = {
+        let t = model_str.trim();
+        match t.split_once('/') {
+            Some((p, rest)) if p.chars().any(|c| c.is_ascii_uppercase()) => {
+                model_lowered = format!("{}/{}", p.to_ascii_lowercase(), rest);
+                &model_lowered
+            }
+            _ => model_str,
+        }
+    };
     {
         // Pass the FULL (possibly mapped) id: SUFFIX_FREE matches exact provider-prefixed
         // ids; stripping first would miss ("claude-opus-5.5:nitro" != allowlisted

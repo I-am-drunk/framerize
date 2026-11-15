@@ -1202,6 +1202,9 @@ async fn free_complete(
             Err(e) if framer_core::convert::is_spend_terminal(&format!("{e:?}")) => {
                 return Err(e);
             }
+            Err(e) if is_plan_gated(&format!("{e:?}")) || is_guardrail_blocked(&format!("{e:?}")) => {
+                return Err(e);
+            }
             Err(e) => {
                 eprintln!("[cutoff] chat chain failed ({e:?}); falling back to the native chain (METERED)");
             }
@@ -1235,6 +1238,9 @@ async fn free_complete(
                 return Err(e)
             }
             Err(e) if framer_core::convert::is_spend_terminal(&format!("{e:?}")) => {
+                return Err(e);
+            }
+            Err(e) if is_plan_gated(&format!("{e:?}")) || is_guardrail_blocked(&format!("{e:?}")) => {
                 return Err(e);
             }
             Err(e) => {
@@ -1282,6 +1288,14 @@ async fn free_complete(
                     return Err(e)
                 }
                 Err(e) if framer_core::convert::is_spend_terminal(&format!("{e:?}")) => {
+                    return Err(e);
+                }
+                // PLAN-GATE / GUARDRAIL NEVER FALLS BACK (2026-11-15): the
+                // upstream refused this model on this scope — deterministic.
+                // The native chain opens the SAME gated model and bills for
+                // an identical refusal (measured: bare-fable 403 → native
+                // -0.286). Fail loud $0 instead.
+                Err(e) if is_plan_gated(&format!("{e:?}")) || is_guardrail_blocked(&format!("{e:?}")) => {
                     return Err(e);
                 }
                 Err(e) => {

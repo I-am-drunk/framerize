@@ -94,14 +94,14 @@ fn is_kimi_bare(slug: &str) -> bool {
 /// Fable ids to case-map: lowercase provider form plan-gates on this workspace
 /// (paid_plan_only_model), uppercase serves $0. Suffix-free only (suffixed forms keep
 /// their own classification: :floor is deny-listed, others route normally).
-fn is_fable_case_map(model: &str) -> bool {
-    let m = model.trim();
-    if m.contains(':') {
-        return false;
-    }
-    let lower = m.to_lowercase();
-    let slug = lower.rsplit('/').next().unwrap_or(&lower);
-    slug == "claude-fable-5.2" || slug == "claude-fable-5-2"
+/// RETIRED 2026-11-15 (live-proved): the uppercase map once slipped the
+/// workspace plan-gate into a $0 serve (F4); today the ANTHROPIC/ endpoint
+/// is metered (50% billed, -$149 over 52 custom legs) while the bare id rides
+/// the grant-covered native endpoint. Mapping bare->CAPS converts gate-or-free
+/// into coin-flip billing. Always false: every path uses the bare id; the
+/// plan-gate refusal ($0) is correct behavior on non-plan scopes.
+fn is_fable_case_map(_model: &str) -> bool {
+    false
 }
 
 fn is_premium_claude(slug: &str) -> bool {
