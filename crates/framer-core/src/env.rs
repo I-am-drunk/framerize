@@ -193,3 +193,8 @@ pub fn gpu_hint() -> bool {
 pub fn python_bin() -> Option<String> {
     std::env::var("FRAMERIZE_PYTHON").ok()
 }
+
+/// Concurrency gate persisted ceilings file.
+pub fn gate_state_file() -> Option<String> {
+    std::env::var("FRAMERIZE_GATE_STATE").ok()
+}

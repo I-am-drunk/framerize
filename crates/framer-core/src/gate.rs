@@ -252,10 +252,12 @@ impl ConcurrencyGate {
     /// Persisted ceilings file path (survives daemon restarts — the cap is a
     /// server-side fact; re-learning it costs a burst of 429s every boot).
     fn state_path() -> std::path::PathBuf {
-        std::env::var("FRAMERIZE_GATE_STATE")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|_| std::path::PathBuf::from(
-                format!("{}/.framerize/gate-state.json", std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()))))
+        crate::env::gate_state_file().map(std::path::PathBuf::from).unwrap_or_else(|| {
+            std::path::PathBuf::from(format!(
+                "{}/.framerize/gate-state.json",
+                std::env::var("HOME").unwrap_or_else(|_| "/tmp".into())
+            ))
+        })
     }
 
     fn persist_ceiling(&self, key: &str, ceiling: usize) {
