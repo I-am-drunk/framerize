@@ -977,7 +977,7 @@ pub(crate) async fn free_complete(
             // should not be using the paid route"). gpt-6-sol/6.1-sol/luna/
             // terra only exist on the metered direct route, so they are
             // unavailable unless the operator explicitly opts into spend.
-            if std::env::var("FRAMERIZE_ALLOW_METERED").map(|v| v == "1").unwrap_or(false) {
+            if framer_core::env::allow_metered() {
                 if dialect == ClientDialect::OpenAiResponses {
                     return compat_forward(
                         s,
@@ -1230,8 +1230,8 @@ pub(crate) async fn free_complete(
         // TWO-KEY SPEND (2026-11-11): the metered fallback bills per chunk. It takes
         // BOTH FRAMERIZE_ALLOW_METERED=1 AND FRAMERIZE_ALLOW_SPEND=1 -- no single env flip,
         // stray drop-in, or misread default can ever enable billing alone.
-        metered_fallback: std::env::var("FRAMERIZE_ALLOW_METERED").map(|v| v == "1").unwrap_or(false)
-            && std::env::var("FRAMERIZE_ALLOW_SPEND").map(|v| v == "1").unwrap_or(false),
+        metered_fallback: framer_core::env::allow_metered()
+            && framer_core::env::allow_spend(),
         on_429: {
             let team = Some(team.0.clone());
             Some(std::sync::Arc::new(move || {
@@ -1832,8 +1832,8 @@ async fn native_complete(
         // TWO-KEY SPEND (2026-11-11): the metered fallback bills per chunk. It takes
         // BOTH FRAMERIZE_ALLOW_METERED=1 AND FRAMERIZE_ALLOW_SPEND=1 -- no single env flip,
         // stray drop-in, or misread default can ever enable billing alone.
-        metered_fallback: std::env::var("FRAMERIZE_ALLOW_METERED").map(|v| v == "1").unwrap_or(false)
-            && std::env::var("FRAMERIZE_ALLOW_SPEND").map(|v| v == "1").unwrap_or(false),
+        metered_fallback: framer_core::env::allow_metered()
+            && framer_core::env::allow_spend(),
         on_429: {
             let team = Some(team.0.clone());
             Some(std::sync::Arc::new(move || {

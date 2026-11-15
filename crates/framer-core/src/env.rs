@@ -60,6 +60,16 @@ pub fn no_thinking_cap() -> bool {
     flag("FRAMERIZE_NO_THINKING_CAP")
 }
 
+/// Native tool-leg attempts (test accounts).
+pub fn allow_tool_legs() -> bool {
+    flag("FRAMERIZE_ALLOW_TOOL_LEGS")
+}
+
+/// Schema-as-prose tool emulation (experiments only).
+pub fn emulate_tools() -> bool {
+    flag("FRAMERIZE_EMULATE_TOOLS")
+}
+
 /// Tools mode: one knob, three states (Refuse default).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ToolsMode {

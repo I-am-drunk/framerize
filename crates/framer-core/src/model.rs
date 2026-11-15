@@ -139,7 +139,7 @@ pub fn normalize_model_slug(model: &str) -> String {
 /// Classify a model id (provider-stripped compare; suffix-significant for the
 /// suffixed-free set, then normalized for everything else).
 pub fn classify(model: &str) -> ModelClass {
-    if std::env::var("FRAMERIZE_ALLOW_SPEND").as_deref() == Ok("1") {
+    if crate::env::allow_spend() {
         // Operator opted into spend: anything may run (gates become advisory).
         return ModelClass::FreeBase;
     }
@@ -266,7 +266,7 @@ pub fn spend_denied_reason(model: &str) -> String {
 /// here — the cutoff path's own meter bills before the abort (proved: opus via
 /// cutoff = -2.71/leg), so those ride the native/nitro path instead.
 pub fn free_on_cutoff(model: &str) -> bool {
-    if std::env::var("FRAMERIZE_ALLOW_SPEND").as_deref() == Ok("1") {
+    if crate::env::allow_spend() {
         return true;
     }
     let raw = model.trim();

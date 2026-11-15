@@ -141,9 +141,11 @@ enum ToolMode {
     NativeAttempt,
 }
 fn tool_mode() -> ToolMode {
-    if std::env::var("FRAMERIZE_ALLOW_TOOL_LEGS").map(|v| v == "1").unwrap_or(false) {
+    // Single ToolsMode knob (see framer_core::env): Refuse default, Emulate for
+    // experiments, NativeAttempt for real tool legs (test accounts).
+    if framer_core::env::allow_tool_legs() {
         ToolMode::NativeAttempt
-    } else if std::env::var("FRAMERIZE_EMULATE_TOOLS").map(|v| v == "1").unwrap_or(false) {
+    } else if framer_core::env::emulate_tools() {
         ToolMode::Emulate
     } else {
         ToolMode::Refuse
