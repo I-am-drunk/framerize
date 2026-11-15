@@ -2,6 +2,7 @@
 //! `framer-core`. No account logic lives here. Also serves the built web UI and the
 //! compat surfaces for Claude Code (`/anthropic`) and Codex (`/openai`).
 
+use handlers::hdr;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::{get, post};
@@ -20,6 +21,7 @@ use tower_http::services::ServeDir;
 
 mod custom;
 mod custom_admin;
+mod handlers;
 mod ledger_guard;
 mod goose;
 mod serving_accounts;
@@ -150,18 +152,18 @@ pub fn router(state: AppState, web_dir: &str) -> Router {
     // Compat surfaces: thin translating proxies onto Framer's native dialect
     // routes. See reference/analysis/compat-mapping.md.
     let anthropic = Router::new()
-        .route("/v1/messages", post(anthropic_messages))
+        .route("/v1/messages", post(handlers::anthropic_messages))
         // Claude Code gateway protocol: token counting is optional (the client
         // falls back to a character estimate when absent), but cheap to serve.
-        .route("/v1/messages/count_tokens", post(count_tokens))
+        .route("/v1/messages/count_tokens", post(handlers::count_tokens))
         // Warming probe (gateway protocol): clients hit {BASE_URL}/api/hello —
         // with base /anthropic that's /anthropic/api/hello, NOT /api/hello
         // (measured: 30× 404s in 2h from Claude Code warming).
         .route("/api/hello", get(|| async { "ok" }).head(|| async { "ok" }))
         .with_state(state.clone());
     let openai = Router::new()
-        .route("/v1/responses", post(openai_responses))
-        .route("/v1/chat/completions", post(openai_chat))
+        .route("/v1/responses", post(handlers::openai_responses))
+        .route("/v1/chat/completions", post(handlers::openai_chat))
         .route("/api/hello", get(|| async { "ok" }).head(|| async { "ok" }))
         .with_state(state.clone());
 
@@ -171,12 +173,12 @@ pub fn router(state: AppState, web_dir: &str) -> Router {
     // zero client config beyond the base URL; x-framerize-mode: paid remains
     // as a header override for clients that can set it.
     let anthropic_paid = Router::new()
-        .route("/v1/messages", post(anthropic_messages_paid))
-        .route("/v1/messages/count_tokens", post(count_tokens))
+        .route("/v1/messages", post(handlers::anthropic_messages_paid))
+        .route("/v1/messages/count_tokens", post(handlers::count_tokens))
         .with_state(state.clone());
     let openai_paid = Router::new()
-        .route("/v1/responses", post(openai_responses_paid))
-        .route("/v1/chat/completions", post(openai_chat_paid))
+        .route("/v1/responses", post(handlers::openai_responses_paid))
+        .route("/v1/chat/completions", post(handlers::openai_chat_paid))
         .with_state(state.clone());
     let paid = Router::new()
         .nest("/anthropic", anthropic_paid)
@@ -242,7 +244,7 @@ pub async fn serve(state: AppState, web_dir: &str, addr: SocketAddr) -> std::io:
 /// Account continuity: clients may pin a conversation with `x-framerize-account`
 /// + `x-framerize-session` headers; otherwise the least-failed eligible account
 ///   and a fresh chat session are used.
-async fn compat_forward(
+pub(crate) async fn compat_forward(
     s: AppState,
     dialect: &'static str,
     account_hdr: Option<String>,
@@ -555,60 +557,6 @@ fn rand_u32() -> u32 {
         .map(|d| d.subsec_nanos())
         .unwrap_or(0))
         ^ std::process::id()
-}
-
-async fn anthropic_messages(
-    State(s): State<AppState>,
-    headers: axum::http::HeaderMap,
-    Json(payload): Json<serde_json::Value>,
-) -> Result<axum::response::Response, ApiError> {
-    if hdr(&headers, "x-framerize-mode").as_deref() != Some("paid") {
-        return free_complete(s, &headers, ClientDialect::AnthropicMessages, payload).await;
-    }
-    compat_forward(
-        s,
-        "anthropic-messages",
-        hdr(&headers, "x-framerize-account"),
-        hdr(&headers, "x-framerize-session"),
-        payload,
-    )
-    .await
-}
-
-async fn openai_responses(
-    State(s): State<AppState>,
-    headers: axum::http::HeaderMap,
-    Json(payload): Json<serde_json::Value>,
-) -> Result<axum::response::Response, ApiError> {
-    if hdr(&headers, "x-framerize-mode").as_deref() != Some("paid") {
-        return free_complete(s, &headers, ClientDialect::OpenAiResponses, payload).await;
-    }
-    compat_forward(
-        s,
-        "openai-responses",
-        hdr(&headers, "x-framerize-account"),
-        hdr(&headers, "x-framerize-session"),
-        payload,
-    )
-    .await
-}
-
-async fn openai_chat(
-    State(s): State<AppState>,
-    headers: axum::http::HeaderMap,
-    Json(payload): Json<serde_json::Value>,
-) -> Result<axum::response::Response, ApiError> {
-    if hdr(&headers, "x-framerize-mode").as_deref() != Some("paid") {
-        return free_complete(s, &headers, ClientDialect::OpenAiChat, payload).await;
-    }
-    compat_forward(
-        s,
-        "openrouter-chat",
-        hdr(&headers, "x-framerize-account"),
-        hdr(&headers, "x-framerize-session"),
-        payload,
-    )
-    .await
 }
 
 
@@ -944,7 +892,7 @@ fn stable_session(account: &AccountId) -> String {
     out
 }
 
-async fn free_complete(
+pub(crate) async fn free_complete(
     s: AppState,
     headers: &axum::http::HeaderMap,
     dialect: ClientDialect,
@@ -2292,83 +2240,7 @@ fn anthro_model_for_log(dialect: ClientDialect, payload: &Value) -> String {
     convert::to_openrouter_id(payload["model"].as_str().unwrap_or_default())
 }
 
-/// Anthropic count_tokens shape; character-based estimate (≈4 chars/token) —
-/// the same fallback Claude Code applies when the endpoint is absent.
-async fn count_tokens(Json(body): Json<serde_json::Value>) -> Json<serde_json::Value> {
-    let chars: usize = body["messages"]
-        .as_array()
-        .map(|ms| {
-            ms.iter()
-                .map(|m| {
-                    m["content"]
-                        .as_str()
-                        .map(|s| s.len())
-                        .or_else(|| {
-                            m["content"].as_array().map(|bs| {
-                                bs.iter()
-                                    .map(|b| b["text"].as_str().map(|s| s.len()).unwrap_or(0))
-                                    .sum()
-                            })
-                        })
-                        .unwrap_or(0)
-                })
-                .sum::<usize>()
-        })
-        .unwrap_or(0)
-        + body["system"].as_str().map(|s| s.len()).unwrap_or(0);
-    Json(serde_json::json!({ "input_tokens": (chars / 4).max(1) }))
-}
-
 /// Paid-path wrappers: the metered streaming passthroughs, mounted at /paid/*.
-async fn anthropic_messages_paid(
-    State(s): State<AppState>,
-    headers: axum::http::HeaderMap,
-    Json(payload): Json<serde_json::Value>,
-) -> Result<axum::response::Response, ApiError> {
-    compat_forward(
-        s,
-        "anthropic-messages",
-        hdr(&headers, "x-framerize-account"),
-        hdr(&headers, "x-framerize-session"),
-        payload,
-    )
-    .await
-}
-
-async fn openai_responses_paid(
-    State(s): State<AppState>,
-    headers: axum::http::HeaderMap,
-    Json(payload): Json<serde_json::Value>,
-) -> Result<axum::response::Response, ApiError> {
-    compat_forward(
-        s,
-        "openai-responses",
-        hdr(&headers, "x-framerize-account"),
-        hdr(&headers, "x-framerize-session"),
-        payload,
-    )
-    .await
-}
-
-async fn openai_chat_paid(
-    State(s): State<AppState>,
-    headers: axum::http::HeaderMap,
-    Json(payload): Json<serde_json::Value>,
-) -> Result<axum::response::Response, ApiError> {
-    compat_forward(
-        s,
-        "openrouter-chat",
-        hdr(&headers, "x-framerize-account"),
-        hdr(&headers, "x-framerize-session"),
-        payload,
-    )
-    .await
-}
-
-fn hdr(headers: &axum::http::HeaderMap, name: &str) -> Option<String> {
-    headers.get(name).and_then(|v| v.to_str().ok()).map(str::to_string)
-}
-
 /// Team ids already held by OTHER accounts. `exclude` is the account being
 /// admitted, so a re-login keeps the workspace it already owns.
 
