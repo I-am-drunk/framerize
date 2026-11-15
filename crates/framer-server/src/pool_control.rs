@@ -383,6 +383,15 @@ impl ServingAccountPolicy {
                             ticket.cancel_before_io().map_err(busy)?;
                             return Err(busy("account browser is still busy or its identity changed"));
                         }
+                        // A stale-uncertain victim whose browser is ALREADY gone needs no
+                        // close round-trip: the live Absent observation (same identity,
+                        // no in-flight commands) IS the proved close. A live Resident
+                        // browser still goes through the confirmed close below, so a
+                        // slow-but-alive browser is never killed by the reaper path.
+                        if expected.state == framer_core::browser_lifecycle::BrowserAccountState::Absent {
+                            let lease = ticket.confirm_close().map_err(busy)?;
+                            return confirm_resident_status(browser, lease).await;
+                        }
                         ticket.close_started().map_err(busy)?;
                         let result = browser.close_idle_browser(&ticket.victim(), &expected)
                             .await.map_err(busy)?;

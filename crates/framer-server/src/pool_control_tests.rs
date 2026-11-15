@@ -1669,3 +1669,17 @@ async fn account_repicks_wait_on_destination_gate_and_recheck_health_before_invo
         }
     }
 }
+
+#[tokio::test]
+async fn fresh_uncertain_victim_with_absent_browser_still_fences_without_close() {
+    // Fresh fence holds even when the browser is already gone: admission of a
+    // fresh account fails WITHOUT issuing any close (no churn on a slow browser).
+    let (state, ports) = fixture(1, 2);
+    activated(&state, 1).await;
+    *ports.status_mode.lock().unwrap() = StatusMode::Unconfirmed;
+    assert!(lease_account(&state, id(1)).await.is_err());
+    assert!(slot(&state, id(1)).uncertain);
+    ports.live.lock().unwrap().remove(&id(1));
+    assert!(matches!(lease_account(&state, id(2)).await, Err(ApiError::PoolBusy(_))));
+    assert!(!ports.events.lock().unwrap().iter().any(|event| event.0 == "close_started"));
+}

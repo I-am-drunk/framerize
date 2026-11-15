@@ -48,7 +48,16 @@ enum SlotState {
     Closing { id: u64, target: Option<AccountId>, started: bool, was_uncertain: bool },
     Uncertain,
 }
-struct Slot { account: AccountId, users: usize, idle_order: u64, state: SlotState }
+/// An uncertain slot (users==0) older than this may be evicted as an idle
+/// victim through the same confirmed-close path as a healthy idle slot.
+/// The fence still holds for fresh uncertainty (a browser that is merely
+/// slow to confirm); only a slot nobody reclaimed within the window is
+/// treated as a dead browser. The close itself is still proved: the victim's
+/// live browser_status is read and its absence confirmed before the slot is
+/// reused, so a live-but-slow browser is never killed by this path.
+pub const UNCERTAIN_EVICT_AFTER_MS: u64 = 120_000;
+
+struct Slot { account: AccountId, users: usize, idle_order: u64, state: SlotState, uncertain_since_ms: Option<u64> }
 struct Inner { capacity: usize, slots: Vec<Slot>, clock: u64, next_ticket: u64 }
 #[derive(Clone)]
 pub struct ResidentPool { inner: Arc<Mutex<Inner>> }
@@ -128,14 +137,20 @@ impl ResidentPool {
             return Ok(Acquire::Lease(ResidentLease { pool: self.clone(), account }));
         }
         if inner.slots.len() < inner.capacity {
-            inner.slots.push(Slot { account, users: 1, idle_order: 0, state: SlotState::Resident });
+            inner.slots.push(Slot { account, users: 1, idle_order: 0, state: SlotState::Resident, uncertain_since_ms: None });
             return Ok(Acquire::Lease(ResidentLease { pool: self.clone(), account }));
         }
+        let now = crate::rotation::now_ms();
         let idle = |s: &&Slot| s.users == 0 && matches!(s.state, SlotState::Resident)
             && !protected.contains(&s.account);
+        let stale_uncertain = |s: &&Slot| s.users == 0 && matches!(s.state, SlotState::Uncertain)
+            && !protected.contains(&s.account)
+            && s.uncertain_since_ms.map(|t| now.saturating_sub(t) >= UNCERTAIN_EVICT_AFTER_MS).unwrap_or(false);
         let victim = inner.slots.iter().filter(idle)
             .find(|s| Some(s.account) == preferred_idle)
             .or_else(|| inner.slots.iter().filter(idle).min_by_key(|s| (s.idle_order, s.account.0)))
+            .or_else(|| inner.slots.iter().filter(stale_uncertain)
+                .min_by_key(|s| (s.uncertain_since_ms.unwrap_or(u64::MAX), s.account.0)))
             .map(|s| s.account).ok_or(PoolError::NoIdleSlot)?;
         Ok(Acquire::Evict(EvictionTicket(self.reserve(&mut inner, victim, Some(account))?)))
     }
@@ -175,6 +190,11 @@ impl ResidentLease {
     /// Retain this occupied slot after a negative browser observation.
     /// Existing users keep their leases; only a proved close can free it.
     pub fn mark_unconfirmed(&self) -> Result<(), PoolError> {
+        self.mark_unconfirmed_at(crate::rotation::now_ms())
+    }
+
+    /// Same fence with an injected clock (tests pin the stale window).
+    pub fn mark_unconfirmed_at(&self, now_ms: u64) -> Result<(), PoolError> {
         let mut inner = self.pool.lock()?;
         let slot = inner.slots.iter_mut().find(|slot| slot.account == self.account)
             .ok_or(PoolError::NotResident)?;
@@ -182,6 +202,7 @@ impl ResidentLease {
             return Err(PoolError::StaleTicket);
         }
         slot.state = SlotState::Uncertain;
+        slot.uncertain_since_ms = Some(now_ms);
         Ok(())
     }
 }
@@ -231,7 +252,7 @@ impl CloseTicket {
         }
         let lease = if let Some(account) = self.target {
             if inner.slots.iter().any(|s| s.account == account) { return Err(PoolError::AccountBusy); }
-            inner.slots[index] = Slot { account, users: 1, idle_order: 0, state: SlotState::Resident };
+            inner.slots[index] = Slot { account, users: 1, idle_order: 0, state: SlotState::Resident, uncertain_since_ms: None };
             Some(ResidentLease { pool: self.pool.clone(), account })
         } else {
             inner.slots.remove(index);

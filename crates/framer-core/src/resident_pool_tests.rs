@@ -257,3 +257,41 @@ fn growth_cannot_duplicate_an_account_reserved_by_inflight_eviction() {
     assert_eq!(replacement.account(), id(2));
     assert_eq!(other.account(), id(3));
 }
+
+#[test]
+fn fresh_uncertain_slot_still_fences_but_stale_uncertain_evicts() {
+    use super::UNCERTAIN_EVICT_AFTER_MS;
+    let pool = ResidentPool::new(1).unwrap();
+    let owner = lease(&pool, 1);
+    owner.mark_unconfirmed_at(crate::rotation::now_ms()).unwrap();
+    drop(owner);
+    // Fresh uncertainty: the fence holds, no eviction.
+    assert!(matches!(pool.try_acquire(id(2), None), Err(PoolError::NoIdleSlot)));
+    // After the stale window passes (pinned clock), the dead slot evicts.
+    // try_acquire uses the live wall clock, so pin by re-stamping at t=0
+    // relative to now: re-mark now, then the window has NOT passed yet...
+    // Instead verify the boundary directly: a slot stamped long ago evicts.
+    let pool2 = ResidentPool::new(1).unwrap();
+    let owner2 = lease(&pool2, 1);
+    owner2.mark_unconfirmed_at(crate::rotation::now_ms().saturating_sub(UNCERTAIN_EVICT_AFTER_MS + 1)).unwrap();
+    drop(owner2);
+    let ticket = evict(&pool2, 2, None);
+    assert_eq!(ticket.victim(), id(1));
+    ticket.cancel_before_io().unwrap();
+    assert_eq!(status(&pool2, 1), ResidentStatus::Uncertain);
+}
+
+#[test]
+fn healthy_idle_is_preferred_over_stale_uncertain() {
+    use super::UNCERTAIN_EVICT_AFTER_MS;
+    let pool = ResidentPool::new(2).unwrap();
+    let a = lease(&pool, 1);
+    let b = lease(&pool, 2);
+    a.mark_unconfirmed_at(crate::rotation::now_ms().saturating_sub(UNCERTAIN_EVICT_AFTER_MS + 1)).unwrap();
+    drop(a);
+    drop(b);
+    // Slot 2 is healthy idle, slot 1 stale-uncertain: victim must be 2.
+    let ticket = evict(&pool, 3, None);
+    assert_eq!(ticket.victim(), id(2));
+    ticket.cancel_before_io().unwrap();
+}
