@@ -829,8 +829,10 @@ async fn complete_inner<T: CustomTransport>(
             }
             // Emulated calls: fences parsed out of the text into real tool_use blocks.
             let (growth, emulated) = extract_emulated_calls(&raw_growth);
-            let (growth, dangling) = split_dangling_fence(&growth);
-            fence_carry = dangling;
+            // No fence carry: the finish cutoff ends the chain (break below),
+            // so a dangling tail has no next leg to complete it. (Was: assigned
+            // to fence_carry, never read — dead store, chain exits here.)
+            let (growth, _) = split_dangling_fence(&growth);
             // Dedupe by (name, input) vs calls already served: a model re-emitting a
             // served call across legs must not double-execute client-side. Runs here
             // (pre-clone) so the single post-clone extend below adds only fresh calls.
@@ -897,8 +899,9 @@ async fn complete_inner<T: CustomTransport>(
                         "[custom-route] budget-exhausted leg={}: hold released on confirm -- treating as clean",
                         leg_index + 1
                     );
-                    leg_debit = 0.0;
-                    // fall through to accept path below with zeroed debit
+                    // fall through to the accept path below with zeroed debit
+                    // (no leg_debit reset here: the reset below zeroes it for
+                    // the next leg; this one was dead — overwritten unread.)
                     total_debit += 0.0;
                     let growth = merge::trim_overlap(&rung_out.captured, &accumulated).to_string();
                     accumulated.push_str(&growth);
@@ -936,7 +939,6 @@ async fn complete_inner<T: CustomTransport>(
                     events: rung_out.events,
                 });
                 outcome = ChainOutcome::Quarantined;
-                recover_padded = false;
                 break;
             }
             ledger::Policy::RetryHalved | ledger::Policy::QuarantineAndReport => {
@@ -966,7 +968,6 @@ async fn complete_inner<T: CustomTransport>(
                             events: rung_out.events,
                         });
                         outcome = ChainOutcome::Quarantined;
-                        recover_padded = false;
                         break;
                     }
                     // Hold released: fall through to the clean-race recovery below.
@@ -1033,7 +1034,6 @@ async fn complete_inner<T: CustomTransport>(
                         events: rung_out.events,
                     });
                     outcome = ChainOutcome::Capped;
-                    recover_padded = false;
                     break;
                 }
                 eprintln!(
