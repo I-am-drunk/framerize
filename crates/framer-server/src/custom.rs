@@ -1875,13 +1875,22 @@ async fn custom_real_once(
             // Re-read: record may have mutated stored health; base off latest.
             if let Ok(Some(latest)) = s.state.get(account.id).await {
                 let mut hot = latest;
+                // Billing backoff starts hot (~64s, not 2s): a depleted grant
+                // bucket does not refill in 2 seconds (c1f1c860 re-billed 3
+                // min later through a 2s cooling). Repeat bills double it.
+                hot.cooldown_step = hot.cooldown_step.saturating_add(4);
                 hot.note_risk_refused(now);
                 let ms = framer_core::account::ManagedAccount::cooldown_backoff_ms(hot.cooldown_step - 1);
                 let id8 = hot.id.0.to_string()[..8].to_string();
                 let debit = assembled.total_debit;
                 let _ = s.state.upsert(&hot).await;
+                // Also steer the SCOPE picker away from the billing workspace:
+                // a scope that bills once bills again (identical quanta repeat:
+                // 8ee2a65d -0.070667 2/2). 5-min saturation matches the 402 path.
+                framer_core::rotation::mark_saturated(&scope_team.0, 300_000);
                 eprintln!(
-                    "[health] {id8}: billed quarantine ({debit:+.6}) -> cooling {ms}ms (grant-bucket backoff)",
+                    "[health] {id8}: billed quarantine ({debit:+.6}) -> cooling {ms}ms + scope {} saturated 300s (grant-bucket backoff)",
+                    &scope_team.0[..8.min(scope_team.0.len())]
                 );
             }
         }
