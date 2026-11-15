@@ -684,7 +684,13 @@ pub fn tool_calls_openai(calls: &[Value]) -> Value {
                     "type": "function",
                     "function": {
                         "name": b.get("name").and_then(|v| v.as_str()).unwrap_or(""),
-                        "arguments": b.get("input").map(|v| v.to_string()).unwrap_or_default(),
+                        // NATIVE tool calls carry "arguments" (OpenAI shape, from
+                        // the page pump); emulated/anthropic ones carry "input".
+                        // The old code read only "input" -> native calls served
+                        // with EMPTY arguments (live-proved 2026-11-15).
+                        "arguments": b.get("arguments").and_then(|v| v.as_str()).map(|s| s.to_string())
+                            .or_else(|| b.get("input").map(|v| v.to_string()))
+                            .unwrap_or_default(),
                     },
                 })
             })
@@ -721,7 +727,7 @@ pub fn render_json_with(
             if !tools.is_empty() {
                 message["tool_calls"] = json!(tools.iter().enumerate().map(|(i, b)| json!({
                     "id": b["id"], "type": "function",
-                    "function": {"name": b["name"], "arguments": b["input"].to_string()},
+                    "function": {"name": b["name"], "arguments": b.get("arguments").and_then(|v| v.as_str()).map(|s| s.to_string()).or_else(|| b.get("input").map(|v| v.to_string())).unwrap_or_default()},
                     "index": i,
                 })).collect::<Vec<_>>());
             }

@@ -66,6 +66,8 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
     (async () => {
       try {
         window.__fzToolCutoff = %TOOLCUTOFF%;
+        window.__fzCutTrace = %CUTTRACE%;
+        window.__fzCutEvents = [];
         if (!window.castlePublishableAPIKey) {
           Object.defineProperty(window, "castlePublishableAPIKey", { value: Object.freeze("pk_xYqGbB61EcFiSh4LUshpT4DGoEQMKQMB") });
         }
@@ -127,6 +129,7 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
                 try { slot.wireTap = (slot.wireTap || "") + "L" + rawLines + "=" + t.slice(0, 120) + " | "; } catch (e) {}
               }
               if (!t.startsWith("data:")) continue;
+              try { if (window.__fzCutTrace && window.__fzCutEvents.length < 400) { window.__fzCutEvents.push("L@" + Math.round(performance.now())); } } catch (e) {}
               const q = t.slice(5).trim();
               if (q === "[DONE]") { try { slot.buf += dec.decode(); } catch (e) {} slot.streamLive = false; slot.done = true; break; }
               let d = null;
@@ -182,6 +185,10 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
                       const moreStarted = idxs.length > 1;
                       if (firstComplete && moreStarted) {
                         fin = "tool_calls";
+                        // ABORT-FIRST (2026-11-15 BUGFIX): the old code nulled
+                        // reader/ctl WITHOUT abort — orphaning the server
+                        // stream to generate to terminal UNWATCHED (settle!).
+                        try { ctl.abort(); } catch (e) {}
                         slot.stopped = true; slot.stopAt = events;
                         slot.finished = true; slot.finishReason = "tool_calls";
                         slot.streamLive = false; slot.done = true;
@@ -204,8 +211,8 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
                 // Only the top-level completed object (never per-item deltas) sets fin.
                 if (fin === null && j && j.type === "response.completed" && j.response && j.response.status === "completed") {
                   fin = "response.completed";
-                  try { await reader.cancel(); } catch (e) {}
                   try { ctl.abort(); } catch (e) {}
+                  try { await reader.cancel(); } catch (e) {}
                   slot.stopped = true; slot.stopAt = events;
                   slot.finished = true; slot.finishReason = String(fin);
                   slot.streamLive = false; slot.done = true;
@@ -237,8 +244,15 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
                   // the finish line (measured: content+finish+terminal in one
                   // read -> settle before any abort). Abort MID-CHUNK the
                   // instant the finish parses -- do not finish the line loop.
-                  try { await reader.cancel(); } catch (e) {}
+                  // CUT TRACE (2026-11-15, FRAMERIZE_CUT_TRACE=1): record the
+                  // parse timestamp; the drain reports per-line arrival times
+                  // so the finish->terminal gap distribution is measurable.
+                  try { if (window.__fzCutTrace) { window.__fzCutEvents.push("FIN@" + Math.round(performance.now())); } } catch (e) {}
+                  // ABORT-FIRST (2026-11-15): the free window is RST-vs-server-
+                  // commit. ctl.abort() is SYNC (RST on the wire immediately);
+                  // reader.cancel() AWAITS (yields ms). Abort first, always.
                   try { ctl.abort(); } catch (e) {}
+                  try { await reader.cancel(); } catch (e) {}
                   slot.stopped = true; slot.stopAt = events;
                   slot.finished = true; slot.finishReason = String(fin);
                   slot.streamLive = false; slot.done = true;
@@ -278,6 +292,10 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
                 if (mi >= 0) { cut = mi; why = "marker"; }
                 if (pi >= 0 && (cut < 0 || pi < cut)) { cut = pi; why = "pad-pattern"; }
                 if (cut >= 0) {
+                  // Abort BEFORE the truncate: slice/regex burn ms while the
+                  // server (still generating padding) commits nothing yet —
+                  // but every ms counts at 500 tok/s. Truncate after RST.
+                  try { ctl.abort(); } catch (e) {}
                   slot.buf = slot.buf.slice(0, cut);
                   fin = why;
                 }
@@ -285,16 +303,17 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
               // The finish cutoff or the length backstop ends the leg: the
               // abort lands before the terminal frame either way.
               if (fin !== null || events >= stopAfter) {
-                // CUT-OFF HARDENING (2026-11-10): the terminal must be
-                // UNREACHABLE after the stop, not merely unrequested. Order:
-                // (1) flag stopped first so re-entrant polls see it; (2)
-                // cancel the reader before aborting the controller (abort
-                // alone can still deliver a buffered terminal on some
-                // transports); (3) detach reader+controller so no later
-                // code path can ever pull another chunk from this stream.
+                // CUT-OFF HARDENING (2026-11-10, reordered 2026-11-15):
+                // the terminal must be UNREACHABLE after the stop. Order:
+                // (1) flag stopped first so re-entrant polls see it; (2) SYNC
+                // ctl.abort() FIRST (RST on the wire in microseconds — this
+                // is what kills the server-side settle); (3) reader.cancel()
+                // then detach. The old cancel-then-abort yielded event-loop
+                // ms while the server committed. Nothing reads after the
+                // break below, so abort-first loses nothing.
                 slot.stopped = true; slot.stopAt = events;
-                try { await reader.cancel(); } catch (e) {}
                 try { ctl.abort(); } catch (e) {}
+                try { await reader.cancel(); } catch (e) {}
                 try { slot.reader = null; } catch (e) {}
                 try { slot.ctl = null; } catch (e) {}
                 if (fin !== null) { slot.finished = true; slot.finishReason = String(fin); }
@@ -331,6 +350,8 @@ pub const DRAIN_SNIPPET: &str = r#"(() => {
   slot.cursor = slot.buf.length;
   const tap = slot.wireTap || "";
   try { slot.wireTap = ""; } catch (e) {}
+  let cutTrace = "";
+  try { if (window.__fzCutEvents && window.__fzCutEvents.length) { cutTrace = "CUTTRACE:" + window.__fzCutEvents.join(","); window.__fzCutEvents = []; } } catch (e) {}
   const tcs = [];
   try {
     if (slot.toolCalls) {
@@ -343,7 +364,7 @@ pub const DRAIN_SNIPPET: &str = r#"(() => {
     finished: !!slot.finished, finishReason: slot.finishReason || "",
     toolCalls: tcs,
     status: slot.status, usage: slot.usage, error: slot.error || "",
-    chunks: slot.chunks || 0, wireTap: tap,
+    chunks: slot.chunks || 0, wireTap: tap + cutTrace,
     streamLive: !!slot.streamLive };
 })()"#;
 
@@ -441,6 +462,8 @@ impl<E: PageEval> HostPageStream<E> {
         // Research flag: FRAMERIZE_TOOL_CUTOFF=1 enables the multi-tool-call
         // early-abort (capture the first complete tool_call free).
         let tool_cutoff = if std::env::var("FRAMERIZE_TOOL_CUTOFF").map(|v| v == "1").unwrap_or(false) { "true" } else { "false" };
+        // Cut-trace: FRAMERIZE_CUT_TRACE=1 stamps per-line arrival times for gap analysis.
+        let cut_trace = if std::env::var("FRAMERIZE_CUT_TRACE").map(|v| v == "1").unwrap_or(false) { "true" } else { "false" };
         OPEN_SNIPPET
             .replace("%CHUNK%", crate::CASTLE_CHUNK_PINNED)
             .replace("%API%", &self.api)
@@ -449,6 +472,7 @@ impl<E: PageEval> HostPageStream<E> {
             .replace("%BODY%", &body.to_string())
             .replace("%STOP%", &stop_after.to_string())
             .replace("%TOOLCUTOFF%", tool_cutoff)
+            .replace("%CUTTRACE%", cut_trace)
     }
 
     fn credits_expr(&self) -> String {
@@ -679,6 +703,11 @@ impl<E: PageEval> framer_custom::PageStream for HostPageStream<E> {
             .as_array()
             .cloned()
             .unwrap_or_default();
+        // TOOL SHAPE DEBUG (2026-11-15): log the raw accumulated calls so the
+        // arguments wire shape (string-fragment vs object) is visible.
+        if !tool_calls.is_empty() {
+            eprintln!("[toolshape] raw={}", serde_json::to_string(&tool_calls).unwrap_or_default().chars().take(600).collect::<String>());
+        }
         let batch = framer_custom::StreamBatch {
             events,
             raced,
@@ -687,6 +716,14 @@ impl<E: PageEval> framer_custom::PageStream for HostPageStream<E> {
             tool_calls,
         };
         batch.check()?;
+        // CUT-TRACE REPORT: the drain's wireTap carries CUTTRACE:<events> when
+        // FRAMERIZE_CUT_TRACE=1. Emit to journal (grep CUTTRACE) — the attempt
+        // line nearby gives req/account/model context.
+        if let Some(tap) = v["wireTap"].as_str() {
+            if let Some(pos) = tap.find("CUTTRACE:") {
+                eprintln!("[cuttrace] {}", &tap[pos..(pos + 2000).min(tap.len())]);
+            }
+        }
         Ok(batch)
     }
 
@@ -839,7 +876,8 @@ mod tests {
             .replace("%BEARER%", "tok")
             .replace("%BODY%", &serde_json::json!({"a": 1}).to_string())
             .replace("%STOP%", "200")
-            .replace("%TOOLCUTOFF%", "false");
+            .replace("%TOOLCUTOFF%", "false")
+            .replace("%CUTTRACE%", "false");
         assert!(!expr.contains('%'));
         assert!(expr.contains("/ai/v3/chat/"));
         // Balanced parens as a cheap syntax tripwire. (Braces are off by
