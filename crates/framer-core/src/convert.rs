@@ -256,7 +256,7 @@ pub fn to_anthropic_request(d: ClientDialect, body: &Value) -> Result<Value, Str
     // upstream degrades to single-digit tok/s, a 32000-token thinking budget
     // is the difference between answering and stalling into the wall.
     // 1024 keeps reasoning useful, bounded. FRAMERIZE_NO_THINKING_CAP=1 opts out.
-    if std::env::var("FRAMERIZE_NO_THINKING_CAP").map(|v| v != "1").unwrap_or(true) {
+    if !crate::env::no_thinking_cap() {
         if let Some(t) = out.get_mut("thinking") {
             if t["type"].as_str() == Some("enabled") {
                 let cur = t["budget_tokens"].as_u64().unwrap_or(u64::MAX);

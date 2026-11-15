@@ -666,10 +666,7 @@ pub async fn confirm_settle<T: CustomTransport>(
 
 /// Chain-level spend backstop: halt + withhold past this measured total.
 pub fn max_spend_per_request() -> f64 {
-    std::env::var("FRAMERIZE_MAX_SPEND_PER_REQUEST")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(0.01)
+    framer_core::env::max_spend_per_request()
 }
 
 /// ADR-003 entry: serve a ChainRequest through the cutoff chain.

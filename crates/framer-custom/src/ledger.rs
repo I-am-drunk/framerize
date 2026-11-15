@@ -19,7 +19,7 @@ static CUT_SPENT: std::sync::Mutex<Option<u64>> = std::sync::Mutex::new(None);
 /// un-halting a changed meter. Trip persists a file; tripped() honors it; reset removes
 /// it. Explicit path wins, else $HOME/.framerize.
 fn latch_path() -> Option<std::path::PathBuf> {
-    if let Ok(p) = std::env::var("FRAMERIZE_BREAKER_FILE") {
+    if let Some(p) = framer_core::env::breaker_file() {
         if !p.is_empty() {
             return Some(std::path::PathBuf::from(p));
         }

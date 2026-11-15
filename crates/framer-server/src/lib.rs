@@ -951,7 +951,7 @@ pub(crate) async fn free_complete(
     // Nitro-mapped models (:nitro suffix) never hit the gate: the suffix endpoint is
     // a different entitlement surface that the learned base-model refusal doesn't cover.
     {
-        let gate_env = std::env::var("FRAMERIZE_MODEL_GATE").map(|v| v == "1").unwrap_or(false);
+        let gate_env = framer_core::env::model_gate_blocks();
         let nitro = client_model.ends_with(":nitro");
         // Mirror the cutoff-route conditions below (chat + responses, non-anthro, unpinned).
         let cutoff_would_run = (!convert::is_anthropic_model(&client_model))
@@ -1035,7 +1035,7 @@ pub(crate) async fn free_complete(
     // drains, quarantines, breaker halts). FRAMERIZE_DIRECT_NITRO=0 restores the old
     // cutoff-first routing; default ON routes straight to native. The spend gate still
     // guards every native open, so non-nitro billable models can never slip through.
-    let direct_nitro = std::env::var("FRAMERIZE_DIRECT_NITRO").map(|v| v != "0").unwrap_or(true);
+    let direct_nitro = framer_core::env::direct_nitro();
     // DIRECT_NITRO skips cutoff ONLY when the effective id is nitro-suffixed (proved $0
     // even bundled). Base models (mini etc.) bill dust bundled (-0.0024 confirmed) and must
     // ride the abort-guarded cutoff: skip cutoff iff a nitro mapping actually occurred.
@@ -1043,7 +1043,7 @@ pub(crate) async fn free_complete(
         payload.get("model").and_then(|v| v.as_str()).unwrap_or(""),
     );
     let chat_is_nitro = chat_mapped != payload.get("model").and_then(|v| v.as_str()).unwrap_or("");
-    let cutoff_chat = std::env::var("FRAMERIZE_ENGINE_CHAT").map(|v| v != "native").unwrap_or(true)
+    let cutoff_chat = framer_core::env::engine_chat_cutoff()
         && !(direct_nitro && chat_is_nitro);
     if dialect == ClientDialect::OpenAiChat
         && !anthro_family
@@ -1094,7 +1094,7 @@ pub(crate) async fn free_complete(
     // down to the chat shape, run the cutoff chain (the finish cutoff
     // captures text AND tool calls before the settling terminal frame), and
     // render back. FRAMERIZE_ENGINE_RESPONSES=native is the escape hatch.
-    let cutoff_responses = std::env::var("FRAMERIZE_ENGINE_RESPONSES").map(|v| v != "native").unwrap_or(true)
+    let cutoff_responses = framer_core::env::engine_responses_cutoff()
         && !(direct_nitro && chat_is_nitro);
     if dialect == ClientDialect::OpenAiResponses
         && !anthro_family
@@ -1140,7 +1140,7 @@ pub(crate) async fn free_complete(
     // FRAMERIZE_ENGINE_ANTHRO=native is the escape hatch. DIRECT_NITRO does NOT skip this:
     // nitro-free endpoints are OpenAI-route facts; anthro bundled still bills.
     {
-        let cutoff_anthro = std::env::var("FRAMERIZE_ENGINE_ANTHRO").map(|v| v != "native").unwrap_or(true);
+        let cutoff_anthro = framer_core::env::engine_anthro_cutoff();
         if dialect == ClientDialect::AnthropicMessages
             && cutoff_anthro
             && hdr(headers, "x-framerize-account").is_none()

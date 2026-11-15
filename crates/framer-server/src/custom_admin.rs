@@ -169,7 +169,7 @@ async fn refund_lab_handler(
     State(s): State<AppState>,
     Json(body): Json<serde_json::Value>,
 ) -> Response {
-    if std::env::var("FRAMERIZE_REFUND_LAB").map(|v| v == "1").unwrap_or(false) == false {
+    if !framer_core::env::refund_lab() {
         return (
             StatusCode::FORBIDDEN,
             Json(serde_json::json!({"error": "refund lab disabled (FRAMERIZE_REFUND_LAB=1 to enable)"})),

@@ -113,3 +113,23 @@ pub fn bill_floor() -> f64 {
         .and_then(|v| v.parse().ok())
         .unwrap_or(2.0)
 }
+
+/// Breaker latch file override (persistence across restarts).
+pub fn breaker_file() -> Option<String> {
+    std::env::var("FRAMERIZE_BREAKER_FILE").ok()
+}
+
+/// Refund sweeper journal path.
+pub fn refund_journal() -> Option<String> {
+    std::env::var("FRAMERIZE_REFUND_JOURNAL").ok()
+}
+
+/// Refund lab route enable.
+pub fn refund_lab() -> bool {
+    flag("FRAMERIZE_REFUND_LAB")
+}
+
+/// Daemon log directory.
+pub fn log_dir() -> Option<String> {
+    std::env::var("FRAMERIZE_LOG_DIR").ok()
+}

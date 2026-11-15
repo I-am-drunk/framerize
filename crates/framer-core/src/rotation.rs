@@ -87,10 +87,7 @@ pub use crate::model::{
 };
 
 pub fn bill_floor() -> f64 {
-    std::env::var("FRAMERIZE_CREDIT_FLOOR")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_CREDIT_FLOOR)
+    crate::env::bill_floor()
 }
 
 /// True when the account MIGHT bill somewhere: at least one workspace is not

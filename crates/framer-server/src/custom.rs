@@ -446,7 +446,7 @@ async fn mock_complete(body: &CompleteBody) -> Response {
 }
 
 fn sweeper_path() -> Option<std::path::PathBuf> {
-    if let Ok(p) = std::env::var("FRAMERIZE_REFUND_JOURNAL") {
+    if let Some(p) = framer_core::env::refund_journal() {
         if !p.is_empty() {
             return Some(std::path::PathBuf::from(p));
         }
