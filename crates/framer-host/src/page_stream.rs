@@ -65,6 +65,7 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
     window.__customPS = slot;
     (async () => {
       try {
+        window.__fzToolCutoff = %TOOLCUTOFF%;
         if (!window.castlePublishableAPIKey) {
           Object.defineProperty(window, "castlePublishableAPIKey", { value: Object.freeze("pk_xYqGbB61EcFiSh4LUshpT4DGoEQMKQMB") });
         }
@@ -139,6 +140,15 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
                 const c = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content;
                 if (typeof c === "string") { d = c; }
                 else if (typeof j.delta === "string" && typeof j.type === "string" && j.type.indexOf("response.") === 0) { d = j.delta; }
+                // THINKING DELTAS (2026-11-15): Anthropic thinking turns stream
+                // content_block_delta frames with delta.type thinking_delta /
+                // signature_delta instead of text_delta. The old parser ignored
+                // them: 17 thinking deltas arrived, zero counted as progress,
+                // 240 silent polls, stall-abort on a HEALTHY stream. Count any
+                // content_block_delta as a live line (empty text — thinking is
+                // reasoning, not billable output; the text accumulator stays
+                // clean so served content never contains reasoning).
+                else if (j.type === "content_block_delta" && j.delta && typeof j.delta.type === "string") { d = ""; }
                 // TOOL CALLS (2026-11-09): a tool turn ends with
                 // finish_reason=tool_calls and the call is COMPLETE before
                 // the finish line -- so the finish cutoff captures tool
@@ -160,6 +170,28 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
                     }
                   }
                 } catch (e) {}
+                // MULTI-TOOL-CALL CUTOFF (research): when a second tool_call starts
+                // (a new index in slot.toolCalls), the first call's arguments are complete
+                // and the model is still generating the rest -> abort BEFORE finish_reason,
+                // capturing the complete first call while the server has not finished.
+                if (window.__fzToolCutoff) {
+                  try {
+                    if (slot.toolCalls) {
+                      const idxs = Object.keys(slot.toolCalls).map(Number);
+                      const firstComplete = idxs.length > 0 && (() => { try { JSON.parse(slot.toolCalls[Math.min(...idxs)].arguments); return true; } catch (e) { return false; } })();
+                      const moreStarted = idxs.length > 1;
+                      if (firstComplete && moreStarted) {
+                        fin = "tool_calls";
+                        slot.stopped = true; slot.stopAt = events;
+                        slot.finished = true; slot.finishReason = "tool_calls";
+                        slot.streamLive = false; slot.done = true;
+                        try { slot.reader = null; } catch (e) {}
+                        try { slot.ctl = null; } catch (e) {}
+                        break;
+                      }
+                    }
+                  } catch (e) {}
+                }
                 // THE FINISH CUTOFF (inside the parse block: j is scoped
                 // here). finish_reason is the LAST content line; the
                 // usage/terminal frame is the NEXT one, and the meter
@@ -406,6 +438,9 @@ impl<E: PageEval> HostPageStream<E> {
     }
 
     fn open_expr(&self, body: &serde_json::Value, stop_after: u32) -> String {
+        // Research flag: FRAMERIZE_TOOL_CUTOFF=1 enables the multi-tool-call
+        // early-abort (capture the first complete tool_call free).
+        let tool_cutoff = if std::env::var("FRAMERIZE_TOOL_CUTOFF").map(|v| v == "1").unwrap_or(false) { "true" } else { "false" };
         OPEN_SNIPPET
             .replace("%CHUNK%", crate::CASTLE_CHUNK_PINNED)
             .replace("%API%", &self.api)
@@ -413,6 +448,7 @@ impl<E: PageEval> HostPageStream<E> {
             .replace("%BEARER%", &self.bearer)
             .replace("%BODY%", &body.to_string())
             .replace("%STOP%", &stop_after.to_string())
+            .replace("%TOOLCUTOFF%", tool_cutoff)
     }
 
     fn credits_expr(&self) -> String {
@@ -802,7 +838,8 @@ mod tests {
             .replace("%PATH%", "/ai/v3/chat/")
             .replace("%BEARER%", "tok")
             .replace("%BODY%", &serde_json::json!({"a": 1}).to_string())
-            .replace("%STOP%", "200");
+            .replace("%STOP%", "200")
+            .replace("%TOOLCUTOFF%", "false");
         assert!(!expr.contains('%'));
         assert!(expr.contains("/ai/v3/chat/"));
         // Balanced parens as a cheap syntax tripwire. (Braces are off by
