@@ -945,6 +945,44 @@ async fn honest_route_check(
     Ok(None)
 }
 
+/// Cutoff-leg error classification (shared by all three dialect arms).
+/// Deterministic failures (admission, spend lock, spend-terminal, plan-gate)
+/// return as-is — falling through to the METERED native chain would bill.
+/// Anything else falls through to native with a loud journal line.
+enum CutoffVerdict {
+    Return(ApiError),
+    FallThrough,
+}
+
+fn classify_cutoff_error(e: ApiError, route: &str) -> CutoffVerdict {
+    match e {
+        // Admission rejections (cooling/wave/pool-exhausted) are deterministic
+        // and identical on the native path: return as-is (endpoint tests pin
+        // the shape AND the one-read I/O budget — a fallback doubles reads).
+        e @ ApiError::AccountCooling { .. }
+        | e @ ApiError::Cooling { .. }
+        | e @ ApiError::ServingCapacity(_)
+        | e @ ApiError::PoolBusy(_) => CutoffVerdict::Return(e),
+        // SPEND LOCK (2026-11-10): allowlist denials never fall through —
+        // the native chain is METERED and would bill.
+        e @ ApiError::InvalidRequest(_) if format!("{e:?}").contains("zero-spend allowlist") => {
+            CutoffVerdict::Return(e)
+        }
+        e if framer_core::convert::is_spend_terminal(&format!("{e:?}")) => CutoffVerdict::Return(e),
+        // PLAN-GATE / GUARDRAIL NEVER FALLS BACK (2026-11-15): the upstream
+        // refused this model on this scope — deterministic. Native opens the
+        // SAME gated model and bills for an identical refusal (measured:
+        // bare-fable 403 → native -0.286). Fail loud $0 instead.
+        e if is_plan_gated(&format!("{e:?}")) || is_guardrail_blocked(&format!("{e:?}")) => {
+            CutoffVerdict::Return(e)
+        }
+        e => {
+            eprintln!("[cutoff] {route} chain failed ({e:?}); falling back to the native chain (METERED)");
+            CutoffVerdict::FallThrough
+        }
+    }
+}
+
 /// Learned model-gate refusal (2026-11-10, user directive; default OFF).
 /// Fires ONLY when blocking is enabled AND the request would ride the CUTOFF
 /// chain or a NON-STREAMING native call. Rationale: on streaming native calls
@@ -1094,28 +1132,10 @@ pub(crate) async fn free_complete(
         // same one-read I/O budget the endpoint tests pin.
         match custom::chat_via_cutoff(s.clone(), headers, payload.clone(), wants_stream, include_usage).await {
             Ok(resp) => return Ok(resp),
-            // Admission rejections (cooling/wave/pool-exhausted) are
-            // deterministic and identical on the native path: return them
-            // as-is (the endpoint tests pin the shape AND the one-read I/O
-            // budget -- a fallback would double the reads).
-            Err(e @ ApiError::AccountCooling { .. }) | Err(e @ ApiError::Cooling { .. })
-            | Err(e @ ApiError::ServingCapacity(_)) | Err(e @ ApiError::PoolBusy(_)) => {
-                return Err(e)
-            }
-            // SPEND LOCK (2026-11-10): an allowlist denial is deterministic --
-            // the native chain is METERED and would bill. Never fall through.
-            Err(e @ ApiError::InvalidRequest(_)) if format!("{e:?}").contains("zero-spend allowlist") => {
-                return Err(e)
-            }
-            Err(e) if framer_core::convert::is_spend_terminal(&format!("{e:?}")) => {
-                return Err(e);
-            }
-            Err(e) if is_plan_gated(&format!("{e:?}")) || is_guardrail_blocked(&format!("{e:?}")) => {
-                return Err(e);
-            }
-            Err(e) => {
-                eprintln!("[cutoff] chat chain failed ({e:?}); falling back to the native chain (METERED)");
-            }
+            Err(e) => match classify_cutoff_error(e, "chat") {
+                CutoffVerdict::Return(e) => return Err(e),
+                CutoffVerdict::FallThrough => {}
+            },
         }
     }
     // CUTOFF ROUTE for codex (ADR-003): responses-dialect requests convert
@@ -1136,24 +1156,10 @@ pub(crate) async fn free_complete(
         }
         match custom::responses_via_cutoff(s.clone(), headers, payload.clone(), wants_stream).await {
             Ok(resp) => return Ok(resp),
-            Err(e @ ApiError::AccountCooling { .. }) | Err(e @ ApiError::Cooling { .. })
-            | Err(e @ ApiError::ServingCapacity(_)) | Err(e @ ApiError::PoolBusy(_)) => {
-                return Err(e)
-            }
-            // SPEND LOCK (2026-11-10): same as chat -- allowlist denials never
-            // fall through to the metered native chain.
-            Err(e @ ApiError::InvalidRequest(_)) if format!("{e:?}").contains("zero-spend allowlist") => {
-                return Err(e)
-            }
-            Err(e) if framer_core::convert::is_spend_terminal(&format!("{e:?}")) => {
-                return Err(e);
-            }
-            Err(e) if is_plan_gated(&format!("{e:?}")) || is_guardrail_blocked(&format!("{e:?}")) => {
-                return Err(e);
-            }
-            Err(e) => {
-                eprintln!("[cutoff] responses chain failed ({e:?}); falling back to the native chain (METERED)");
-            }
+            Err(e) => match classify_cutoff_error(e, "responses") {
+                CutoffVerdict::Return(e) => return Err(e),
+                CutoffVerdict::FallThrough => {}
+            },
         }
     }
     // CUTOFF ROUTE for anthropic dialect (2026-11-11): text-only anthro requests run the
@@ -1188,27 +1194,10 @@ pub(crate) async fn free_complete(
             }
             match custom::anthro_via_cutoff(s.clone(), headers, acap, wants_stream).await {
                 Ok(resp) => return Ok(resp),
-                Err(e @ ApiError::AccountCooling { .. }) | Err(e @ ApiError::Cooling { .. })
-                | Err(e @ ApiError::ServingCapacity(_)) | Err(e @ ApiError::PoolBusy(_)) => {
-                    return Err(e)
-                }
-                Err(e @ ApiError::InvalidRequest(_)) if format!("{e:?}").contains("zero-spend allowlist") => {
-                    return Err(e)
-                }
-                Err(e) if framer_core::convert::is_spend_terminal(&format!("{e:?}")) => {
-                    return Err(e);
-                }
-                // PLAN-GATE / GUARDRAIL NEVER FALLS BACK (2026-11-15): the
-                // upstream refused this model on this scope — deterministic.
-                // The native chain opens the SAME gated model and bills for
-                // an identical refusal (measured: bare-fable 403 → native
-                // -0.286). Fail loud $0 instead.
-                Err(e) if is_plan_gated(&format!("{e:?}")) || is_guardrail_blocked(&format!("{e:?}")) => {
-                    return Err(e);
-                }
-                Err(e) => {
-                    eprintln!("[cutoff] anthro chain failed ({e:?}); falling back to the native chain (METERED)");
-                }
+                Err(e) => match classify_cutoff_error(e, "anthro") {
+                    CutoffVerdict::Return(e) => return Err(e),
+                    CutoffVerdict::FallThrough => {}
+                },
             }
         }
     }
