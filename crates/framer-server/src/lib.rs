@@ -20,6 +20,7 @@ use tower_http::services::ServeDir;
 
 mod custom;
 mod custom_admin;
+mod ledger_guard;
 mod goose;
 mod serving_accounts;
 mod pool_config;
@@ -943,81 +944,6 @@ fn stable_session(account: &AccountId) -> String {
     out
 }
 
-/// Native-path ledger guard (2026-11-11 -- the missing wall): snapshot the scope ledger
-/// before a native (non-cutoff) chain runs; re-read after. On any move: log LOUD, trip the
-/// spend breaker, and report the debit. Buffered callers convert to a 402 quarantine error
-/// (billed text withheld); streaming callers trip+log (frames already flowed).
-async fn native_ledger_before(
-    s: &AppState,
-    session: &framer_core::port::Session,
-    team: &framer_core::ids::TeamId,
-    req_short: &str,
-    account8: &str,
-) -> Option<f64> {
-    match s.client.usage(session, team).await {
-        Ok(snap) => Some(snap.available),
-        Err(e) => {
-            eprintln!("[native-guard] req={req_short} account={account8} before-read failed (gate open, serving): {e}");
-            None
-        }
-    }
-}
-
-/// Returns Some(debit) when the ledger moved (caller withholds + trips).
-async fn native_ledger_check(
-    s: &AppState,
-    session: &framer_core::port::Session,
-    team: &framer_core::ids::TeamId,
-    before: Option<f64>,
-    ctx: &str,
-    req_short: &str,
-    account8: &str,
-) -> Option<f64> {
-    let b = match before {
-        Some(v) => v,
-        None => return None,
-    };
-    match s.client.usage(session, team).await {
-        Ok(snap) => {
-            let d = snap.available - b;
-            if d < -1e-4 {
-                // HOLD-vs-SETTLE (2026-11-11): the meter places auth-HOLDS at open that
-                // release seconds later (proved live: guard summed -4.89 while the pool
-                // moved -1.08; balances frozen between requests). Withholding + tripping
-                // on a hold wedges serving on ghosts. Confirm persistence: re-read after
-                // 20s; serve normally if recovered, withhold+trip only if confirmed.
-                eprintln!("[native-guard] req={req_short} account={account8} {ctx}: tentative move {d:+.6} (before {b:.2} -> after {:.2}) -- confirming in 20s", snap.available);
-                tokio::time::sleep(std::time::Duration::from_secs(20)).await;
-                match s.client.usage(session, team).await {
-                    Ok(snap2) => {
-                        let d2 = snap2.available - b;
-                        if d2 < -1e-4 {
-                            eprintln!("[native-guard] req={req_short} account={account8} {ctx}: CONFIRMED settle {d2:+.6} -- withholding + tripping");
-                            framer_custom::ledger::trip_spend_breaker(d2);
-                            return Some(d2);
-                        }
-                        eprintln!("[native-guard] req={req_short} account={account8} {ctx}: hold released ({:.2} recovered) -- serving normally", snap2.available);
-                        return None;
-                    }
-                    Err(e) => {
-                        // UNKNOWN debit: steer around this team for 45s (existing
-                        // backpressure pattern) instead of serving blind or wedging.
-                        eprintln!("[native-guard] req={req_short} account={account8} {ctx}: confirm-read failed ({e}) -- steering around team for 45s");
-                        framer_core::rotation::mark_saturated(&team.0, 45_000);
-                        return None;
-                    }
-                }
-            }
-            None
-        }
-        Err(e) => {
-            eprintln!("[native-guard] req={req_short} account={account8} {ctx}: after-read failed (cannot verify $0): {e} -- steering around team for 45s");
-            framer_core::rotation::mark_saturated(&team.0, 45_000);
-            None
-        }
-    }
-}
-
 async fn free_complete(
     s: AppState,
     headers: &axum::http::HeaderMap,
@@ -1333,7 +1259,7 @@ async fn free_complete(
     // NATIVE LEDGER GUARD (2026-11-11): snapshot BEFORE the native anthro chain runs.
     let account8_free = account.id.0.to_string();
     let account8_free = account8_free[..8.min(account8_free.len())].to_string();
-    let native_before = native_ledger_before(&s, &session, &scope_team, &req_short, &account8_free).await;
+    let native_before = ledger_guard::native_ledger_before(&s, &session, &scope_team, &req_short, &account8_free).await;
     // Per (workspace × MODEL) concurrency — measured 2026-10-05: ~6 in-flight
     // per model; 6 models × 6 = 36/36 clean. Keyed on the normalized upstream
     // id (client spellings collapse to the true bucket) AND the chain's
@@ -1780,7 +1706,7 @@ async fn free_complete(
     // move: withhold the billed text (402 quarantine, books kept) + trip the breaker.
     // (Proved necessary: a 2965-token native fable leg settled ~105 credits with zero
     // instrumentation watching -- the cutoff-only guards never saw it.)
-    if let Some(debit) = native_ledger_check(&s, &session, &scope_team, native_before, "free-anthro", &req_short, &account8_free).await {
+    if let Some(debit) = ledger_guard::native_ledger_check(&s, &session, &scope_team, native_before, "free-anthro", &req_short, &account8_free).await {
         return Ok(axum::response::IntoResponse::into_response(ShapedApiError(
             StatusCode::PAYMENT_REQUIRED,
             serde_json::json!({
@@ -1946,7 +1872,7 @@ async fn native_complete(
 
     // NATIVE LEDGER GUARD (2026-11-11): snapshot BEFORE the native chain runs.
     let account8_nc: String = { let a = account.id.0.to_string(); a[..8.min(a.len())].to_string() };
-    let native_before_nc = native_ledger_before(&s, &session, &scope_team, &req_short, &account8_nc).await;
+    let native_before_nc = ledger_guard::native_ledger_before(&s, &session, &scope_team, &req_short, &account8_nc).await;
 
     let mk_cfg = |team: &framer_core::ids::TeamId| framer_core::port::ChainConfig {
         max_total_tokens: Some(max_tokens),
@@ -1974,7 +1900,7 @@ async fn native_complete(
 
     // NATIVE LEDGER GUARD (streaming): snapshot before spawn; the task checks at end.
     let stream_before = if wants_stream {
-        native_ledger_before(&s, &session, &scope_team, &req_short, &account8_nc).await
+        ledger_guard::native_ledger_before(&s, &session, &scope_team, &req_short, &account8_nc).await
     } else {
         None
     };
@@ -2090,7 +2016,7 @@ async fn native_complete(
                     .map(|t| t.0)
                     .unwrap_or_else(|| stream_team0.clone());
                 let team_id = framer_core::ids::TeamId(team_now);
-                native_ledger_check(&s2, &session, &team_id, stream_before, "native-stream", &req_short2, &account8_2).await;
+                ledger_guard::native_ledger_check(&s2, &session, &team_id, stream_before, "native-stream", &req_short2, &account8_2).await;
             }
             let result = match result {
                 Ok(r) => Ok(r),
@@ -2304,7 +2230,7 @@ async fn native_complete(
     // NATIVE LEDGER GUARD (2026-11-11): re-read AFTER the native chain. On any move:
     // withhold the billed text (402 quarantine, books kept) + trip the breaker.
     let account8_end: String = { let a = account.id.0.to_string(); a[..8.min(a.len())].to_string() };
-    if let Some(debit) = native_ledger_check(&s, &session, &scope_team, native_before_nc, "native-complete", &req_short, &account8_end).await {
+    if let Some(debit) = ledger_guard::native_ledger_check(&s, &session, &scope_team, native_before_nc, "native-complete", &req_short, &account8_end).await {
         return Ok(axum::response::IntoResponse::into_response(ShapedApiError(
             StatusCode::PAYMENT_REQUIRED,
             serde_json::json!({
