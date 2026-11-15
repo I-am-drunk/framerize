@@ -19,6 +19,7 @@ use std::sync::Arc;
 use tower_http::services::ServeDir;
 
 mod custom;
+mod custom_admin;
 mod goose;
 mod serving_accounts;
 mod pool_config;
@@ -179,7 +180,7 @@ pub fn router(state: AppState, web_dir: &str) -> Router {
     let paid = Router::new()
         .nest("/anthropic", anthropic_paid)
         .nest("/openai", openai_paid);
-    let custom = custom::custom_routes(state.clone());
+    let custom = custom_admin::custom_routes(state.clone());
     // Goose route (F27 paid-flagship recipe, deliberate env gate): mounted
     // ONLY when FRAMERIZE_GOOSE_ROUTE=1 at boot; otherwise absent (404).
     let goose = if goose::enabled() { Some(goose::goose_routes(state.clone())) } else { None };
