@@ -215,8 +215,14 @@ pub async fn prewarm_accounts(s: AppState) {
     // dead residents. Prefer might_bill-passing accounts; only seat
     // known-dead when nothing else exists (might_bill passes unknowns, so
     // cold-boot never starves — it converges as the live cache warms).
+    // DB-CREDIT TIEBREAK (2026-11-15): the live cache is EMPTY at boot, so
+    // might_bill passes everything and corpses win again (cold-boot tax:
+    // ~5 dead requests per restart). The DB holds last-known per-account
+    // credits (persisted by the ledger sync) — 0-credit records sort last
+    // even with a cold cache. Stale-but-directional beats unknown.
     accounts.sort_by_key(|account| (
         !framer_core::rotation::account_might_bill(account),
+        account.credit.as_ref().map(|c| c.available <= 0.0).unwrap_or(false),
         account.consecutive_failures,
         account.id.0,
     ));
