@@ -647,7 +647,7 @@ pub(super) async fn cutoff_run(
     // FRAMERIZE_SSC_ALLOW_CAPS=1 preserves caller case: with abort-first live,
     // caps legs may now cut clean — measurable via the proof lines (compare
     // quarantine rates caps vs bare). Default OFF (safe).
-    let ssc_allow_caps = std::env::var("FRAMERIZE_SSC_ALLOW_CAPS").map(|v| v == "1").unwrap_or(false);
+    let ssc_allow_caps = framer_core::env::ssc_allow_caps();
     let model_lowered: String;
     let model_str: &str = {
         let t = model_str.trim();

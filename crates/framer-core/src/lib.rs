@@ -14,6 +14,7 @@ pub mod ids;
 pub mod pipeline;
 pub mod port;
 pub mod rotation;
+pub mod env;
 pub mod wave;
 pub mod workspace;
 

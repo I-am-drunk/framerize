@@ -472,9 +472,9 @@ impl<E: PageEval> HostPageStream<E> {
     fn open_expr(&self, body: &serde_json::Value, stop_after: u32) -> String {
         // Research flag: FRAMERIZE_TOOL_CUTOFF=1 enables the multi-tool-call
         // early-abort (capture the first complete tool_call free).
-        let tool_cutoff = if std::env::var("FRAMERIZE_TOOL_CUTOFF").map(|v| v == "1").unwrap_or(false) { "true" } else { "false" };
+        let tool_cutoff = if framer_core::env::tool_cutoff() { "true" } else { "false" };
         // Cut-trace: FRAMERIZE_CUT_TRACE=1 stamps per-line arrival times for gap analysis.
-        let cut_trace = if std::env::var("FRAMERIZE_CUT_TRACE").map(|v| v == "1").unwrap_or(false) { "true" } else { "false" };
+        let cut_trace = if framer_core::env::cut_trace() { "true" } else { "false" };
         OPEN_SNIPPET
             .replace("%CHUNK%", crate::CASTLE_CHUNK_PINNED)
             .replace("%API%", &self.api)
