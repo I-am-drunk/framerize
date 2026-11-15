@@ -28,14 +28,17 @@
 //! observation, and account-health recording all mirror native_complete.
 
 use crate::{retain_owner, AbortOnDrop};
-use super::{current_account, hdr, pick_funded_scope, record_account_health, stable_session, ApiError, AppState};
+use super::{current_account, hdr, record_account_health, stable_session, ApiError, AppState};
 use super::pool_control::{lease_account, RequestResidency};
 use async_trait::async_trait;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
+#[cfg(test)]
 use axum::routing::post;
-use axum::{Json, Router};
+use axum::Json;
+#[cfg(test)]
+use axum::Router;
 use framer_core::ids::{AccountId, ProjectId};
 use framer_core::port::{BrowserBridge, Session};
 use serde::Deserialize;

@@ -4,19 +4,12 @@
 //! (custom_complete_handler -> custom_real -> cutoff_run -> custom_real_once)
 //! stays in custom.rs untouched.
 
-use super::{custom::{CompleteBody, chain_step, custom_complete_handler}, ApiError, AppState};
-use super::pool_control::{lease_account, RequestResidency};
-use crate::{retain_owner, AbortOnDrop};
-use async_trait::async_trait;
+use super::{custom::{chain_step, custom_complete_handler}, AppState};
 use axum::extract::State;
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::{Json, Router};
-use framer_core::ids::{AccountId, ProjectId};
-use framer_core::port::{BrowserBridge, Session};
-use serde::Deserialize;
-use std::sync::Arc;
 
 pub fn custom_routes(state: AppState) -> Router {
     Router::new()
