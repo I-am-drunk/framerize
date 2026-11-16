@@ -984,8 +984,13 @@ async fn complete_inner<T: CustomTransport>(
                             rung_out.raced,
                             confirmed
                         );
+                        // KEEP CAPTURED TEXT (2026-11-16): the confirmed-debit
+                        // branch emptied the leg (text withheld). That made the
+                        // T3 deliver-on-settle see zero text and 402 -- while the
+                        // pump HAD captured chars. Preserve them here (trimmed vs
+                        // prior legs) so the route can still serve what generated.
                         legs.push(Leg {
-                            text: String::new(),
+                            text: merge::trim_overlap(&rung_out.captured, &accumulated).to_string(),
                             raced: rung_out.raced,
                             debited: true,
                             stop_used: stop,
@@ -1373,9 +1378,9 @@ mod tests {
         assert_eq!(out.legs[0].stop_used, 200);
         assert!(out.legs[1].raced && out.legs[1].debited);
         assert_eq!(out.legs[1].stop_used, 200);
-        assert!(out.legs[1].text.is_empty());
-        // CHAIN FINALITY: the assembled text is withheld (empty) even
-        // though leg 1 kept words -- nonzero total serves nothing.
+        // 2026-11-16: captured text is preserved on the debited-quarantine leg
+        // so the T3 lane can deliver-through on a small settle.
+        assert!(!out.legs[1].text.is_empty());
         // only two payloads ran: leg 1 and the quarantined leg-2 attempt.
         assert_eq!(t.payloads.len(), 2);
         let c1 = t.payloads[0]["messages"][0]["content"].as_str().unwrap();
@@ -1412,7 +1417,7 @@ mod tests {
         assert_eq!(t.payloads.len(), 1);
         assert_eq!(out.outcome, ChainOutcome::Quarantined);
         assert_eq!(out.total_debit, -0.5);
-        assert!(out.legs[0].text.is_empty());
+        assert!(!out.legs[0].text.is_empty());
     }
 
     #[tokio::test]
