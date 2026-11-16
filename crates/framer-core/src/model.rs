@@ -90,7 +90,16 @@ pub fn is_t3_lane(model: &str) -> bool {
         return true;
     }
     let raw = model.trim();
-    raw.starts_with("z-ai/") || raw.starts_with("moonshotai/") || raw.starts_with("meta/")
+    if raw.starts_with("z-ai/") || raw.starts_with("moonshotai/") || raw.starts_with("meta/") {
+        return true;
+    }
+    // Zero-proved free-base models (mini and friend): under pool heat these can
+    // settle small even though they're the $0 lane. Deliver the captured text
+    // through a small settle exactly like the T3 families, instead of withholding
+    // and tripping the breaker. (FREE_BASE membership.)
+    !slug.is_empty()
+        && (FREE_BASE.contains(&slug.as_str())
+            || (slug.starts_with("claude") && FREE_BASE.iter().any(|f| slug == *f)))
 }
 
 
