@@ -601,10 +601,32 @@ async fn custom_real_request(
     stop: Option<u32>,
 ) -> Result<Response, ApiError> {
     let out = cutoff_run(s, headers, request, model_str, max_legs, stop).await?;
-    // QUARANTINED: the T3 deliver-on-settle is handled once at the shared choke
-    // point inside cutoff_run (every renderer funnels through it). Non-T3 /
-    // genuinely-empty quarantines render whatever text is present (pass-through)
-    // exactly as before -- this layer only converts the T3-delivered answer.
+    // QUARANTINED : the T3 deliver-on-settle is handled once at the shared choke
+    // point inside cutoff_run (every renderer funnels through it), so a
+    // Quarantined outcome reaching here was NOT delivered (either non-T3 lane,
+    // or nothing captured). ALWAYS send an explicit 402 refusal to the client --
+    // never a silent 200-empty -- so a T3/pipeline caller gets a real error and
+    // can retry/log, instead of an empty success that looks like "no response".
+    if matches!(
+        out.assembled.outcome,
+        framer_custom::ChainOutcome::Quarantined
+    ) && out.assembled.text.is_empty()
+    {
+        eprintln!(
+            "[custom-route] refusing: quarantined with no deliverable text (debit {:.6})",
+            out.assembled.total_debit
+        );
+        return Ok((
+            axum::http::StatusCode::PAYMENT_REQUIRED,
+            axum::Json(serde_json::json!({
+                "error": "custom route: upstream settle occurred and no text could be delivered. No response was served for this attempt.",
+                "outcome": "Quarantined",
+                "total_debit": out.assembled.total_debit,
+                "req_id": out.req_id,
+            })),
+        )
+            .into_response());
+    }
     let mut resp = render::sse_response(&out.assembled, &out.req_id, out.refunded);
     resp.headers_mut().insert(
         "x-framerize-session",
