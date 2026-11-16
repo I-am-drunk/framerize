@@ -128,6 +128,10 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
               if (rawLines < 8) {
                 rawLines++;
                 try { slot.wireTap = (slot.wireTap || "") + "L" + rawLines + "=" + t.slice(0, 120) + " | "; } catch (e) {}
+                // DELTA-WINDOW (2026-11-16, diagnosis): also keep the tail of the
+                // JSON line where the delta object lives (the 120-char head is all
+                // envelope/model id, so delta fields were never visible in taps).
+                try { if (rawLines <= 8) { slot.wireTapDelta = ((slot.wireTapDelta || "") + "D" + rawLines + "=" + t.slice(-260) + " | ").slice(-1600); } } catch (e) {}
               }
               if (!t.startsWith("data:")) continue;
               try { if (window.__fzCutTrace && window.__fzCutEvents.length < 400) { window.__fzCutEvents.push("L@" + Math.round(performance.now())); } } catch (e) {}
@@ -367,6 +371,8 @@ pub const DRAIN_SNIPPET: &str = r#"(() => {
   slot.cursor = slot.buf.length;
   const tap = slot.wireTap || "";
   try { slot.wireTap = ""; } catch (e) {}
+  let tapDelta = "";
+  try { tapDelta = slot.wireTapDelta || ""; slot.wireTapDelta = ""; } catch (e) {}
   let cutTrace = "";
   try { if (window.__fzCutEvents && window.__fzCutEvents.length) { cutTrace = "CUTTRACE:" + window.__fzCutEvents.join(","); window.__fzCutEvents = []; } } catch (e) {}
   const tcs = [];
@@ -381,7 +387,7 @@ pub const DRAIN_SNIPPET: &str = r#"(() => {
     finished: !!slot.finished, finishReason: slot.finishReason || "",
     toolCalls: tcs,
     status: slot.status, usage: slot.usage, error: slot.error || "",
-    chunks: slot.chunks || 0, wireTap: tap + cutTrace,
+    chunks: slot.chunks || 0, wireTap: tap + " ||DELTA|| " + tapDelta + cutTrace,
     thinkChars: slot.thinkChars || 0,
     streamLive: !!slot.streamLive };
 })()"#;
@@ -399,7 +405,7 @@ pub const PEEK_SNIPPET: &str = r#"(() => {
     stopped: !!slot.stopped, stopAt: slot.stopAt || 0,
     finished: !!slot.finished, finishReason: slot.finishReason || "",
     status: slot.status, usage: slot.usage, error: slot.error || "",
-    chunks: slot.chunks || 0, wireTap: slot.wireTap || "",
+    chunks: slot.chunks || 0, wireTap: (slot.wireTap || "") + " ||DELTA|| " + (slot.wireTapDelta || ""),
     streamLive: !!slot.streamLive };
 })()"#;
 
