@@ -152,8 +152,19 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
                 // Fold reasoning content into the same variable so generated text counts;
                 // the meter below still attributes it as reasoning for diagnostics.
                 const rcc = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.reasoning_content;
+                // MOONSHOT SHAPES (2026-11-16, live wire).
+                const rmoon = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.reasoning;
+                let rdet = "";
+                try {
+                  const det = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.reasoning_details;
+                  if (det && det.length) {
+                    for (const b of det) { if (b && typeof b.text === "string") { rdet += b.text; } }
+                  }
+                } catch (e) {}
                 if (typeof c === "string" && c) { d = c; }
                 else if (typeof rcc === "string" && rcc) { d = rcc; try { slot.thinkChars = (slot.thinkChars || 0) + rcc.length; } catch (e) {} }
+                else if (typeof rmoon === "string" && rmoon) { d = rmoon; try { slot.thinkChars = (slot.thinkChars || 0) + rmoon.length; } catch (e) {} }
+                else if (rdet) { d = rdet; try { slot.thinkChars = (slot.thinkChars || 0) + rdet.length; } catch (e) {} }
                 if ((d === null || d === "") && typeof j.delta === "string" && typeof j.type === "string" && j.type.indexOf("response.") === 0) { d = j.delta; }
                 // THINKING DELTAS (2026-11-15): Anthropic thinking turns stream
                 // content_block_delta frames with delta.type thinking_delta /
