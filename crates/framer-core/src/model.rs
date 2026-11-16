@@ -202,6 +202,40 @@ pub fn effective_upstream_model(model: &str) -> String {
             None => base.to_uppercase(),
         };
     }
+    // T3 ZERO-SPEND MAP (2026-11-16): bare GLM/Kimi/Muse ids resolve to their
+    // measured-$0 :nitro wire ids when the T3 customer flag is set. This runs
+    // BEFORE classify() so it survives every gating posture -- in particular
+    // FRAMERIZE_ALLOW_SPEND=1, which short-circuits classify() to FreeBase and
+    // would otherwise skip the mapped arms entirely (measured live: bare glm-5.2
+    // dispatched bare and billed -0.066 while the map unit-tested clean). The
+    // :nitro wire id is the same one callers can pass explicitly; bare callers
+    // get identical treatment, never silent substitution to another model.
+    // (Kimi bare keeps its existing mapped-:floor behavior below.)
+    {
+        // Restricted to the measured T3 families (bare glm-*/kimi-k3*/muse-*
+        // without a suffix): anything else -- claude, fable, gpt, gemini --
+        // keeps the legacy classify() behavior below. This keeps the F15-era
+        // pins (fable bare passes through, premium claude maps via MappedNitro)
+        // exactly as the test battery expects.
+        let t = model.trim();
+        let fam = {
+            let s = t.split('/').next_back().unwrap_or(t);
+            let s = s.split(':').next().unwrap_or(s);
+            s.starts_with("glm") || s.starts_with("kimi-k3") || s.starts_with("muse")
+        };
+        if fam && crate::env::t3_free_lane() && !t.contains(':') {
+            let canon = crate::convert::to_openrouter_id(t);
+            let candidate = format!("{canon}:nitro");
+            if suffix_free_contains(&candidate) || suffix_free_contains(&candidate.to_lowercase()) {
+                let out = if suffix_free_contains(&candidate) {
+                    candidate
+                } else {
+                    candidate.to_lowercase()
+                };
+                return out;
+            }
+        }
+    }
     // SUFFIX PRESERVATION (2026-11-15, restores F27): a caller-chosen :floor
     // (or :nitro) suffix that is itself a SUFFIX_FREE member must reach the
     // wire intact. The MappedNitro arm below would otherwise rewrite
