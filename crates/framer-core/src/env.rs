@@ -121,6 +121,24 @@ pub fn kimi_floor_cap() -> u64 {
         .unwrap_or(32)
 }
 
+/// T3 zero-spend map: bare GLM/Kimi/Muse ids resolve to their measured-$0
+/// :nitro/:floor wire ids (customer flag FRAMERIZE_T3_FREE_LANE, default ON).
+/// Without it, bare per-token ids dispatch the metered base endpoint. This
+/// changes nothing unless the flag is set; the SUFFIX_FREE allowlist decides
+/// spend regardless.
+pub fn t3_free_lane() -> bool {
+    match std::env::var("FRAMERIZE_T3_FREE_LANE").ok().as_deref() {
+        Some(v)
+            if v.eq_ignore_ascii_case("0")
+                || v.eq_ignore_ascii_case("false")
+                || v.eq_ignore_ascii_case("off") =>
+        {
+            false
+        }
+        _ => true,
+    }
+}
+
 /// Minimum workspace balance to serve.
 pub fn bill_floor() -> f64 {
     std::env::var("FRAMERIZE_CREDIT_FLOOR")

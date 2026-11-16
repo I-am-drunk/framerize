@@ -67,6 +67,10 @@ const SUFFIX_FREE: &[&str] = &[
     "moonshotai/kimi-k3:floor",
     "moonshotai/kimi-k3.1-pro:nitro",
     "moonshotai/kimi-k3.1-pro:floor",
+    // GLM (2026-11-16, measured $0 live): z-ai/glm-5.2 :nitro/:floor serve
+    // 200-8400 chars at +0.0 (nitro leaner shape, same as kimi family).
+    "z-ai/glm-5.2:nitro",
+    "z-ai/glm-5.2:floor",
 ];
 
 /// True when an id is a SUFFIX_FREE member (proved-$0 endpoint). Exact match,
@@ -96,6 +100,13 @@ fn is_per_token(slug: &str) -> bool {
 /// free when mapped to :floor (measured $0: k3:floor end_turn clean + sentence).
 fn is_kimi_bare(slug: &str) -> bool {
     slug.starts_with("kimi-k3") && !slug.contains(':')
+}
+
+/// Bare GLM (unsuffixed): billed on the base id, free when mapped to :nitro
+/// (measured $0 live 2026-11-16, z-ai/glm-5.2:nitro + :floor; nitro preferred).
+/// Gated on the T3 customer flag so this remap fires only when opted in.
+fn is_glm_bare(slug: &str) -> bool {
+    crate::env::t3_free_lane() && slug.starts_with("glm") && !slug.contains(':')
 }
 
 /// Fable ids to case-map: lowercase provider form plan-gates on this workspace
@@ -166,6 +177,9 @@ pub fn classify(model: &str) -> ModelClass {
     }
     if is_kimi_bare(&slug) {
         return ModelClass::MappedFloor;
+    }
+    if is_glm_bare(&slug) {
+        return ModelClass::MappedNitro;
     }
     if is_per_token(&slug) {
         return ModelClass::PerTokenMetered;

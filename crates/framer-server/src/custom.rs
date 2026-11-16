@@ -299,11 +299,21 @@ impl EnvelopePageStream {
         // the floor even if the abort lands late. OpenAI-routed models
         // (gpt-4.1-mini et al) settle only on the terminal frame, so they
         // keep the full runway.
-        let openrouter_routed = self.model.starts_with("kimi")
-            || self.model.starts_with("deepseek")
-            || self.model.starts_with("grok")
-            || self.model.starts_with("glm")
-            || self.model.starts_with("muse");
+        // Canonicalize BEFORE the family check: a SUFFIX_FREE wire id like
+        // z-ai/glm-5.2:nitro fails the raw starts_with("glm") match and would
+        // silently inherit the huge OpenAI runway (the -2.67 forensics case).
+        let openrouter_routed = {
+            let m = framer_core::convert::to_openrouter_id(&self.model);
+            let base = m.split(':').next().unwrap_or(&m);
+            base.starts_with("kimi")
+                || base.starts_with("deepseek")
+                || base.starts_with("grok")
+                || base.starts_with("glm")
+                || base.starts_with("muse")
+                || base.starts_with("moonshotai/")
+                || base.starts_with("z-ai/")
+                || base.starts_with("meta/")
+        };
         let cap_key = if self.deps.path.contains("responses") {
             "max_output_tokens"
         } else {
