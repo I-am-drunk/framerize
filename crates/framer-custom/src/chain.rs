@@ -501,7 +501,18 @@ fn leg1_native(payload: &serde_json::Value) -> Result<serde_json::Value, String>
             "chain: native payload over the {MAX_NATIVE_PAYLOAD}-byte cap"
         ));
     }
-    let mut sys_content = stop::end_marker_suffix();
+    // PAD-STRUCTURAL (2026-11-16, fix): mirror the Prompt path (leg1_payload) so
+    // EVERY native leg-1 carries the length-guarantee padding BEFORE the
+    // end-marker. Without the padding, a model that does not pad on its own
+    // (kimi/glm/opus) answers briefly, hits finish/terminus before the pump
+    // can cut, settles real credits, and the leg is returned with 0 captured
+    // text (quarantined). With the padding, the pump cuts on the marker while
+    // the stream is still live -- the same bash-with-text free leg mini gets.
+    // Terminal/prompt bytes only. No billing, routing, or meter change.
+    let mut sys_content = format!(
+        "{}",
+        format!("{}\n\n{}", stop::length_guarantee_suffix(1800, 14), stop::end_marker_suffix())
+    );
     if !emulated_tools.is_empty() {
         sys_content.push_str(&emulated_schemas_prose(&emulated_tools));
     }
