@@ -315,7 +315,31 @@ impl EnvelopePageStream {
             // worst case to the floor regardless of abort timing. The leg
             // still carries the full prompt + padding instruction; the cap
             // only truncates generation length, never the prompt.
-            caller_cap.unwrap_or(16).max(8).min(32)
+            // KIMI-FLOOR LANE (2026-11-16): a :floor-suffixed id proved $0,
+            // so it may run the raised FRAMERIZE_KIMI_FLOOR_CAP ceiling (default
+            // 32 = unchanged); the pad contract + mid-stream abort still guard
+            // the spend. Non-floor openrouter ids keep the proven-tight pin.
+            // Floor lane requires the PROVED id: any :floor suffix here must
+            // canonicalize to a SUFFIX_FREE member, else it keeps the tight pin
+            // (never lift the ceiling on an unproven endpoint).
+            let floor_lane = match self.model.rsplit_once(':') {
+                Some((b, s_))
+                    if s_.eq_ignore_ascii_case("floor")
+                        || s_.eq_ignore_ascii_case("nitro") =>
+                {
+                    let canon = framer_core::convert::to_openrouter_id(b);
+                    let cand = format!("{canon}:{s_}");
+                    framer_core::model::suffix_free_contains(&cand)
+                        || framer_core::model::suffix_free_contains(&cand.to_lowercase())
+                }
+                _ => false,
+            };
+            let ceiling = if floor_lane {
+                framer_core::env::kimi_floor_cap().max(8)
+            } else {
+                32
+            };
+            caller_cap.unwrap_or(16).max(8).min(ceiling)
         } else {
             leg_cap_with_runway(caller_cap, stop_after)
         };

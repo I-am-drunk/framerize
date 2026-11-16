@@ -106,6 +106,21 @@ pub fn max_spend_per_request() -> f64 {
         .unwrap_or(0.01)
 }
 
+/// Ceiling for openrouter-routed (per-token) leg caps on the SUFFIX_FREE :floor lane.
+/// Default 32 = the proven-tight pin from the 2026-11-10 billing forensics
+/// (-2.67 on a 193-event leg at cap 4000). A raised ceiling lets a full answer
+/// stream while the pad contract + mid-stream abort still guard the spend;
+/// the metered worst case scales with output length, so stay under the
+/// per-request spend backstop. Applies to :floor ids ONLY (never bare
+/// per-token ids, never nitro). Zero/parse-fail = 32.
+pub fn kimi_floor_cap() -> u64 {
+    std::env::var("FRAMERIZE_KIMI_FLOOR_CAP")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(32)
+}
+
 /// Minimum workspace balance to serve.
 pub fn bill_floor() -> f64 {
     std::env::var("FRAMERIZE_CREDIT_FLOOR")
