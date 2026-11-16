@@ -142,7 +142,17 @@ pub const OPEN_SNIPPET: &str = r#"(async (body, stopAfter) => {
                 // one framed line either way (the stop counts lines, not
                 // shapes).
                 const c = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.content;
-                if (typeof c === "string") { d = c; }
+                // REASONING-CONTENT (2026-11-16, fix): moonshot/Kimi K-series and some
+                // reasoning models stream the turn in delta.reasoning_content when
+                // delta.content is absent. Before this, kimi billed real tokens
+                // (-0.197/leg) yet captured 0 text -> quarantine. Read reasoning as
+                // content so the generated text reaches the client.
+                if (typeof c === "string" && c) { d = c; }
+                else {
+                  const rc = j.choices && j.choices[0] && j.choices[0].delta && j.choices[0].delta.reasoning_content;
+                  if (typeof rc === "string" && rc) { d = rc; }
+                  else if (typeof j.delta === "string" && typeof j.type === "string" && j.type.indexOf("response.") === 0) { d = j.delta; }
+                }
                 else if (typeof j.delta === "string" && typeof j.type === "string" && j.type.indexOf("response.") === 0) { d = j.delta; }
                 // THINKING DELTAS (2026-11-15): Anthropic thinking turns stream
                 // content_block_delta frames with delta.type thinking_delta /
