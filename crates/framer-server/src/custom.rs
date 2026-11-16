@@ -251,9 +251,37 @@ impl EnvelopePageStream {
         // Model id rule (2026-11-11 -- the bare-id bug): the envelope must carry the
         // OpenRouter CATALOG form (anthropic/claude-haiku-4.5, moonshotai/kimi-k3,
         // openai/gpt-4.1). Bare ids 400 ("not a valid model ID") or route to a different
-        // meter than the freechat legs that settle $0. convert::to_openrouter_id is the
-        // single mapping (same one the native paths use).
-        let model = framer_core::convert::to_openrouter_id(&self.model);
+        // meter than the freechat legs that settle $0.
+        // SUFFIX PRESERVATION (2026-11-16): convert::to_openrouter_id strips any :suffix
+        // for metering/bucketing, but a SUFFIX_FREE suffixed endpoint (:floor/:nitro)
+        // must reach the wire intact -- the suffix picks the $0 tier, not a different
+        // model. Canonicalize the base, then re-attach the suffix ONLY when the
+        // suffixed id is itself a SUFFIX_FREE member (mirrors effective_upstream_model
+        // but never invents ids). Everything else flows through the bare-id rule.
+        let model = {
+            let base = &self.model;
+            let (core, suf) = match base.rsplit_once(':') {
+                Some((b, s)) if s.eq_ignore_ascii_case("floor") || s.eq_ignore_ascii_case("nitro") => (b, Some(s)),
+                _ => (base.as_str(), None),
+            };
+            let canon = framer_core::convert::to_openrouter_id(core);
+            match suf {
+                Some(s) => {
+                    let candidate = format!("{canon}:{s}");
+                    if framer_core::model::suffix_free_contains(&candidate) {
+                        candidate
+                    } else {
+                        let lower = candidate.to_lowercase();
+                        if framer_core::model::suffix_free_contains(&lower) {
+                            lower
+                        } else {
+                            framer_core::convert::to_openrouter_id(&self.model)
+                        }
+                    }
+                }
+                None => framer_core::convert::to_openrouter_id(&self.model),
+            }
+        };
         native["model"] = serde_json::Value::String(model);
         // Token cap name per route: the direct Responses route takes
         // max_output_tokens (and 400s "Unknown parameter: 'max_tokens'");

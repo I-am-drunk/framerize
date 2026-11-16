@@ -69,6 +69,13 @@ const SUFFIX_FREE: &[&str] = &[
     "moonshotai/kimi-k3.1-pro:floor",
 ];
 
+/// True when an id is a SUFFIX_FREE member (proved-$0 endpoint). Exact match,
+/// provider case significant. Used by the custom envelope so a proved-$0
+/// :floor/:nitro endpoint survives catalog canonicalization to the wire.
+pub fn suffix_free_contains(id: &str) -> bool {
+    SUFFIX_FREE.contains(&id)
+}
+
 /// Per-token-meted families: OpenRouter routes these and settles EACH streamed
 /// delta (measured floor -0.05 on a 1-event abort; -2.67 on long legs; no timing
 /// wins). gpt-4.1 (full-size, distinct from gpt-4.1-mini) and gemini are here too.
