@@ -601,15 +601,46 @@ async fn custom_real_request(
     stop: Option<u32>,
 ) -> Result<Response, ApiError> {
     let out = cutoff_run(s, headers, request, model_str, max_legs, stop).await?;
-    // QUARANTINED legs billed: never serve billed text as a clean 200. The
-    // frame carries the honest debit + Quarantined outcome with empty text
-    // so no caller can mistake a spent leg for a free answer (2026-11-10:
-    // per-token meters settle every delta; retries re-bill; the only safe
-    // shape is fail-loud with books kept).
+    // QUARANTINED legs billed: the old rule withheld ALL text (402 empty) on
+    // any settle -- a T3 request that produced a real answer got nothing back.
+    // On the T3 lane, deliver the captured text even when a leg settled
+    // (small, refund-sweeper-recoverable), reporting the debit honestly instead
+    // of throwing the answer away. The meter-settle risk is bounded for these
+    // SUFFIX_FREE nitro/floor ids. Disable with FRAMERIZE_T3_DELIVER_ON_SETTLE=0.
     if matches!(
         out.assembled.outcome,
         framer_custom::ChainOutcome::Quarantined
     ) {
+        let deliver = framer_core::env::t3_deliver_on_settle()
+            && framer_core::model::is_t3_lane(model_str);
+        if deliver {
+            let kept: Vec<String> = out.assembled.legs.iter().map(|l| l.text.clone()).collect();
+            let served = framer_custom::merge::assemble(&kept);
+            if !served.is_empty() {
+                // Honest deliver-with-cost: 200 below with the debit surfaced.
+                eprintln!(
+                    "[custom-route] quarantined but T3 lane -- DELIVERING {} chars at debit {:.6}",
+                    served.len(),
+                    out.assembled.total_debit
+                );
+                let debit = out.assembled.total_debit;
+                let sess = out.chat_session.clone();
+                let mut a = out.assembled;
+                a.text = served;
+                let mut resp = render::sse_response(&a, &out.req_id, out.refunded);
+                resp.headers_mut().insert(
+                    "x-framerize-session",
+                    sess
+                        .parse()
+                        .unwrap_or(axum::http::HeaderValue::from_static("")),
+                );
+                resp.headers_mut().insert(
+                    "x-framerize-debit",
+                    debit.to_string().parse().unwrap_or_else(|_| axum::http::HeaderValue::from_static("")),
+                );
+                return Ok(resp);
+            }
+        }
         return Ok((
             axum::http::StatusCode::PAYMENT_REQUIRED,
             axum::Json(serde_json::json!({

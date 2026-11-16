@@ -126,6 +126,22 @@ pub fn kimi_floor_cap() -> u64 {
 /// Without it, bare per-token ids dispatch the metered base endpoint. This
 /// changes nothing unless the flag is set; the SUFFIX_FREE allowlist decides
 /// spend regardless.
+/// Deliver a settled-but-captured T3-lane answer even when a leg billed
+/// (small, refunded-later). Default ON for the T3 customer; set 0 to revert
+/// to the old withhold-on-any-settle being a clean 402-empty.
+pub fn t3_deliver_on_settle() -> bool {
+    match std::env::var("FRAMERIZE_T3_DELIVER_ON_SETTLE").ok().as_deref() {
+        Some(v)
+            if v.eq_ignore_ascii_case("0")
+                || v.eq_ignore_ascii_case("false")
+                || v.eq_ignore_ascii_case("off") =>
+        {
+            false
+        }
+        _ => true,
+    }
+}
+
 pub fn t3_free_lane() -> bool {
     match std::env::var("FRAMERIZE_T3_FREE_LANE").ok().as_deref() {
         Some(v)

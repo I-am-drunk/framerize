@@ -80,6 +80,20 @@ pub fn suffix_free_contains(id: &str) -> bool {
     SUFFIX_FREE.contains(&id)
 }
 
+/// T3 zero-spend lane: the measured-SUFFIX_FREE families (glm/kimi/muse, both
+/// :nitro and :floor wire forms + bare base) -- the models the custom route
+/// delivers through a small settle on the T3 flag. Used to decide
+/// deliver-on-settle vs withhold.
+pub fn is_t3_lane(model: &str) -> bool {
+    let slug = normalize_model_slug(model);
+    if slug.starts_with("glm") || slug.starts_with("kimi") || slug.starts_with("muse") {
+        return true;
+    }
+    let raw = model.trim();
+    raw.starts_with("z-ai/") || raw.starts_with("moonshotai/") || raw.starts_with("meta/")
+}
+
+
 /// Per-token-meted families: OpenRouter routes these and settles EACH streamed
 /// delta (measured floor -0.05 on a 1-event abort; -2.67 on long legs; no timing
 /// wins). gpt-4.1 (full-size, distinct from gpt-4.1-mini) and gemini are here too.
