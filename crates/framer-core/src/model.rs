@@ -246,6 +246,7 @@ pub fn effective_upstream_model(model: &str) -> String {
             let s = s.split(':').next().unwrap_or(s);
             s.starts_with("glm") || s.starts_with("kimi-k3") || s.starts_with("muse")
         };
+        eprintln!("[t3map] in={t:?} fam={fam} flag={}", crate::env::t3_free_lane());
         if fam && crate::env::t3_free_lane() && !t.contains(':') {
             let canon = crate::convert::to_openrouter_id(t);
             let candidate = format!("{canon}:nitro");
