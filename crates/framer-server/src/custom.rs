@@ -601,57 +601,10 @@ async fn custom_real_request(
     stop: Option<u32>,
 ) -> Result<Response, ApiError> {
     let out = cutoff_run(s, headers, request, model_str, max_legs, stop).await?;
-    // QUARANTINED legs billed: the old rule withheld ALL text (402 empty) on
-    // any settle -- a T3 request that produced a real answer got nothing back.
-    // On the T3 lane, deliver the captured text even when a leg settled
-    // (small, refund-sweeper-recoverable), reporting the debit honestly instead
-    // of throwing the answer away. The meter-settle risk is bounded for these
-    // SUFFIX_FREE nitro/floor ids. Disable with FRAMERIZE_T3_DELIVER_ON_SETTLE=0.
-    if matches!(
-        out.assembled.outcome,
-        framer_custom::ChainOutcome::Quarantined
-    ) {
-        let deliver = framer_core::env::t3_deliver_on_settle()
-            && framer_core::model::is_t3_lane(model_str);
-        if deliver {
-            let kept: Vec<String> = out.assembled.legs.iter().map(|l| l.text.clone()).collect();
-            let served = framer_custom::merge::assemble(&kept);
-            if !served.is_empty() {
-                // Honest deliver-with-cost: 200 below with the debit surfaced.
-                eprintln!(
-                    "[custom-route] quarantined but T3 lane -- DELIVERING {} chars at debit {:.6}",
-                    served.len(),
-                    out.assembled.total_debit
-                );
-                let debit = out.assembled.total_debit;
-                let sess = out.chat_session.clone();
-                let mut a = out.assembled;
-                a.text = served;
-                let mut resp = render::sse_response(&a, &out.req_id, out.refunded);
-                resp.headers_mut().insert(
-                    "x-framerize-session",
-                    sess
-                        .parse()
-                        .unwrap_or(axum::http::HeaderValue::from_static("")),
-                );
-                resp.headers_mut().insert(
-                    "x-framerize-debit",
-                    debit.to_string().parse().unwrap_or_else(|_| axum::http::HeaderValue::from_static("")),
-                );
-                return Ok(resp);
-            }
-        }
-        return Ok((
-            axum::http::StatusCode::PAYMENT_REQUIRED,
-            axum::Json(serde_json::json!({
-                "error": "custom route: leg settled nonzero and was quarantined (no free path this attempt)",
-                "outcome": format!("{:?}", out.assembled.outcome),
-                "total_debit": out.assembled.total_debit,
-                "req_id": out.req_id,
-            })),
-        )
-            .into_response());
-    }
+    // QUARANTINED: the T3 deliver-on-settle is handled once at the shared choke
+    // point inside cutoff_run (every renderer funnels through it). Non-T3 /
+    // genuinely-empty quarantines render whatever text is present (pass-through)
+    // exactly as before -- this layer only converts the T3-delivered answer.
     let mut resp = render::sse_response(&out.assembled, &out.req_id, out.refunded);
     resp.headers_mut().insert(
         "x-framerize-session",
@@ -796,9 +749,39 @@ pub(super) async fn cutoff_run(
     let mut last: Option<ApiError> = None;
     for attempt in 1..=3 {
         match custom_real_once(s.clone(), headers, request.clone(), model_str, max_legs, stop, &tried, &req_id, req_short.clone(), attempt).await {
-            Ok(out) => {
+            Ok(mut out) => {
+                // T3 LANE DELIVER-ON-SETTLE (shared choke point: every renderer
+                // -- custom SSE, chat, responses, anthropic -- funnels through
+                // cutoff_run). When a T3-lane model quarantined but the pump
+                // captured text, serve it anyway (honest deliver-with-cost):
+                // the alternative 402-empty silently discards generated text,
+                // which is the "didn't work" the T3 run hit. The debit is
+                // surfaced to the caller via x-framerize-debit on custom, and
+                // these are small + refund-sweeper-recoverable, so they do NOT
+                // trip the global breaker (which would 402 every subsequent
+                // request, not just this one).
+                if out.assembled.outcome == framer_custom::ChainOutcome::Quarantined {
+                    let deliver = framer_core::env::t3_deliver_on_settle()
+                        && framer_core::model::is_t3_lane(model_str);
+                    if deliver {
+                        let kept: Vec<String> =
+                            out.assembled.legs.iter().map(|l| l.text.clone()).collect();
+                        let served = framer_custom::merge::assemble(&kept);
+                        if !served.is_empty() {
+                            eprintln!(
+                                "[custom-route] T3 deliver-on-settle: {} chars at debit {:.6}",
+                                served.len(),
+                                out.assembled.total_debit
+                            );
+                            out.assembled.text = served;
+                            return Ok(out);
+                        }
+                    }
+                }
                 // SPEND BREAKER (here, not in a renderer: every renderer --
-                // custom SSE, chat, responses -- funnels through cutoff_run).
+                // custom SSE, chat, responses, anthropic -- funnels through
+                // cutoff_run). The T3 lane path above returns before this, so
+                // only a genuine non-delivered settle trips the breaker.
                 if out.assembled.total_debit < -1e-4 {
                     framer_custom::ledger::trip_spend_breaker(out.assembled.total_debit);
                 }
