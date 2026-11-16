@@ -886,7 +886,7 @@ pub(super) async fn chat_via_cutoff(
                             })
                         );
                         let frame = format!(
-                            "data: {}\n\n{}data: [DONE]\n\n",
+                            "data: {}\n\n{}data: [FRZ-ERR]\n\n",
                             serde_json::json!({"error": {"message": client_err_msg(&e), "type": "api_error"}}),
                             stop_chunk,
                         );
@@ -1078,7 +1078,7 @@ pub(super) async fn anthro_via_cutoff(
                 }
                 Ok(Some(Err(e))) => {
                     let frame = format!(
-                        "data: {}\n\ndata: [DONE]\n\n",
+                        "data: {}\n\ndata: [FRZ-ERR]\n\n",
                         serde_json::json!({"error": {"message": client_err_msg(&e), "type": "api_error"}})
                     );
                     Some((Ok(frame), (rx, true)))
