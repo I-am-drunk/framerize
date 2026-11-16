@@ -977,7 +977,8 @@ fn model_gate_check(
         && hdr(headers, "x-framerize-account").is_none()
         && ((dialect == ClientDialect::OpenAiChat)
             || (dialect == ClientDialect::OpenAiResponses));
-    let wants_stream = payload["stream"].as_bool().unwrap_or(false);
+    let wants_stream = payload["stream"].as_bool().unwrap_or(false)
+        && !framer_core::env::sse_force_json();
     if gate_env && !nitro && (cutoff_would_run || !wants_stream)
         && framer_core::rotation::is_model_gated(client_model)
     {
@@ -999,7 +1000,8 @@ struct RequestParams {
 impl RequestParams {
     fn from_payload(payload: &serde_json::Value) -> Self {
         Self {
-            wants_stream: payload["stream"].as_bool().unwrap_or(false),
+            wants_stream: payload["stream"].as_bool().unwrap_or(false)
+                && !framer_core::env::sse_force_json(),
             include_usage: payload["stream_options"]["include_usage"].as_bool().unwrap_or(false),
             max_tokens: payload["max_tokens"].as_u64()
                 .or_else(|| payload["max_completion_tokens"].as_u64())

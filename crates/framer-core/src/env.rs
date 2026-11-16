@@ -185,6 +185,14 @@ pub fn feature_category() -> String {
 }
 
 /// Custom-route direct dialect override.
+/// FRAMERIZE_SSE_FORCE_JSON=1: clients that ask stream:true are served the
+/// buffered JSON completion instead of an SSE facade. Useful when downstream
+/// expects one HTTP response (curl, toolchains) and streaming overhead buys
+/// nothing. Default 0 (preserve streaming when asked).
+pub fn sse_force_json() -> bool {
+    flag("FRAMERIZE_SSE_FORCE_JSON")
+}
+
 pub fn custom_direct() -> bool {
     flag("FRAMERIZE_CUSTOM_DIRECT")
 }
