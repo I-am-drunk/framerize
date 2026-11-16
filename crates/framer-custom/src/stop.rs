@@ -27,9 +27,16 @@ pub fn halt_after_race(prev_stop: u32) -> u32 {
 
 /// Length-guarantee template: forces the reply past any sane stop so the
 /// abort always lands mid-stream. Instruction-first by construction.
+/// SOFTENED (2026-11-16): the old "1800 words in exactly 14 numbered sections"
+/// put reasoning models (moonshot/Kimi) into meta-narration about the conflicting
+/// directive instead of answering. The model now answers the user's question
+/// fully and correctly FIRST, then continues on the same topic past the target --
+/// so the pump still has a live pad stream to cut for $0, and the captured text
+/// is a real on-topic answer, not a reasoning trace. Keep min_words/sections so
+/// the existing call sites (1800, 14) still pin the minimum ask mechanically.
 pub fn length_guarantee_suffix(min_words: usize, sections: usize) -> String {
     format!(
-        "Write at least {} words in exactly {} numbered sections. Keep writing past the target; do not conclude.",
+        "Answer the user\'s question completely and correctly first. Then continue writing on the same topic to at least {} words in exactly {} numbered sections. Keep writing past the target; do not conclude.",
         min_words, sections
     )
 }
