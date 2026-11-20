@@ -22,7 +22,7 @@ pub(super) async fn openrouter_batch_discover(
     let result = s.browser.eval_small(&account.id, r#"(() => ({
         origin: location.origin,
         scripts: performance.getEntriesByType('resource')
-          .map(entry => { try { return new URL(entry.name).pathname; } catch { return ''; } })
+          .map(entry => { try { let url = new URL(entry.name); return url.origin + url.pathname; } catch { return ''; } })
           .filter(path => /\.(m?js)$/.test(path))
           .slice(0, 300)
       }))()"#).await.map_err(ApiError::Internal)?;
