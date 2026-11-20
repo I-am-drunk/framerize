@@ -13,6 +13,7 @@ pub mod direct_anthropic;
 pub mod direct_responses;
 pub mod fetch;
 pub mod openrouter_chat;
+pub mod openrouter_batch;
 pub mod openrouter_messages;
 pub mod openrouter_responses;
 pub mod refund;

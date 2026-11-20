@@ -188,6 +188,7 @@ pub fn router(state: AppState, web_dir: &str) -> Router {
     let openai_paid = Router::new()
         .route("/v1/responses", post(handlers::openai_responses_paid))
         .route("/v1/chat/completions", post(handlers::openai_chat_paid))
+        .route("/v1/batches", post(handlers::openrouter_batch_probe))
         .with_state(state.clone());
     let paid = Router::new()
         .nest("/anthropic", anthropic_paid)
