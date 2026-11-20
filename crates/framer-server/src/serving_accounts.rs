@@ -201,6 +201,26 @@ impl ServingAccountPolicy {
             return Err(ApiError::PoolBusy("eligible accounts are changing, unconfirmed or lack resident capacity".into()));
         }
         let pool = candidates.as_slice();
+        // A resident whose ledger is unknown may be empty. Prefer an account
+        // with a fresh, funded workspace even when it needs an idle-slot
+        // replacement; the later funded-scope check still verifies the ledger.
+        let confirmed_funded: Vec<_> = pool.iter().filter(|account| {
+            account.is_available_at(now) && account.all_scopes().iter().any(|scope| {
+                !framer_core::rotation::is_dead(&scope.team.0)
+                    && !framer_core::rotation::is_saturated(&scope.team.0)
+                    && framer_core::rotation::cached_live_balance(&scope.team.0)
+                        .is_some_and(|balance| balance >= framer_core::rotation::bill_floor())
+            })
+        }).cloned().collect();
+        if !confirmed_funded.is_empty() {
+            let funded_residents: Vec<_> = confirmed_funded.iter().filter(|account| {
+                snapshot.residents.iter().any(|slot| slot.account == account.id
+                    && matches!(slot.status, ResidentStatus::Active | ResidentStatus::Idle))
+            }).cloned().collect();
+            let preferred = if funded_residents.is_empty() { &confirmed_funded } else { &funded_residents };
+            return framer_core::rotation::pick_at(preferred, now).cloned()
+                .ok_or_else(|| self.no_eligible_account());
+        }
         let ready_residents: Vec<_> = pool.iter().filter(|account| {
             account.is_available_at(now) && snapshot.residents.iter().any(|slot|
                 slot.account == account.id && matches!(slot.status,

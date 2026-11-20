@@ -116,10 +116,12 @@ fn automatic_selection_never_loads_a_healthier_parked_account() {
 
 #[test]
 fn selection_preserves_failure_ranking_within_allowed_pool() {
-    let mut worse = account(1);
+    // Use identities that no other fixture writes into the process-wide
+    // live-balance cache, so this tests failure ranking alone.
+    let mut worse = account(2001);
     worse.consecutive_failures = 3;
-    let pool = vec![worse, account(2), account(3)];
-    assert_eq!(policy(&[1, 2]).select(pool, None).unwrap().id, account(2).id);
+    let pool = vec![worse, account(2002), account(2003)];
+    assert_eq!(policy(&[2001, 2002]).select(pool, None).unwrap().id, account(2002).id);
 }
 
 #[test]
@@ -281,4 +283,24 @@ fn unrestricted_admission_also_respects_the_full_cooldown() {
             Err(ApiError::AccountCooling { retry_after_secs: 600 })));
     }
     assert_eq!(a.cooling_until_ms, Some(601_000));
+}
+
+#[test]
+fn known_funded_nonresident_precedes_unknown_residents() {
+    use framer_core::resident_pool::Acquire;
+    let policy = ServingAccountPolicy::default();
+    for n in 1001..=1006 {
+        let lease = match policy.residents.try_acquire(account(n).id, None).unwrap() {
+            Acquire::Lease(lease) => lease,
+            Acquire::Evict(_) => panic!("fixture unexpectedly evicted a resident"),
+        };
+        drop(lease);
+    }
+    let mut funded = account(1007);
+    funded.current_team = Some(TeamId("team-confirmed-nonresident".into()));
+    framer_core::rotation::note_live_balance("team-confirmed-nonresident", 100.0);
+    let mut pool: Vec<_> = (1001..=1006).map(account).collect();
+    pool.push(funded.clone());
+    let chosen = policy.select(pool, None).unwrap();
+    assert_eq!(chosen.id, funded.id);
 }
