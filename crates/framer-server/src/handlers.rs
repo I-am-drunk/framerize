@@ -57,6 +57,13 @@ pub(super) async fn openrouter_batch_probe(
         || requests.and_then(|items| items.first())
             .and_then(|item| item["body"]["max_tokens"].as_u64())
             .map_or(true, |tokens| tokens == 0 || tokens > 128)
+        || requests.and_then(|items| items.first())
+            .and_then(|item| item["body"]["model"].as_str())
+            != Some("anthropic/claude-opus-4.8")
+        || payload.as_object().map_or(true, |fields| {
+            fields.keys().any(|key| !matches!(key.as_str(),
+                "endpoint" | "model" | "requests"))
+        })
         || serde_json::to_vec(&payload).map_or(true, |bytes| bytes.len() > 16_384)
     {
         return Err(ApiError::InvalidRequest(
