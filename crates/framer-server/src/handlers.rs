@@ -63,10 +63,6 @@ pub(super) async fn openrouter_batch_probe(
             "Batch probe requires one small Claude Opus chat-completions request".into(),
         ));
     }
-    static PROBE_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    if PROBE_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 4 {
-        return Err(ApiError::InvalidRequest("Batch probe call limit reached".into()));
-    }
     let pool = s.state.list().await.map_err(ApiError::Internal)?;
     let account = s.serving_accounts.select(pool, None)?;
     let _residency = crate::lease_account(&s, account.id).await?;
@@ -74,10 +70,10 @@ pub(super) async fn openrouter_batch_probe(
     let session = s.sessions.load(&account.framer_user_id).await
         .map_err(ApiError::Internal)?
         .ok_or_else(|| ApiError::Internal("account has no session".into()))?;
-    let funded = crate::pick_funded_scope(&s, &account, &session).await?;
     let bearer = s.client.custom_bearer(&session, &account.id).await
         .map_err(ApiError::Internal)?;
     let envelope = if probe_raw { payload.clone() } else {
+        let funded = crate::pick_funded_scope(&s, &account, &session).await?;
         framer_api::proxy::envelope(
             &funded.project, "agents", "message", &payload,
             &crate::stable_session(&account.id), 0,
@@ -85,6 +81,10 @@ pub(super) async fn openrouter_batch_probe(
     };
     s.browser.seed_session(&account.id, &session.cookie_header).await
         .map_err(ApiError::Internal)?;
+    static PROBE_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    if PROBE_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 4 {
+        return Err(ApiError::InvalidRequest("Batch probe call limit reached".into()));
+    }
     let (status, _usage_header, body) = s.browser.ai_post(
         &account.id,
         &probe_path,
