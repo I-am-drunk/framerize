@@ -34,13 +34,22 @@ pub(super) async fn openrouter_batch_discover(
 /// the raw upstream response so a missing Framer route is observable as such.
 pub(super) async fn openrouter_batch_probe(
     State(s): State<AppState>,
-    Json(payload): Json<serde_json::Value>,
+    Json(mut payload): Json<serde_json::Value>,
 ) -> Result<axum::response::Response, ApiError> {
     use axum::response::IntoResponse;
 
     if std::env::var("FRAMERIZE_BATCH_PROBE").ok().as_deref() != Some("1") {
         return Err(ApiError::InvalidRequest("Batch probe is disabled".into()));
     }
+    let probe_path = payload.get("__probe_path").and_then(|v| v.as_str())
+        .unwrap_or("/ai/v3/batches/").to_string();
+    let probe_raw = payload.get("__probe_raw").and_then(|v| v.as_bool()).unwrap_or(false);
+    if !matches!(probe_path.as_str(),
+        "/ai/v3/batches/" | "/ai/v3/batch/" |
+        "/ai/v3/openrouter/batches/" | "/ai/v3/chat/") {
+        return Err(ApiError::InvalidRequest("Unsupported batch probe path".into()));
+    }
+    payload.as_object_mut().map(|v| { v.remove("__probe_path"); v.remove("__probe_raw"); });
     let requests = payload["requests"].as_array();
     if payload["endpoint"] != "/v1/chat/completions"
         || payload["model"] != "anthropic/claude-opus-4.8"
@@ -68,15 +77,17 @@ pub(super) async fn openrouter_batch_probe(
     let funded = crate::pick_funded_scope(&s, &account, &session).await?;
     let bearer = s.client.custom_bearer(&session, &account.id).await
         .map_err(ApiError::Internal)?;
-    let envelope = framer_api::proxy::envelope(
-        &funded.project, "agents", "message", &payload,
-        &crate::stable_session(&account.id), 0,
-    );
+    let envelope = if probe_raw { payload.clone() } else {
+        framer_api::proxy::envelope(
+            &funded.project, "agents", "message", &payload,
+            &crate::stable_session(&account.id), 0,
+        )
+    };
     s.browser.seed_session(&account.id, &session.cookie_header).await
         .map_err(ApiError::Internal)?;
     let (status, _usage_header, body) = s.browser.ai_post(
         &account.id,
-        framer_api::routes::openrouter_batch::PATH,
+        &probe_path,
         &bearer,
         &envelope,
     ).await.map_err(ApiError::Internal)?;
