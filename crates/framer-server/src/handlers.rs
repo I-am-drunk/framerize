@@ -9,6 +9,26 @@ use framer_core::convert::ClientDialect;
 use axum::extract::State;
 use axum::Json;
 
+/// Read only discovery of script paths loaded in the active Framer account page.
+pub(super) async fn openrouter_batch_discover(
+    State(s): State<AppState>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    if std::env::var("FRAMERIZE_BATCH_PROBE").ok().as_deref() != Some("1") {
+        return Err(ApiError::InvalidRequest("Batch probe is disabled".into()));
+    }
+    let pool = s.state.list().await.map_err(ApiError::Internal)?;
+    let account = s.serving_accounts.select(pool, None)?;
+    let _residency = crate::lease_account(&s, account.id).await?;
+    let result = s.browser.eval_small(&account.id, r#"(() => ({
+        origin: location.origin,
+        scripts: performance.getEntriesByType('resource')
+          .map(entry => { try { return new URL(entry.name).pathname; } catch { return ''; } })
+          .filter(path => /\.(m?js)$/.test(path))
+          .slice(0, 300)
+      }))()"#).await.map_err(ApiError::Internal)?;
+    Ok(Json(result))
+}
+
 /// Experimental one-request Batch submission through Framer's browser gateway.
 /// Disabled unless the runtime owner opts in at boot. This deliberately returns
 /// the raw upstream response so a missing Framer route is observable as such.
